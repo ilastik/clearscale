@@ -1,12 +1,29 @@
+import math
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from typing import Mapping, Generic, TypeVar, Union, Container, Sequence, overload, Callable, Tuple, Optional, List
+from typing import (
+    Mapping,
+    Generic,
+    TypeVar,
+    Union,
+    Container,
+    Sequence,
+    overload,
+    Callable,
+    Tuple,
+    Optional,
+    List,
+    Literal,
+)
 
 AxisKey = TypeVar("AxisKey", bound=str)
 ValueType = TypeVar("ValueType", int, float, str)
 _Self = TypeVar("_Self", bound="TaggedValues[Any, Any]")
 Axes = Union[Container[AxisKey], str]
 OrderedAxes = Sequence[AxisKey]
+FactorLike = Union["Factor", "Shape", Mapping[AxisKey, int], Mapping[AxisKey, float]]
+ShapeLike = Union["Shape", Mapping[AxisKey, int]]
+RoundingMethod = Union[Literal["ceil"], Literal["floor"], Callable[[float], int]]
 
 
 class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
@@ -438,27 +455,31 @@ class Shape(AxisValues[AxisKey, int]):
         axes = axes if axes is not None else self.keys()
         return [a for a in axes if a in self and self[a] != self._default]
 
-    def scale_by(self, factors: Union[Factor, Mapping[AxisKey, float]], *, f_round: Callable[[float], int]) -> "Shape":
+    def scale_by(self, factors: Union[Factor, Mapping[AxisKey, float]], *, rounding: RoundingMethod) -> "Shape":
         """
         Returns the Shape of this image when scaled by `factors`.
 
         :param factors:
-        :param f_round: Function used to round fractional outputs of the scaling. This function
+        :param rounding: Function used to round fractional outputs of the scaling. This function
             should mirror the behavior of the scaling implementation used to scale the image's data. By default,
             f_round is simply a cast to int, i.e. floor-rounding. This matches e.g. skimage.transform.rescale.
         """
+        if rounding == "ceil":
+            rounding = math.ceil
+        elif rounding == "floor":
+            rounding = int
 
         def _rescale_size(size: int, factor: float) -> int:
             """
             Rescale a single dimension of a shape.
             Floor-round to match behavior of OpResize, and ensure minimum size is 1.
             """
-            return max(f_round(size / factor), self._default)
+            return max(rounding(size / factor), self._default)
 
         scaled_shape = type(self)([(a, _rescale_size(size, factors[a])) for a, size in self.items()])
         return scaled_shape
 
-    def scaling_to(self, resized: Union["Shape", Mapping[AxisKey, int]], fixed: Optional[Axes] = None) -> "Factor":
+    def scaling_to(self, resized: ShapeLike, fixed: Optional[Axes] = None) -> "Factor":
         """
         Returns the Scaling factors of this Shape that would produce the `resized` shape.
         """
