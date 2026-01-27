@@ -270,19 +270,19 @@ class Factor(AxisFloats):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
-            if value == 0:  # 0 is nonsense both for scaling factors and resolution
-                self._mapping[axis] = self._default
+            if value == 0:  # 0 is nonsense both for scaling factors and spacing
+                raise ValueError(f"Scaling factor cannot be 0 (got 0 for axis '{axis}').")
 
     @classmethod
     def uniform(cls, axes: Sequence[AxisKey], factor: float) -> "Factor":
         """Create a new Scaling with `axes` and all values being `factor`."""
         return Factor(zip(axes, [factor] * len(axes)))
 
-    def with_ones(self, axes: Axes) -> _Self:
+    def to_identity(self, axes: Axes) -> _Self:
         """Reset the values for `axes` to 1.0."""
         return super().reset(axes)
 
-    def with_ones_except(self, axes: Axes) -> _Self:
+    def to_identity_except(self, axes: Axes) -> _Self:
         """Reset the values for all axes except `axes` to 1.0."""
         return super().reset_except(axes)
 
@@ -431,7 +431,19 @@ class Shape(AxisValues[AxisKey, int]):
 
     _default = 1
 
-    def reorder(self, axes: Sequence[AxisKey]) -> _Self:
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for axis, value in self._mapping.items():
+            if not isinstance(value, int):
+                raise TypeError(f"All values must be integer. Got {type(value).__name__} for axis '{axis}'.")
+            if value < 1:
+                raise ValueError(f"Shape cannot be lower than 1 (got {value} for axis '{axis}').")
+
+    @classmethod
+    def all_singletons(cls, axes: OrderedAxes):
+        return super().fromkeys(axes)
+
+    def reorder(self, axes: OrderedAxes) -> _Self:
         """
         Reorder to `axes`.
 
@@ -448,18 +460,18 @@ class Shape(AxisValues[AxisKey, int]):
         """Reset the values for `axes` to 1."""
         return super().reset(axes)
 
-    def singletons(self, axes: Optional[Axes] = None) -> List[int]:
+    def singleton_axes(self, axes: Optional[Axes] = None) -> List[AxisKey]:
         """Return axes along which this Shape is singleton (value is 1).
 
         :param axes: (Optional) Return subset of `axes` along which this Shape is singleton."""
         axes = axes if axes is not None else self.keys()
         return [a for a in axes if a in self and self[a] != self._default]
 
-    def scale_by(self, factors: Union[Factor, Mapping[AxisKey, float]], *, rounding: RoundingMethod) -> "Shape":
+    def scale_by(self, factor: Union[Factor, Mapping[AxisKey, float]], *, rounding: RoundingMethod) -> "Shape":
         """
-        Returns the Shape of this image when scaled by `factors`.
+        Returns the Shape of this image when scaled by `factor`.
 
-        :param factors:
+        :param factor:
         :param rounding: Function used to round fractional outputs of the scaling. This function
             should mirror the behavior of the scaling implementation used to scale the image's data. By default,
             f_round is simply a cast to int, i.e. floor-rounding. This matches e.g. skimage.transform.rescale.
@@ -476,7 +488,7 @@ class Shape(AxisValues[AxisKey, int]):
             """
             return max(rounding(size / factor), self._default)
 
-        scaled_shape = type(self)([(a, _rescale_size(size, factors[a])) for a, size in self.items()])
+        scaled_shape = type(self)([(a, _rescale_size(size, factor[a])) for a, size in self.items()])
         return scaled_shape
 
     def scaling_to(self, resized: ShapeLike, fixed: Optional[Axes] = None) -> "Factor":
@@ -496,6 +508,6 @@ class Shape(AxisValues[AxisKey, int]):
         # Scaling "factors" are technically divisors for the shape (factor 2.0 means half the shape).
         scaling = Factor((a, base / s) for a, s, base in zip(common_axes, scale_values, base_values))
         if fixed:
-            return scaling.with_ones(fixed)
+            return scaling.to_identity(fixed)
         else:
             return scaling

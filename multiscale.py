@@ -104,7 +104,7 @@ class BlueprintShapes(ScaleMapping[Shape]):
         raise NotImplementedError()
 
     @classmethod
-    def uniform_downsample(
+    def uniform_steps(
         cls,
         *,
         step: Union[int, float],
@@ -115,29 +115,27 @@ class BlueprintShapes(ScaleMapping[Shape]):
         max_levels: Optional[int] = 42,
         name_pattern="s{}",
     ):
-        """Generate Blueprint where each scale is a `step` downsampling of the previous scale."""
-        if step <= 0:
-            raise ValueError("Cannot downsample by a negative step size (received: {})".format(step))
-        if name_pattern.format(0) == name_pattern:
-            raise ValueError(
-                "Name pattern must contain exactly one placeholder for scale index (received: '{}')".format(
-                    name_pattern
-                )
-            )
+        """Generate Blueprint where each scale is a `step` downsampling of the previous scale.
+        Applies scaling uniformly to all axes until they become singleton."""
+        cls._validate_name_pattern(name_pattern)
+        cls._validate_resampling_step(step)
         if step == 1:
             return cls({name_pattern.format(0): base_shape})
+        if not shape_limit:
+            shape_limit = Shape.all_singletons(base_shape)
         if not only:
             only = shape_limit.keys()
-        if shape_limit:
-            shape_limit = Shape(shape_limit).reorder(base_shape)
         else:
-            shape_limit = Shape.singletons(base_shape)
+            only = [a for a in only if a in shape_limit]
+
+        shape_limit = Shape(shape_limit).reorder(base_shape)
+        cls._validate_shape_limit(base_shape, only, shape_limit, step)
 
         scales_items = []
         for i in range(0, max_levels):
             scale_key = name_pattern.format(i)
             scale_factor = step**i
-            scaling = Factor.uniform(base_shape, scale_factor).with_ones_except(only)
+            scaling = Factor.uniform(base_shape, scale_factor).to_identity_except(only)
             scaled_shape = base_shape.scale_by(scaling, rounding=rounding)
             scales_items.append((scale_key, scaled_shape))
             if (step > 1 and all(scaled_shape[axis] <= shape_limit[axis] for axis in only)) or (
@@ -148,6 +146,26 @@ class BlueprintShapes(ScaleMapping[Shape]):
 
     def to_factors(self, reference_shape: Shape) -> "BlueprintFactors":
         raise NotImplementedError()
+
+    @staticmethod
+    def _validate_name_pattern(pattern: str):
+        if pattern.format(0) == pattern:
+            raise ValueError(
+                "Name pattern must contain exactly one placeholder for scale index (received: '{}')".format(pattern)
+            )
+
+    @staticmethod
+    def _validate_resampling_step(step: Union[int, float]):
+        if step <= 0:
+            raise ValueError("Cannot downsample by a negative step size (received: {})".format(step))
+
+    @staticmethod
+    def _validate_shape_limit(base_shape: Shape, only: Axes, shape_limit: Shape, step: Union[int, float]):
+        for axis in only:
+            if step > 1 and shape_limit[axis] > base_shape[axis]:
+                raise ValueError("Cannot limit downsampling to a shape larger than the base (along {}).".format(axis))
+            if step < 1 and shape_limit[axis] < base_shape[axis]:
+                raise ValueError("Cannot limit upsampling to a shape smaller than the base (along {}).".format(axis))
 
 
 class BlueprintFactors(ScaleMapping[Factor]):
