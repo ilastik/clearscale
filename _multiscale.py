@@ -5,7 +5,14 @@ from enum import StrEnum
 from typing import Optional, TypeVar, Mapping, Generic, Union, Sequence, Callable, Iterable, List, Tuple
 
 from lazyflow.utility.io_util.clearscale import Shape, Factor, Spacing, Unit
-from lazyflow.utility.io_util.clearscale._axis_values import ShapeLike, Axes, RoundingMethod, OrderedAxes, _AxisValues
+from lazyflow.utility.io_util.clearscale._axis_values import (
+    ShapeLike,
+    Axes,
+    RoundingMethod,
+    OrderedAxes,
+    _AxisValues,
+    AxisKey,
+)
 
 ScaleKey = TypeVar("ScaleKey", bound=str)
 ValueType = TypeVar("ValueType", Shape, Factor, "Scale")
@@ -72,7 +79,7 @@ class _ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueTy
     def __init__(self, *args, **kwargs):
         self._mapping = OrderedDict(*args, **kwargs)
         if any(v is None for v in self._mapping.values()):
-            raise ValueError(f"None values not allowed. Received: {kwargs}")
+            raise ValueError(f"None values not allowed. Received: {list(self._mapping.values())}")
 
     def __repr__(self):
         map_substr = self._mapping.__repr__()[len(type(self._mapping).__name__) :]
@@ -261,6 +268,23 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         bp = cls(scales_items)
         return bp.rekey(name_pattern)
 
+    @property
+    def scaled_axes(self) -> tuple[AxisKey, ...]:
+        """Axes where shapes differ across scales."""
+        if len(self) < 2:
+            return ()
+
+        shapes = list(self.values())
+        first_shape = shapes[0]
+        scaled = []
+
+        for axis in first_shape.keys():
+            first_value = first_shape[axis]
+            if any(shape[axis] != first_value for shape in shapes[1:]):
+                scaled.append(axis)
+
+        return tuple(scaled)
+
     def to_factors(self, reference: ShapeLike) -> "BlueprintFactors":
         factors = [Shape(reference).scaling_to(scale_shape) for scale_shape in self.values()]
         return BlueprintFactors(zip(self.keys(), factors))
@@ -297,6 +321,19 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
     @classmethod
     def from_multiscale(cls, multiscale: "Multiscale", reference: ScaleKey, exclude_reference=False) -> _Self:
         raise NotImplementedError()
+
+    @property
+    def scaled_axes(self) -> tuple[AxisKey, ...]:
+        """Axes where any factor is not 1.0."""
+        if len(self) < 2:
+            return ()
+
+        scaled = set()
+        for factor in self.values():
+            scaled.update(axis for axis, value in factor.items() if value != 1.0)
+
+        all_axes = next(iter(self.values())).keys()
+        return tuple(axis for axis in all_axes if axis in scaled)
 
     def to_shapes(self, reference: ShapeLike, *, rounding: RoundingMethod) -> BlueprintShapes:
         ref = Shape(reference)
