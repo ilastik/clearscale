@@ -306,11 +306,13 @@ class Factor(_AxisFloats):
         return Spacing(items_in_physical_units)
 
 
-class Spacing(Factor):
+class Spacing(_AxisFloats):
     """
     Describes absolute scaling factors, i.e. physical pixel size.
     The values are in "units (e.g. nanometer) per pixel".
     """
+
+    _default = 1.0
 
     def to_vigra(self, axistags: Optional["vigra.AxisTags"]) -> "vigra.AxisTags":
         """
