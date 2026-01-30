@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import Optional, TypeVar, Mapping, Generic, Union, Sequence, Callable, Iterable, List, Tuple
 
 from lazyflow.utility.io_util.clearscale import Shape, Factor, Spacing, Unit
-from lazyflow.utility.io_util.clearscale.tagged_values import ShapeLike, Axes, RoundingMethod, OrderedAxes, AxisValues
+from lazyflow.utility.io_util.clearscale._axis_values import ShapeLike, Axes, RoundingMethod, OrderedAxes, _AxisValues
 
 ScaleKey = TypeVar("ScaleKey", bound=str)
 ValueType = TypeVar("ValueType", Shape, Factor, "Scale")
@@ -14,7 +14,7 @@ _Self = TypeVar("_Self", bound="ScaleMapping[Any, Any]")
 DEFAULT_NAME_PATTERN = "s{}"
 
 
-class DuplicatePolicy(StrEnum):
+class _DuplicatePolicy(StrEnum):
     ERROR = "error"
     KEEP = "keep"
     KEEP_FIRST = "keep_first"
@@ -66,7 +66,7 @@ class Scale:
         return f"{name_and_shape}{pixel_size}"
 
 
-class ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueType]):
+class _ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueType]):
     """Common base class for Multiscale, BlueprintShapes and BlueprintFactors"""
 
     def __init__(self, *args, **kwargs):
@@ -102,7 +102,7 @@ class ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueTyp
         return self._mapping.items()
 
     def __eq__(self, other):
-        if isinstance(other, ScaleMapping):
+        if isinstance(other, _ScaleMapping):
             return self._mapping == other._mapping
         if isinstance(other, OrderedDict) or isinstance(other, dict):
             return self._mapping == other
@@ -140,7 +140,7 @@ class ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueTyp
             )
 
 
-class ScaledAxisValues(ScaleMapping[str, AxisValuesType], Generic[AxisValuesType]):
+class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesType]):
     """Base class for BlueprintShapes and BlueprintFactors"""
 
     def __init__(self, *args, **kwargs):
@@ -158,7 +158,7 @@ class ScaledAxisValues(ScaleMapping[str, AxisValuesType], Generic[AxisValuesType
                     f"All values must have the same axes. (Expected {axes}, received {v.keys()} for key '{k}')"
                 )
 
-    def _with_values(self, values: Sequence[AxisValues]) -> _Self:
+    def _with_values(self, values: Sequence[_AxisValues]) -> _Self:
         return self.__class__(zip(self.keys(), values))
 
     def reorder(self, axes: OrderedAxes) -> _Self:
@@ -166,8 +166,8 @@ class ScaledAxisValues(ScaleMapping[str, AxisValuesType], Generic[AxisValuesType
 
     @staticmethod
     def _resolve_duplicates(
-        raw_items: Iterable[Tuple[ScaleKey, AxisValues]], on_duplicate: DuplicatePolicy, on_duplicate_prefer
-    ) -> List[Tuple[ScaleKey, AxisValues]]:
+        raw_items: Iterable[Tuple[ScaleKey, _AxisValues]], on_duplicate: _DuplicatePolicy, on_duplicate_prefer
+    ) -> List[Tuple[ScaleKey, _AxisValues]]:
         """
         Ensure raw_items contains no duplicate values. Resolve duplicates according to on_duplicate:
         "error": Raise error if there are duplicates.
@@ -177,7 +177,7 @@ class ScaledAxisValues(ScaleMapping[str, AxisValuesType], Generic[AxisValuesType
         In this case, if the `on_duplicate_prefer` key is involved in a duplication, it has priority over first/last.
         """
         raw_items = list(raw_items)
-        if on_duplicate == DuplicatePolicy.KEEP:
+        if on_duplicate == _DuplicatePolicy.KEEP:
             return raw_items
 
         by_value = defaultdict(list)
@@ -185,16 +185,16 @@ class ScaledAxisValues(ScaleMapping[str, AxisValuesType], Generic[AxisValuesType
             by_value[tuple(v.items())].append(k)
         duplicates = {tuple(ks): v for v, ks in by_value.items() if len(ks) > 1}
 
-        if duplicates and on_duplicate == DuplicatePolicy.ERROR:
+        if duplicates and on_duplicate == _DuplicatePolicy.ERROR:
             raise ValueError(f"Duplicate values not allowed. Collisions: {duplicates}")
 
         pop_keys = []
         for dup_keys in duplicates:
             if on_duplicate_prefer is not None and on_duplicate_prefer in dup_keys:
                 keep = on_duplicate_prefer
-            elif on_duplicate == DuplicatePolicy.KEEP_FIRST:
+            elif on_duplicate == _DuplicatePolicy.KEEP_FIRST:
                 keep = dup_keys[0]
-            elif on_duplicate == DuplicatePolicy.KEEP_LAST:
+            elif on_duplicate == _DuplicatePolicy.KEEP_LAST:
                 keep = dup_keys[-1]
             else:
                 raise AssertionError(f"Invalid duplicate scale policy: '{on_duplicate}'")
@@ -204,7 +204,7 @@ class ScaledAxisValues(ScaleMapping[str, AxisValuesType], Generic[AxisValuesType
         return [(k, v) for k, v in raw_items if k not in pop_keys]
 
 
-class BlueprintShapes(ScaledAxisValues[Shape]):
+class BlueprintShapes(_ScaledAxisValues[Shape]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for k, v in self._mapping.items():
@@ -227,7 +227,7 @@ class BlueprintShapes(ScaledAxisValues[Shape]):
         only: Optional[Axes] = None,
         max_levels: Optional[int] = 42,
         name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+        on_duplicate=_DuplicatePolicy.KEEP_FIRST,
         on_duplicate_prefer: ScaleKey = None,
     ) -> "BlueprintShapes":
         """Generate Blueprint where each scale is a `step` downsampling of the previous scale.
@@ -284,7 +284,7 @@ class BlueprintShapes(ScaledAxisValues[Shape]):
                 raise ValueError(f"Cannot limit upsampling to a shape smaller than the base (along {axis}).")
 
 
-class BlueprintFactors(ScaledAxisValues[Factor]):
+class BlueprintFactors(_ScaledAxisValues[Factor]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for k, v in self._mapping.items():
@@ -307,4 +307,4 @@ class BlueprintFactors(ScaledAxisValues[Factor]):
         return self._with_values([factor.with_identity(axes) for factor in self.values()])
 
 
-class Multiscale(ScaleMapping[str, Scale]): ...
+class Multiscale(_ScaleMapping[str, Scale]): ...

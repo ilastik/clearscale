@@ -26,7 +26,7 @@ ShapeLike = Union["Shape", Mapping[AxisKey, int]]
 RoundingMethod = Union[Literal["ceil"], Literal["floor"], Callable[[float], int]]
 
 
-class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
+class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
     """
     Base class for "tagged dictionaries" that map axis keys to values (like shape, resolution, unit).
     Instantiation and usage of the subclasses should work pretty much like usual dicts, but with
@@ -79,7 +79,7 @@ class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
         return self._mapping.items()
 
     def __eq__(self, other):
-        if isinstance(other, AxisValues):
+        if isinstance(other, _AxisValues):
             return self._mapping == other._mapping
         if isinstance(other, OrderedDict) or isinstance(other, dict):
             return self._mapping == other
@@ -210,7 +210,7 @@ class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
         return self.merge(other, only=axes, force=axes)
 
 
-class AxisFloats(AxisValues[AxisKey, float], ABC):
+class _AxisFloats(_AxisValues[AxisKey, float], ABC):
     """
     Base for Scaling, Resolution and Translation. Ensures values are floats.
     """
@@ -225,7 +225,7 @@ class AxisFloats(AxisValues[AxisKey, float], ABC):
                 raise TypeError(f"All values must be float. Got {type(value).__name__} for axis '{axis}'.")
 
 
-class Factor(AxisFloats):
+class Factor(_AxisFloats):
     """
     Describes relative scaling factors from some shape to another.
     The values are in units of "scaled pixels per raw pixel".
@@ -343,7 +343,7 @@ class Spacing(Factor):
         return cls(zip(axes, resolutions))
 
 
-class Translation(AxisFloats):
+class Translation(_AxisFloats):
     _default = 0.0
 
     def reorder(self, axes: Sequence[AxisKey]) -> "Translation":
@@ -373,7 +373,7 @@ class Translation(AxisFloats):
         return Translation(sum_items)
 
 
-class Unit(AxisValues[AxisKey, str]):
+class Unit(_AxisValues[AxisKey, str]):
     """
     Describes the physical units of the image's axes.
     Together with a Resolution, this can form a complete pixel size description.
@@ -402,7 +402,7 @@ class Unit(AxisValues[AxisKey, str]):
         return super().reorder(axes)
 
 
-class Offset(AxisValues[AxisKey, int]):
+class Offset(_AxisValues[AxisKey, int]):
     """
     Describes the number of pixels of distance from some reference point to another.
     """
@@ -436,7 +436,7 @@ class Offset(AxisValues[AxisKey, int]):
         return Translation(items_in_physical_units)
 
 
-class Shape(AxisValues[AxisKey, int]):
+class Shape(_AxisValues[AxisKey, int]):
     """
     Describes the number of pixels in the image.
     """
