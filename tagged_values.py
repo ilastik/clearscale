@@ -48,12 +48,14 @@ class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
 
     def __init__(self, *args, **kwargs):
         self._mapping = OrderedDict(*args, **kwargs)
+        if not self._mapping:
+            raise ValueError(f"Empty {self.__class__.__name__}. Received: {args=}, {kwargs=}")
         if any(v is None for v in self._mapping.values()):
-            raise ValueError(f"None values not allowed. Received: {kwargs}")
+            raise ValueError(f"None values not allowed. Received: {args=}, {kwargs=}")
 
     def __repr__(self):
         map_substr = self._mapping.__repr__()[len(type(self._mapping).__name__) :]
-        return str(type(self).__name__) + map_substr
+        return str(self.__class__.__name__) + map_substr
 
     def __getitem__(self, key: AxisKey):
         return self._mapping[key]
@@ -84,7 +86,7 @@ class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
         return False
 
     def copy(self):
-        return type(self)(self._mapping)
+        return self.__class__(self._mapping)
 
     @classmethod
     def fromkeys(cls, keys: Sequence[AxisKey]) -> _Self:
@@ -92,7 +94,7 @@ class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
 
     def is_default(self) -> bool:
         """Check if all values in this metadata are the default value."""
-        return self == type(self).fromkeys(self)
+        return self == self.__class__.fromkeys(self)
 
     def reorder(self, axes: Sequence[AxisKey]) -> _Self:
         """
@@ -103,7 +105,7 @@ class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
         Equivalent to pandas.DataFrame.reindex(axes, fill_value=self._default).
         """
         reordered_items = [(a, self[a] if a in self else self._default) for a in axes]
-        return type(self)(reordered_items)
+        return self.__class__(reordered_items)
 
     def reset(self, axes: Axes) -> _Self:
         """
@@ -112,7 +114,7 @@ class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
         Equivalent to pandas.DataFrame.mask(self in axes, other=self._default).
         """
         reset_items = [(a, self._default if a in axes else self[a]) for a in self]
-        return type(self)(reset_items)
+        return self.__class__(reset_items)
 
     def reset_except(self, axes: Axes) -> _Self:
         """
@@ -121,7 +123,7 @@ class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
         Equivalent to pandas.DataFrame.where(self in axes, other=self._default).
         """
         keep_items = [(a, self[a] if a in axes else self._default) for a in self]
-        return type(self)(keep_items)
+        return self.__class__(keep_items)
 
     @overload
     def partition(self, predicate: Callable[[AxisKey], bool]) -> Tuple[_Self, _Self]: ...
@@ -202,9 +204,9 @@ class AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
                     )
             replaced_items.append((a, new_value))
 
-        return type(self)(replaced_items)
+        return self.__class__(replaced_items)
 
-    def overwrite_with(self, other: Mapping[AxisKey, ValueType], axes: Axes):
+    def with_values(self, other: Mapping[AxisKey, ValueType], axes: Axes):
         return self.merge(other, only=axes, force=axes)
 
 
@@ -245,7 +247,7 @@ class Factor(AxisFloats):
 
     _default = 1.0
 
-    def reorder(self, axes: Sequence[AxisKey]) -> _Self:
+    def reorder(self, axes: OrderedAxes) -> _Self:
         """
         Reorder to `axes`.
 
@@ -263,10 +265,6 @@ class Factor(AxisFloats):
         """Create a new identity Scaling (1.0 along all axes) with `axes`."""
         return super().fromkeys(axes)
 
-    def is_identity(self) -> bool:
-        """True if this Scaling is the unit scaling (1.0 along all axes)."""
-        return super().is_default()
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
@@ -278,11 +276,25 @@ class Factor(AxisFloats):
         """Create a new Scaling with `axes` and all values being `factor`."""
         return Factor(zip(axes, [factor] * len(axes)))
 
-    def to_identity(self, axes: Axes) -> _Self:
+    def is_identity(self) -> bool:
+        """True if this Scaling is the unit scaling (1.0 along all axes)."""
+        return super().is_default()
+
+    def is_downscaling(self) -> bool:
+        """True if the product across all axes is greater than 1.
+        Note: Factors act as divisors for shape (e.g. 1024 / 2 = 512)."""
+        return math.prod(self.values()) > 1
+
+    def is_upscaling(self) -> bool:
+        """True if the product across all axes is lesser than 1.
+        Note: Factors act as divisors for shape (e.g. 1024 / 0.5 = 2048)."""
+        return math.prod(self.values()) < 1
+
+    def with_identity(self, axes: Axes) -> _Self:
         """Reset the values for `axes` to 1.0."""
         return super().reset(axes)
 
-    def to_identity_except(self, axes: Axes) -> _Self:
+    def with_identity_except(self, axes: Axes) -> _Self:
         """Reset the values for all axes except `axes` to 1.0."""
         return super().reset_except(axes)
 
@@ -460,7 +472,7 @@ class Shape(AxisValues[AxisKey, int]):
         """Reset the values for `axes` to 1."""
         return super().reset(axes)
 
-    def singleton_axes(self, axes: Optional[Axes] = None) -> List[AxisKey]:
+    def non_singleton_axes(self, axes: Optional[Axes] = None) -> List[AxisKey]:
         """Return axes along which this Shape is singleton (value is 1).
 
         :param axes: (Optional) Return subset of `axes` along which this Shape is singleton."""
@@ -480,15 +492,16 @@ class Shape(AxisValues[AxisKey, int]):
             rounding = math.ceil
         elif rounding == "floor":
             rounding = int
+        factor = factor.reorder(self)
 
-        def _rescale_size(size: int, factor: float) -> int:
+        def _rescale_size(s: int, f: float) -> int:
             """
             Rescale a single dimension of a shape.
             Floor-round to match behavior of OpResize, and ensure minimum size is 1.
             """
-            return max(rounding(size / factor), self._default)
+            return max(rounding(s / f), self._default)
 
-        scaled_shape = type(self)([(a, _rescale_size(size, factor[a])) for a, size in self.items()])
+        scaled_shape = self.__class__([(a, _rescale_size(size, factor[a])) for a, size in self.items()])
         return scaled_shape
 
     def scaling_to(self, resized: ShapeLike, fixed: Optional[Axes] = None) -> "Factor":
@@ -508,6 +521,14 @@ class Shape(AxisValues[AxisKey, int]):
         # Scaling "factors" are technically divisors for the shape (factor 2.0 means half the shape).
         scaling = Factor((a, base / s) for a, s, base in zip(common_axes, scale_values, base_values))
         if fixed:
-            return scaling.to_identity(fixed)
+            return scaling.with_identity(fixed)
         else:
             return scaling
+
+    def matches(self, other: ShapeLike, *, only: Optional[Axes] = None) -> bool:
+        """Permissive value matching.
+        True if shapes are equal in all shared axes, optionally further constrained to `only`."""
+        shared = set(self.keys()) & set(other.keys())
+        if only:
+            shared &= set(only)
+        return all(self[axis] == other[axis] for axis in shared)
