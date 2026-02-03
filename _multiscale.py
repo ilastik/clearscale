@@ -345,6 +345,9 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             on_duplicate_prefer=on_duplicate_prefer,
         )
 
+    def axes(self):
+        return self.first_value().keys()
+
     def scaled_axes(self) -> tuple[AxisKey, ...]:
         """Axes where shapes differ across scales."""
         if len(self) < 2:
@@ -450,6 +453,9 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
     @classmethod
     def from_multiscale(cls, multiscale: "Multiscale", reference: Shape) -> _Self:
         return BlueprintShapes.from_multiscale(multiscale).to_factors(reference)
+
+    def axes(self):
+        return self.first_value().keys()
 
     @property
     def scaled_axes(self) -> tuple[AxisKey, ...]:
