@@ -219,8 +219,8 @@ class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesTy
     def _with_values(self, values: Sequence[_AxisValues]) -> _Self:
         return self.__class__(zip(self.keys(), values))
 
-    def reorder(self, axes: OrderedAxes) -> _Self:
-        return self._with_values([value.reorder(axes) for value in self.values()])
+    def with_order(self, axes: OrderedAxes) -> _Self:
+        return self._with_values([value.with_order(axes) for value in self.values()])
 
     @staticmethod
     def _resolve_duplicates(
@@ -302,7 +302,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         else:
             only = [a for a in only if a in base_shape]
 
-        shape_limit = Shape(shape_limit).reorder([a for a in shape_limit if a in base_shape])
+        shape_limit = Shape(shape_limit).with_order([a for a in shape_limit if a in base_shape])
         cls._validate_shape_limit(base_shape, only, shape_limit, step)
 
         scales_items = []
@@ -310,7 +310,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             scale_key = name_pattern.format(i)
             scale_factor = step**i
             scaling = Factor.uniform(base_shape, scale_factor).with_identity_except(only)
-            scaled_shape = base_shape.scale_by(scaling, rounding=rounding)
+            scaled_shape = base_shape.scaled_by(scaling, rounding=rounding)
             scales_items.append((scale_key, scaled_shape))
             if (step > 1 and all(scaled_shape[axis] <= shape_limit[axis] for axis in shape_limit)) or (
                 step < 1 and all(scaled_shape[axis] >= shape_limit[axis] for axis in shape_limit)
@@ -347,13 +347,13 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             raise ValueError(
                 f"Cannot apply blueprint with axes {list(self.first_value().keys())} "
                 f"to base scale with axes {list(base.shape.keys())}. "
-                "Axes must match exactly. Maybe blueprint.reorder(base.shape) first?"
+                "Axes must match exactly. Maybe blueprint.with_order(base.shape) first?"
             )
 
         scales = []
         for scale_key, target_shape in self.items():
             factor = base.shape.scaling_to(target_shape)
-            new_spacing = base.spacing.scale_by(factor)
+            new_spacing = base.spacing.scaled_by(factor)
 
             if translation_shift_func is not None:
                 target_scale_pre_shift = Scale(
@@ -428,7 +428,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
 
     def to_shapes(self, reference: ShapeLike, *, rounding: RoundingMethod) -> BlueprintShapes:
         ref = Shape(reference)
-        shapes = [ref.scale_by(scale_factor, rounding=rounding) for scale_factor in self.values()]
+        shapes = [ref.scaled_by(scale_factor, rounding=rounding) for scale_factor in self.values()]
         return BlueprintShapes(zip(self.keys(), shapes))
 
     def apply_to_scale(self):

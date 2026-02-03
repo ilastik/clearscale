@@ -94,7 +94,7 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         """Check if all values in this metadata are the default value."""
         return self == self.__class__.fromkeys(self)
 
-    def reorder(self, axes: Sequence[AxisKey]) -> _Self:
+    def with_order(self, axes: Sequence[AxisKey]) -> _Self:
         """
         Reorder to `axes`.
 
@@ -105,7 +105,7 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         reordered_items = [(a, self[a] if a in self else self._default) for a in axes]
         return self.__class__(reordered_items)
 
-    def reset(self, axes: Axes) -> _Self:
+    def with_default(self, axes: Axes) -> _Self:
         """
         Reset the values for `axes` to the type's default value, keeping the rest unchanged.
 
@@ -114,7 +114,7 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         reset_items = [(a, self._default if a in axes else self[a]) for a in self]
         return self.__class__(reset_items)
 
-    def reset_except(self, axes: Axes) -> _Self:
+    def with_default_except(self, axes: Axes) -> _Self:
         """
         Keep the values for `axes` and reset the remaining values to the type's default value.
 
@@ -168,7 +168,7 @@ class Factor(_AxisFloats):
 
     _default = 1.0
 
-    def reorder(self, axes: OrderedAxes) -> _Self:
+    def with_order(self, axes: OrderedAxes) -> _Self:
         """
         Reorder to `axes`.
 
@@ -176,10 +176,10 @@ class Factor(_AxisFloats):
 
         Examples:
             >>> res = Factor(z=0.25, y=120., x=120., t=0.1)
-            >>> res.reorder("tczyx")
+            >>> res.with_order("tczyx")
             Scaling(t=0.1, c=1.0, z=0.25, y=120.0, x=120.0)
         """
-        return super().reorder(axes)
+        return super().with_order(axes)
 
     @classmethod
     def identity(cls, axes: Sequence[AxisKey]) -> "Factor":
@@ -216,18 +216,18 @@ class Factor(_AxisFloats):
 
     def with_identity(self, axes: Axes) -> _Self:
         """Reset the values for `axes` to 1.0."""
-        return super().reset(axes)
+        return super().with_default(axes)
 
     def with_identity_except(self, axes: Axes) -> _Self:
         """Reset the values for all axes except `axes` to 1.0."""
-        return super().reset_except(axes)
+        return super().with_default_except(axes)
 
     def to_physical(self, base: "Spacing") -> "Spacing":
         """
         Convert relative scaling factor to absolute physical spacing.
-        Identical to base.scale_by(self).
+        Identical to base.scaled_by(self).
         """
-        return Spacing(base).scale_by(self)
+        return Spacing(base).scaled_by(self)
 
 
 class Spacing(_AxisFloats):
@@ -237,6 +237,28 @@ class Spacing(_AxisFloats):
     """
 
     _default = 1.0
+
+    @classmethod
+    def from_vigra(cls, axistags: "vigra.AxisTags") -> _Self:
+        vigra_default_resolution = 0.0
+        axes = []
+        resolutions = []
+        for tag in axistags:
+            axes.append(tag.key)
+            resolutions.append(tag.resolution if tag.resolution != vigra_default_resolution else cls._default)
+        return cls(zip(axes, resolutions))
+
+    def is_identity(self) -> bool:
+        """True if this Spacing is the unit spacing (1.0 along all axes)."""
+        return super().is_default()
+
+    def with_identity(self, axes: Axes) -> _Self:
+        """Reset the values for `axes` to 1.0."""
+        return super().with_default(axes)
+
+    def with_identity_except(self, axes: Axes) -> _Self:
+        """Reset the values for all axes except `axes` to 1.0."""
+        return super().with_default_except(axes)
 
     def to_vigra(self, axistags: Optional["vigra.AxisTags"]) -> "vigra.AxisTags":
         """
@@ -258,29 +280,7 @@ class Spacing(_AxisFloats):
                 tags.setResolution(tag.key, self[tag.key])
         return tags
 
-    @classmethod
-    def from_vigra(cls, axistags: "vigra.AxisTags") -> _Self:
-        vigra_default_resolution = 0.0
-        axes = []
-        resolutions = []
-        for tag in axistags:
-            axes.append(tag.key)
-            resolutions.append(tag.resolution if tag.resolution != vigra_default_resolution else cls._default)
-        return cls(zip(axes, resolutions))
-
-    def is_identity(self) -> bool:
-        """True if this Spacing is the unit spacing (1.0 along all axes)."""
-        return super().is_default()
-
-    def with_identity(self, axes: Axes) -> _Self:
-        """Reset the values for `axes` to 1.0."""
-        return super().reset(axes)
-
-    def with_identity_except(self, axes: Axes) -> _Self:
-        """Reset the values for all axes except `axes` to 1.0."""
-        return super().reset_except(axes)
-
-    def scale_by(self, factor: Union[Factor, Mapping[AxisKey, float], float]) -> "Spacing":
+    def scaled_by(self, factor: Union[Factor, Mapping[AxisKey, float], float]) -> "Spacing":
         """
         Scale this Spacing by factor to obtain a scaled Spacing.
         This is an axis-wise operation:
@@ -301,7 +301,7 @@ class Spacing(_AxisFloats):
                 f"Attempted to scale axes with no base spacing: "
                 f"{sorted(invalid_axes)} not present in {sorted(base_axes)}"
             )
-        reordered = factor.reorder(self)
+        reordered = factor.with_order(self)
         scaled_items = [(a, reordered[a] * self[a]) for a in self]
         return Spacing(scaled_items)
 
@@ -311,7 +311,7 @@ class Translation(_AxisFloats):
 
     _default = 0.0
 
-    def reorder(self, axes: Sequence[AxisKey]) -> "Translation":
+    def with_order(self, axes: Sequence[AxisKey]) -> "Translation":
         """
         Reorder to `axes`.
 
@@ -319,10 +319,10 @@ class Translation(_AxisFloats):
 
         Examples:
             >>> translate = Translation(y=0.5, x=0.5, t=0.3)
-            >>> translate.reorder("tczyx")
+            >>> translate.with_order("tczyx")
             Translation(t=0.3, c=0.0, z=0.0, y=0.5, x=0.5)
         """
-        return super().reorder(axes)
+        return super().with_order(axes)
 
     @classmethod
     def identity(cls, axes: Sequence[AxisKey]) -> "Translation":
@@ -363,7 +363,7 @@ class Unit(_AxisValues[AxisKey, str]):
             if not isinstance(value, str):
                 raise TypeError(f"All values must be strings. Got {type(value).__name__} for axis '{axis}'.")
 
-    def reorder(self, axes: Sequence[AxisKey]) -> _Self:
+    def with_order(self, axes: Sequence[AxisKey]) -> _Self:
         """
         Reorder to `axes`.
 
@@ -371,10 +371,10 @@ class Unit(_AxisValues[AxisKey, str]):
 
         Examples:
             >>> unit = Unit(y="nm", x="nm", t="sec")
-            >>> unit.reorder("tczyx")
+            >>> unit.with_order("tczyx")
             Unit(t="sec", c="", z="", ="nm", x="nm")
         """
-        return super().reorder(axes)
+        return super().with_order(axes)
 
     @classmethod
     def empty(cls, axes: Sequence[AxisKey]) -> "Unit":
@@ -395,7 +395,7 @@ class Offset(_AxisValues[AxisKey, int]):
             if not isinstance(value, int):
                 raise TypeError(f"All values must be integer. Got {type(value).__name__} for axis '{axis}'.")
 
-    def reorder(self, axes: Sequence[AxisKey]) -> "Offset":
+    def with_order(self, axes: Sequence[AxisKey]) -> "Offset":
         """
         Reorder to `axes`.
 
@@ -403,10 +403,10 @@ class Offset(_AxisValues[AxisKey, int]):
 
         Examples:
             >>> crop_offset = Offset(y=15, x=37, t=23)
-            >>> crop_offset.reorder("tczyx")
+            >>> crop_offset.with_order("tczyx")
             Offset(t=23, c=0, z=0, y=15, x=37)
         """
-        return super().reorder(axes)
+        return super().with_order(axes)
 
     def to_physical(self, spacing: Union[Spacing, Mapping[AxisKey, float]]) -> Translation:
         """
@@ -435,7 +435,7 @@ class Shape(_AxisValues[AxisKey, int]):
     def all_singletons(cls, axes: OrderedAxes):
         return super().fromkeys(axes)
 
-    def reorder(self, axes: OrderedAxes) -> _Self:
+    def with_order(self, axes: OrderedAxes) -> _Self:
         """
         Reorder to `axes`.
 
@@ -443,14 +443,22 @@ class Shape(_AxisValues[AxisKey, int]):
 
         Examples:
             >>> shape = Shape(y=256, x=256, t=23)
-            >>> shape.reorder("tczyx")
+            >>> shape.with_order("tczyx")
             Shape(t=23, c=1, z=1, y=256, x=256)
         """
-        return super().reorder(axes)
+        return super().with_order(axes)
 
     def with_ones(self, axes: Axes) -> _Self:
         """Reset the values for `axes` to 1."""
-        return super().reset(axes)
+        return super().with_default(axes)
+
+    def matches(self, other: ShapeLike, *, only: Optional[Axes] = None) -> bool:
+        """Permissive value matching.
+        True if shapes are equal in all shared axes, optionally further constrained to `only`."""
+        shared = set(self.keys()) & set(other.keys())
+        if only:
+            shared &= set(only)
+        return all(self[axis] == other[axis] for axis in shared)
 
     def non_singleton_axes(self, axes: Optional[Axes] = None) -> List[AxisKey]:
         """Return axes along which this Shape is singleton (value is 1).
@@ -459,7 +467,7 @@ class Shape(_AxisValues[AxisKey, int]):
         axes = axes if axes is not None else self.keys()
         return [a for a in axes if a in self and self[a] != self._default]
 
-    def scale_by(self, factor: Union[Factor, Mapping[AxisKey, float]], *, rounding: RoundingMethod) -> "Shape":
+    def scaled_by(self, factor: Union[Factor, Mapping[AxisKey, float]], *, rounding: RoundingMethod) -> "Shape":
         """
         Returns the Shape of this image when scaled by `factor`.
 
@@ -472,7 +480,7 @@ class Shape(_AxisValues[AxisKey, int]):
             rounding = math.ceil
         elif rounding == "floor":
             rounding = int
-        factor = factor.reorder(self)
+        factor = Factor(factor).with_order(self)
 
         def _rescale_size(s: int, f: float) -> int:
             """
@@ -496,11 +504,3 @@ class Shape(_AxisValues[AxisKey, int]):
         # In multiscale image context, scaling "factors" are technically divisors for the shape
         # (factor 2.0 means half the shape).
         return Factor((a, self[a] / resized[a]) for a in self)
-
-    def matches(self, other: ShapeLike, *, only: Optional[Axes] = None) -> bool:
-        """Permissive value matching.
-        True if shapes are equal in all shared axes, optionally further constrained to `only`."""
-        shared = set(self.keys()) & set(other.keys())
-        if only:
-            shared &= set(only)
-        return all(self[axis] == other[axis] for axis in shared)
