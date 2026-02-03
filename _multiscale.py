@@ -173,7 +173,7 @@ class _ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueTy
         items = [(k, v) for k, v in self.items() if predicate(k, v)]
         return self.__class__(items)
 
-    def rekey(self, name_pattern=DEFAULT_NAME_PATTERN) -> _Self:
+    def with_key_pattern(self, name_pattern=DEFAULT_NAME_PATTERN) -> _Self:
         self._validate_name_pattern(name_pattern)
         items = [(name_pattern.format(i), v) for i, v in enumerate(self.values())]
         return self.__class__(items)
@@ -319,7 +319,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
                 break
         scales_items = cls._resolve_duplicates(scales_items, on_duplicate, on_duplicate_prefer)
         bp = cls(scales_items)
-        return bp.rekey(name_pattern)
+        return bp.with_key_pattern(name_pattern)
 
     @classmethod
     def downscale_powers_of_2_xyz(
