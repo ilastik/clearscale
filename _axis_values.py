@@ -21,7 +21,7 @@ Axes = Union[Container[AxisKey], str]
 OrderedAxes = Sequence[AxisKey]
 FactorLike = Union["Factor", "Shape", Mapping[AxisKey, int], Mapping[AxisKey, float]]
 ShapeLike = Union["Shape", Mapping[AxisKey, int]]
-RoundingMethod = Union[Literal["ceil"], Literal["floor"], Callable[[float], int]]
+RoundingMethod = Union[Literal["ceil"], Literal["floor"], Literal["round"], Callable[[float], int]]
 
 
 class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
@@ -472,14 +472,19 @@ class Shape(_AxisValues[AxisKey, int]):
         Returns the Shape of this image when scaled by `factor`.
 
         :param factor:
-        :param rounding: Function used to round fractional outputs of the scaling. This function
-            should mirror the behavior of the scaling implementation used to scale the image's data. By default,
-            f_round is simply a cast to int, i.e. floor-rounding. This matches e.g. skimage.transform.rescale.
+        :param rounding: Specify how the scaling implementation used to scale the image data treats uneven cases.
+            Allowed: "ceil", "floor", or a function that takes a float and returns an int.
+            Example: When scaling 11 pixels by factor 2, does your method produce 5 or 6 pixels?
+            Common examples:
+             - skimage.transform.rescale: `rounding=round`.
+             - skimage.transform.downscale_local_mean: `rounding="ceil"`.
         """
         if rounding == "ceil":
             rounding = math.ceil
         elif rounding == "floor":
             rounding = int
+        elif rounding == "round":
+            rounding = round
         factor = Factor(factor).with_order(self)
 
         def _rescale_size(s: int, f: float) -> int:
