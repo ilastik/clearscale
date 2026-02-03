@@ -501,6 +501,25 @@ class Multiscale(_ScaleMapping[str, Scale]):
     def from_factors(blueprint: BlueprintFactors, base: Scale, *args, **kwargs):
         return blueprint.apply_to_scale(base, *args, **kwargs)
 
+    @classmethod
+    def from_ome_zarr(cls, multiscale_dict: _ome_zarr.OME_ZARR_MULTISCALE, get_shape: Callable[[str], Tuple[int, ...]]):
+        datasets = multiscale_dict["datasets"]
+        scales_items = []
+        for scale in datasets:
+            scale_key = scale["path"]
+            scales_items.append(
+                (
+                    scale_key,
+                    Scale(
+                        shape=Shape(zip(_ome_zarr.axes_from_multiscale(multiscale_dict), get_shape(scale_key))),
+                        spacing=_ome_zarr.spacing_from_multiscale(multiscale_dict, scale_key),
+                        unit=_ome_zarr.units_from_multiscale(multiscale_dict),
+                        translation=_ome_zarr.translation_from_multiscale(multiscale_dict, scale_key),
+                    ),
+                )
+            )
+        return cls(scales_items)
+
     def axes(self):
         return self.first_value().shape.keys()
 
