@@ -384,7 +384,7 @@ class Unit(_AxisValues[AxisKey, str]):
         return super().fromkeys(axes)
 
 
-class Offset(_AxisValues[AxisKey, int]):
+class PixelOffset(_AxisValues[AxisKey, int]):
     """
     Describes the number of pixels of distance from some reference point to another.
     """
@@ -397,22 +397,22 @@ class Offset(_AxisValues[AxisKey, int]):
             if not isinstance(value, int):
                 raise TypeError(f"All values must be integer. Got {type(value).__name__} for axis '{axis}'.")
 
-    def with_order(self, axes: Sequence[AxisKey]) -> "Offset":
+    def with_order(self, axes: Sequence[AxisKey]) -> "PixelOffset":
         """
         Reorder to `axes`.
 
-        Inserts 0 for target axes that this Offset doesn't have yet.
+        Inserts 0 for target axes that this PixelOffset doesn't have yet.
 
         Examples:
-            >>> crop_offset = Offset(y=15, x=37, t=23)
+            >>> crop_offset = PixelOffset(y=15, x=37, t=23)
             >>> crop_offset.with_order("tczyx")
-            Offset(t=23, c=0, z=0, y=15, x=37)
+            PixelOffset(t=23, c=0, z=0, y=15, x=37)
         """
         return super().with_order(axes)
 
     def to_physical(self, spacing: Union[Spacing, Mapping[AxisKey, float]]) -> Translation:
         """
-        Multiply with `resolution` to obtain this Offset as a Translation in physical units.
+        Multiply with `resolution` to obtain this PixelOffset as a Translation in physical units.
         """
         items_in_physical_units = [(a, self[a] * spacing[a]) for a in self]
         return Translation(items_in_physical_units)
