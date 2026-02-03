@@ -270,10 +270,8 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             self._mapping[k] = Shape(v)
 
     @classmethod
-    def from_multiscale(
-        cls, multiscale: "Multiscale", reference: ScaleKey, exclude_reference=False
-    ) -> "BlueprintShapes":
-        raise NotImplementedError()
+    def from_multiscale(cls, multiscale: "Multiscale") -> "BlueprintShapes":
+        return cls([(key, scale.shape) for key, scale in multiscale.items()])
 
     @classmethod
     def uniform_steps(
@@ -336,7 +334,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
 
         return tuple(scaled)
 
-    def to_factors(self, reference: ShapeLike) -> "BlueprintFactors":
+    def to_factors(self, reference: Shape) -> "BlueprintFactors":
         factors = [Shape(reference).scaling_to(scale_shape) for scale_shape in self.values()]
         return BlueprintFactors(zip(self.keys(), factors))
 
@@ -406,12 +404,12 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
             self._mapping[k] = Factor(v)
 
     @classmethod
-    def from_shapes(cls, shapes: Mapping[ScaleKey, ShapeLike], reference: ShapeLike):
+    def from_shapes(cls, shapes: Mapping[ScaleKey, ShapeLike], reference: Shape):
         return BlueprintShapes(shapes).to_factors(reference)
 
     @classmethod
-    def from_multiscale(cls, multiscale: "Multiscale", reference: ScaleKey, exclude_reference=False) -> _Self:
-        raise NotImplementedError()
+    def from_multiscale(cls, multiscale: "Multiscale", reference: Shape) -> _Self:
+        return BlueprintShapes.from_multiscale(multiscale).to_factors(reference)
 
     @property
     def scaled_axes(self) -> tuple[AxisKey, ...]:
