@@ -23,6 +23,23 @@ class InvalidTransformationError(ValueError):
     pass
 
 
+def validate_multiscales_dict(raw: Dict):
+    """Light top-level checks. coordinateTransformations are validated later."""
+    if raw.get("version") not in ("0.1", "0.2", "0.3", "0.4", "0.5"):
+        v = raw.get("version")
+        warnings.warn(f"Attempting to parse unknown OME-Zarr version '{v}'. This might break...")
+
+    if "datasets" not in raw or not raw["datasets"]:
+        raise ValueError(f"Invalid OME-Zarr multiscale metadata: no datasets. Received:\n{raw}")
+
+    if (
+        "axes" in raw
+        and any(not isinstance(ax, str) for ax in raw["axes"])
+        and any("name" not in ax for ax in raw["axes"])
+    ):
+        raise ValueError(f"Invalid OME-Zarr multiscale metadata: axes missing name. Received:\n{raw}")
+
+
 def axes_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> List[str]:
     if "axes" in multiscale:
         ome_axes = multiscale["axes"]
