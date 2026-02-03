@@ -357,17 +357,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
                 target_scale_pre_shift = Scale(
                     shape=target_shape, spacing=new_spacing, unit=base.unit, translation=base.translation
                 )
-                shift = translation_shift_func(base, target_scale_pre_shift)
-                if not isinstance(shift, Translation):
-                    raise TypeError(
-                        f"translation_shift_func must return a Translation, got {type(shift).__name__}. "
-                        "See clearscale.half_pixel_shift for an example implementation."
-                    )
-                if list(shift.keys()) != list(target_shape.keys()):
-                    raise ValueError(
-                        f"translation_shift_func returned Translation with axes {list(shift.keys())}, "
-                        f"but target scale has axes {list(target_shape.keys())}."
-                    )
+                shift = self._compute_and_validate_shift(translation_shift_func, base, target_scale_pre_shift)
                 new_translation = base.translation + shift
             else:
                 new_translation = base.translation
@@ -395,6 +385,29 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
                 raise ValueError(f"Cannot limit downsampling to a shape larger than the base (along {axis}).")
             if step < 1 and shape_limit[axis] < base_shape[axis]:
                 raise ValueError(f"Cannot limit upsampling to a shape smaller than the base (along {axis}).")
+
+    @staticmethod
+    def _compute_and_validate_shift(translation_shift_func, base, target_scale_pre_shift):
+        try:
+            shift = translation_shift_func(base, target_scale_pre_shift)
+        except TypeError as e:
+            if "argument" in str(e):
+                raise TypeError(
+                    "translation_shift_func must accept two positional arguments (base and target scale). "
+                    "See clearscale.half_pixel_shift for an example implementation."
+                ) from e
+            raise e
+        if not isinstance(shift, Translation):
+            raise TypeError(
+                f"translation_shift_func must return a Translation, got {type(shift).__name__}. "
+                "See clearscale.half_pixel_shift for an example implementation."
+            )
+        if list(shift.keys()) != list(target_scale_pre_shift.shape.keys()):
+            raise ValueError(
+                f"translation_shift_func returned Translation with axes {list(shift.keys())}, "
+                f"but target scale has axes {list(target_scale_pre_shift.shape.keys())}."
+            )
+        return shift
 
 
 class BlueprintFactors(_ScaledAxisValues[Factor]):
