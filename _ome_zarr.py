@@ -68,17 +68,17 @@ def build_axis_dicts(
 def build_multiscale_transforms(global_scale: Spacing, global_translation: Translation) -> List[Dict[str, Any]]:
     global_transforms = []
     if not global_scale.is_identity():
-        global_transforms.append({"type": "scale", "scale": list(global_scale.values())})
+        global_transforms.append({"type": "scale", "scale": global_scale.to_list()})
     if not global_translation.is_identity():
         if not global_transforms:  # Must have scale before translation
-            global_transforms.append({"type": "scale", "scale": list(global_scale.values())})
-        global_transforms.append({"type": "translation", "translation": list(global_translation.values())})
+            global_transforms.append({"type": "scale", "scale": global_scale.to_list()})
+        global_transforms.append({"type": "translation", "translation": global_translation.to_list()})
     return global_transforms
 
 
 def build_dataset_dict(key, dataset_scale: Spacing, dataset_translation: Translation) -> Dict[str, Any]:
-    dataset_transforms = [{"type": "scale", "scale": list(dataset_scale.values())}]
+    dataset_transforms = [{"type": "scale", "scale": dataset_scale.to_list()}]
     if not dataset_translation.is_identity():
-        dataset_transforms.append({"type": "translation", "translation": list(dataset_translation.values())})
+        dataset_transforms.append({"type": "translation", "translation": dataset_translation.to_list()})
     dataset_dict = {"path": str(key), "coordinateTransformations": dataset_transforms}
     return dataset_dict

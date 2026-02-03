@@ -96,6 +96,12 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         """Check if all values in this metadata are the default value."""
         return self == self.__class__.fromkeys(self)
 
+    def to_tuple(self):
+        return tuple(self.values())
+
+    def to_list(self):
+        return list(self.values())
+
     def with_order(self, axes: Sequence[AxisKey]) -> _Self:
         """
         Reorder to `axes`.
