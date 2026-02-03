@@ -1,3 +1,4 @@
+import warnings
 from abc import ABC
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
@@ -504,17 +505,25 @@ class Multiscale(_ScaleMapping[str, Scale]):
     @classmethod
     def from_ome_zarr(cls, multiscale_dict: _ome_zarr.OME_ZARR_MULTISCALE, get_shape: Callable[[str], Tuple[int, ...]]):
         datasets = multiscale_dict["datasets"]
+        axis_keys = _ome_zarr.axes_from_multiscale(multiscale_dict)
+        unit = _ome_zarr.units_from_multiscale(multiscale_dict)
+        multiscale_transforms = _ome_zarr.validate_transforms(multiscale_dict.get("coordinateTransformations"))
+        if multiscale_transforms is not None and not isinstance(multiscale_transforms, tuple):
+            warnings.warn("Pixel resolution metadata at pyramid level was invalid.")
         scales_items = []
         for scale in datasets:
             scale_key = scale["path"]
+            dataset_transforms = _ome_zarr.validate_transforms(scale.get("coordinateTransformations"))
             scales_items.append(
                 (
                     scale_key,
                     Scale(
-                        shape=Shape(zip(_ome_zarr.axes_from_multiscale(multiscale_dict), get_shape(scale_key))),
-                        spacing=_ome_zarr.spacing_from_multiscale(multiscale_dict, scale_key),
-                        unit=_ome_zarr.units_from_multiscale(multiscale_dict),
-                        translation=_ome_zarr.translation_from_multiscale(multiscale_dict, scale_key),
+                        shape=Shape(zip(axis_keys, get_shape(scale_key))),
+                        spacing=_ome_zarr.compute_spacing(
+                            axis_keys, scale_key, multiscale_transforms, dataset_transforms
+                        ),
+                        translation=_ome_zarr.compute_translation(axis_keys, multiscale_transforms, dataset_transforms),
+                        unit=unit,
                     ),
                 )
             )

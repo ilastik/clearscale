@@ -89,7 +89,7 @@ ValidTransformations = Tuple[Transformation, Optional[Transformation]]
 TransformationsOrError = Union[ValidTransformations, InvalidTransformationError]
 
 
-def _validate_transforms(
+def validate_transforms(
     coordinate_transformations: Optional[List[Dict[str, Union[str, List[float]]]]],
 ) -> Union[None, ValidTransformations, InvalidTransformationError]:
     """
@@ -130,36 +130,51 @@ def _validate_transforms(
     return (scale_transform, translation_transform) if scale_transform else InvalidTransformationError()
 
 
-def spacing_from_multiscale(multiscale: OME_ZARR_MULTISCALE, dataset: str) -> Spacing:
-    def has_valid_resolution(transforms: Union[None, ValidTransformations, InvalidTransformationError]):
+def compute_spacing(
+    axis_keys: List[str],
+    dataset_path: str,
+    multiscale_transforms: Union[None, ValidTransformations, InvalidTransformationError],
+    dataset_transforms: Union[None, ValidTransformations, InvalidTransformationError],
+) -> Spacing:
+    def has_valid_resolution(transforms):
         return isinstance(transforms, tuple) and transforms[0].values and len(transforms[0].values) == len(axis_keys)
 
-    axis_keys = axes_from_multiscale(multiscale)
-    try:
-        dataset_spec = next(d for d in multiscale["datasets"] if d["path"] == dataset)
-    except StopIteration:
-        raise ValueError(f'Dataset "{dataset}" not defined in OME-Zarr "datasets" metadata:\n{multiscale["datasets"]}')
-    dataset_transforms = _validate_transforms(dataset_spec.get("coordinateTransformations"))
     if not has_valid_resolution(dataset_transforms):
-        warnings.warn(f"Missing or invalid pixel resolution metadata for dataset={dataset_spec['path']}.")
+        warnings.warn(f"Missing or invalid pixel resolution metadata for dataset {dataset_path}.")
         return Spacing.fromkeys(axis_keys)
 
     dataset_resolution = dataset_transforms[0].values
 
-    multiscale_transforms = _validate_transforms(multiscale.get("coordinateTransformations"))
     if not has_valid_resolution(multiscale_transforms):
-        if multiscale_transforms is not None:
-            warnings.warn("Pixel resolution metadata at pyramid level was invalid.")
         return Spacing(zip(axis_keys, dataset_resolution))
-    else:
-        spacing = Spacing(zip(axis_keys, multiscale_transforms[0].values))
-        scale = Factor([(k, v) for k, v in zip(axis_keys, dataset_resolution) if v != 0])
-        return spacing.scaled_by(scale)
+
+    spacing = Spacing(zip(axis_keys, multiscale_transforms[0].values))
+    scale = Factor([(k, v) for k, v in zip(axis_keys, dataset_resolution) if v != 0])
+    return spacing.scaled_by(scale)
 
 
-def translation_from_multiscale(multiscale: OME_ZARR_MULTISCALE, dataset: str):
-    # todo
-    return Translation.fromkeys(axes_from_multiscale(multiscale))
+def compute_translation(
+    axis_keys: List[str],
+    multiscale_transforms: Union[None, ValidTransformations, InvalidTransformationError],
+    dataset_transforms: Union[None, ValidTransformations, InvalidTransformationError],
+) -> Translation:
+    def has_valid_translation(transforms):
+        return (
+            isinstance(transforms, tuple)
+            and transforms[1] is not None
+            and transforms[1].values is not None
+            and len(transforms[1].values) == len(axis_keys)
+        )
+
+    dataset_translation = Translation.identity(axis_keys)
+    if has_valid_translation(dataset_transforms):
+        dataset_translation = Translation(zip(axis_keys, dataset_transforms[1].values))
+
+    multiscale_translation = Translation.identity(axis_keys)
+    if has_valid_translation(multiscale_transforms):
+        multiscale_translation = Translation(zip(axis_keys, multiscale_transforms[1].values))
+
+    return multiscale_translation + dataset_translation
 
 
 ####
