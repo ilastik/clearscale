@@ -20,7 +20,16 @@ from typing import (
     Any,
 )
 
-from lazyflow.utility.io_util.clearscale import Shape, Factor, Spacing, Unit, Translation, _ome_zarr
+from lazyflow.utility.io_util.clearscale import (
+    Shape,
+    Factor,
+    Spacing,
+    Unit,
+    Translation,
+    PixelOffset,
+    _ome_zarr,
+    _precomputed,
+)
 from lazyflow.utility.io_util.clearscale._axis_values import (
     ShapeLike,
     Axes,
@@ -528,6 +537,41 @@ class Multiscale(_ScaleMapping[str, Scale]):
                     ),
                 )
             )
+        return cls(scales_items)
+
+    @classmethod
+    def from_precomputed(cls, info_dict: _precomputed.INFO_DICT):
+        _precomputed.validate_info_dict(info_dict)
+        scales_list = info_dict["scales"]
+        num_channels = info_dict.get("num_channels", 1)
+        axis_keys = ["c", "z", "y", "x"]  # Precomputed is always czyx (x varies fastest)
+
+        scales_items = []
+        for scale_dict in scales_list:
+            scale_key = scale_dict["key"]
+
+            size = scale_dict["size"]
+            if len(size) != 3:
+                raise ValueError(f"Scale '{scale_key}' must have 'size' as [x, y, z]")
+            shape = Shape(zip(axis_keys, [num_channels] + list(reversed(size))))
+
+            resolution = scale_dict["resolution"]
+            if len(resolution) != 3:
+                raise ValueError(f"Scale '{scale_key}' must have 'resolution' as [x, y, z]")
+            spacing = Spacing(zip(axis_keys, [1.0] + list(reversed(resolution))))
+
+            voxel_offset = scale_dict.get("voxel_offset", [0, 0, 0])
+            if len(voxel_offset) != 3:
+                warnings.warn(f"Scale '{scale_key}' has invalid voxel_offset. Using [0, 0, 0].")
+                voxel_offset = [0, 0, 0]
+            offset = PixelOffset(zip(axis_keys, [0] + list(reversed(voxel_offset))))
+            translation = offset.to_physical(spacing)
+
+            unit = Unit(zip(axis_keys, ["", "nm", "nm", "nm"]))
+
+            scale = Scale(shape, spacing, unit, translation)
+            scales_items.append((scale_key, scale))
+
         return cls(scales_items)
 
     def axes(self):
