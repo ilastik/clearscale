@@ -504,6 +504,9 @@ class Multiscale(_ScaleMapping[str, Scale]):
 
     @classmethod
     def from_ome_zarr(cls, multiscale_dict: _ome_zarr.OME_ZARR_MULTISCALE, get_shape: Callable[[str], Tuple[int, ...]]):
+        if multiscale_dict.get("version") not in ("0.1", "0.2", "0.3", "0.4", "0.5"):
+            v = multiscale_dict.get("version")
+            warnings.warn(f"Attempting to parse unknown OME-Zarr version '{v}'. This might break...")
         datasets = multiscale_dict["datasets"]
         axis_keys = _ome_zarr.axes_from_multiscale(multiscale_dict)
         unit = _ome_zarr.units_from_multiscale(multiscale_dict)
