@@ -50,6 +50,8 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
             raise ValueError(f"Empty {self.__class__.__name__}. Received: {args=}, {kwargs=}")
         if any(v is None for v in self._mapping.values()):
             raise ValueError(f"None values not allowed. Received: {list(self._mapping.values())}")
+        if len(set(self._mapping.keys())) != len(self._mapping.keys()):
+            raise ValueError(f"Duplicate keys not allowed. Received: {list(self._mapping.keys())}")
 
     def __repr__(self):
         map_substr = self._mapping.__repr__()[len(type(self._mapping).__name__) :]
