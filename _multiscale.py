@@ -216,6 +216,9 @@ class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesTy
                     f"All values must have the same axes. (Expected {axes}, received {v.keys()} for key '{k}')"
                 )
 
+    def to_dict(self) -> OrderedDict[ScaleKey, OrderedDict[AxisKey, Union[int, float]]]:
+        return OrderedDict([(scale_key, OrderedDict(axis_values)) for scale_key, axis_values in self.items()])
+
     def _with_values(self, values: Sequence[_AxisValues]) -> _Self:
         return self.__class__(zip(self.keys(), values))
 
@@ -317,6 +320,30 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         scales_items = cls._resolve_duplicates(scales_items, on_duplicate, on_duplicate_prefer)
         bp = cls(scales_items)
         return bp.rekey(name_pattern)
+
+    @classmethod
+    def downscale_powers_of_2_xyz(
+        cls,
+        *,
+        base_shape: Shape,
+        rounding: RoundingMethod,
+        shape_limit: Optional[ShapeLike] = None,
+        max_levels: int = 42,
+        name_pattern=DEFAULT_NAME_PATTERN,
+        on_duplicate=_DuplicatePolicy.KEEP_FIRST,
+        on_duplicate_prefer: ScaleKey = None,
+    ):
+        return cls.uniform_steps(
+            step=2,
+            only="xyz",
+            base_shape=base_shape,
+            rounding=rounding,
+            shape_limit=shape_limit,
+            max_levels=max_levels,
+            name_pattern=name_pattern,
+            on_duplicate=on_duplicate,
+            on_duplicate_prefer=on_duplicate_prefer,
+        )
 
     def scaled_axes(self) -> tuple[AxisKey, ...]:
         """Axes where shapes differ across scales."""
