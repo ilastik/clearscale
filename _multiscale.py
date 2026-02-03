@@ -2,9 +2,24 @@ from abc import ABC
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Optional, TypeVar, Mapping, Generic, Union, Sequence, Callable, Iterable, List, Tuple
+from functools import wraps
+from typing import (
+    Optional,
+    TypeVar,
+    Mapping,
+    Generic,
+    Union,
+    Sequence,
+    Callable,
+    Iterable,
+    List,
+    Tuple,
+    Literal,
+    Dict,
+    Any,
+)
 
-from lazyflow.utility.io_util.clearscale import Shape, Factor, Spacing, Unit
+from lazyflow.utility.io_util.clearscale import Shape, Factor, Spacing, Unit, Translation, _ome_zarr
 from lazyflow.utility.io_util.clearscale._axis_values import (
     ShapeLike,
     Axes,
@@ -20,12 +35,34 @@ AxisValuesType = TypeVar("AxisValuesType", Shape, Factor)
 _Self = TypeVar("_Self", bound="ScaleMapping[Any, Any]")
 DEFAULT_NAME_PATTERN = "s{}"
 
+TranslationShiftFunction = Callable[["Scale", "Scale"], "Translation"]
+"""
+base_scale: the reference scale being transformed from
+target_scale: the new scale being created (with 0 translation)
+Returns: target_scale's translation
+"""
+
 
 class _DuplicatePolicy(StrEnum):
     ERROR = "error"
-    KEEP = "keep"
+    KEEP_ALL = "keep_all"
     KEEP_FIRST = "keep_first"
     KEEP_LAST = "keep_last"
+
+
+def half_pixel_shift(base: "Scale", target: "Scale") -> "Translation":
+    """Apply half-pixel shift in each downsampled axis."""
+    if list(base.spacing.keys()) != list(target.spacing.keys()):
+        raise ValueError("Axis mismatch. Cannot compute half-pixel shift between unrelated Scales.")
+    shift_items = []
+    for axis, target_spacing in target.spacing.items():
+        base_spacing = base.spacing[axis]
+        if target_spacing > base_spacing:
+            # Downsampled - apply half pixel shift
+            shift_items.append((axis, 0.5 * (target_spacing - base_spacing)))
+        else:
+            shift_items.append((axis, 0.0))
+    return Translation(shift_items)
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +70,7 @@ class Scale:
     shape: Shape
     spacing: Optional[Spacing] = None
     unit: Optional[Unit] = None
+    translation: Optional[Translation] = None
 
     def __post_init__(self):
         object.__setattr__(self, "shape", Shape(self.shape))
@@ -44,7 +82,15 @@ class Scale:
             object.__setattr__(self, "unit", Unit.fromkeys(self.shape))
         else:
             object.__setattr__(self, "unit", Unit(self.unit))
-        if self.shape.keys() != self.spacing.keys() or self.shape.keys() != self.unit.keys():
+        if self.translation is None:
+            object.__setattr__(self, "translation", Translation.fromkeys(self.shape))
+        else:
+            object.__setattr__(self, "translation", Translation(self.translation))
+        if (
+            self.shape.keys() != self.spacing.keys()
+            or self.shape.keys() != self.unit.keys()
+            or self.shape.keys() != self.translation.keys()
+        ):
             raise ValueError(
                 f"Tried to set up invalid scale: Axiskeys differ "
                 f"(shape={self.shape.keys()}, spacing={self.spacing.keys()}, unit={self.unit.keys()})"
@@ -78,6 +124,8 @@ class _ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueTy
 
     def __init__(self, *args, **kwargs):
         self._mapping = OrderedDict(*args, **kwargs)
+        if not self._mapping:
+            raise ValueError(f"Cannot instantiate empty {self.__class__.__name__}")
         if any(v is None for v in self._mapping.values()):
             raise ValueError(f"None values not allowed. Received: {list(self._mapping.values())}")
 
@@ -104,6 +152,9 @@ class _ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueTy
 
     def values(self):
         return self._mapping.values()
+
+    def first_value(self) -> ValueType:
+        return next(iter(self.values()))
 
     def items(self):
         return self._mapping.items()
@@ -178,13 +229,14 @@ class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesTy
         """
         Ensure raw_items contains no duplicate values. Resolve duplicates according to on_duplicate:
         "error": Raise error if there are duplicates.
+        "keep_all": Skip (return raw_items as list)
         "keep_first": Keep the first key seen with any particular value.
         "keep_last": Keep the last key seen with any particular value.
         The two "keep" policies can be combined with `on_duplicate_prefer`.
         In this case, if the `on_duplicate_prefer` key is involved in a duplication, it has priority over first/last.
         """
         raw_items = list(raw_items)
-        if on_duplicate == _DuplicatePolicy.KEEP:
+        if on_duplicate == _DuplicatePolicy.KEEP_ALL:
             return raw_items
 
         by_value = defaultdict(list)
@@ -268,7 +320,6 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         bp = cls(scales_items)
         return bp.rekey(name_pattern)
 
-    @property
     def scaled_axes(self) -> tuple[AxisKey, ...]:
         """Axes where shapes differ across scales."""
         if len(self) < 2:
@@ -288,6 +339,46 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
     def to_factors(self, reference: ShapeLike) -> "BlueprintFactors":
         factors = [Shape(reference).scaling_to(scale_shape) for scale_shape in self.values()]
         return BlueprintFactors(zip(self.keys(), factors))
+
+    def apply_to_scale(
+        self, base: Scale, translation_shift_func: Optional[TranslationShiftFunction] = None
+    ) -> "Multiscale":
+        if list(self.first_value().keys()) != list(base.shape.keys()):
+            raise ValueError(
+                f"Cannot apply blueprint with axes {list(self.first_value().keys())} "
+                f"to base scale with axes {list(base.shape.keys())}. "
+                "Axes must match exactly. Maybe blueprint.reorder(base.shape) first?"
+            )
+
+        scales = []
+        for scale_key, target_shape in self.items():
+            factor = base.shape.scaling_to(target_shape)
+            new_spacing = base.spacing.scale_by(factor)
+
+            if translation_shift_func is not None:
+                target_scale_pre_shift = Scale(
+                    shape=target_shape, spacing=new_spacing, unit=base.unit, translation=base.translation
+                )
+                shift = translation_shift_func(base, target_scale_pre_shift)
+                if not isinstance(shift, Translation):
+                    raise TypeError(
+                        f"translation_shift_func must return a Translation, got {type(shift).__name__}. "
+                        "See clearscale.half_pixel_shift for an example implementation."
+                    )
+                if list(shift.keys()) != list(target_shape.keys()):
+                    raise ValueError(
+                        f"translation_shift_func returned Translation with axes {list(shift.keys())}, "
+                        f"but target scale has axes {list(target_shape.keys())}."
+                    )
+                new_translation = base.translation + shift
+            else:
+                new_translation = base.translation
+
+            scales.append(
+                (scale_key, Scale(shape=target_shape, spacing=new_spacing, unit=base.unit, translation=new_translation))
+            )
+
+        return Multiscale(scales)
 
     def with_sizes(self, other: ShapeLike, axes: Axes):
         return self._with_values([shape.with_values(other, axes) for shape in self.values()])
@@ -340,8 +431,80 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         shapes = [ref.scale_by(scale_factor, rounding=rounding) for scale_factor in self.values()]
         return BlueprintShapes(zip(self.keys(), shapes))
 
+    def apply_to_scale(self):
+        return NotImplementedError()
+
     def with_identity(self, axes: Axes):
         return self._with_values([factor.with_identity(axes) for factor in self.values()])
 
 
-class Multiscale(_ScaleMapping[str, Scale]): ...
+class Multiscale(_ScaleMapping[str, Scale]):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for key, scale in self._mapping.items():
+            if scale.shape.keys() != self.axes():
+                raise ValueError(
+                    f"All Scales must have identical axes. Scale at '{key}' has {list(scale.shape.keys())}"
+                )
+
+    @staticmethod
+    @wraps(BlueprintShapes.apply_to_scale)
+    def from_shapes(blueprint: BlueprintShapes, base: Scale, *args, **kwargs):
+        return blueprint.apply_to_scale(base, *args, **kwargs)
+
+    @staticmethod
+    @wraps(BlueprintFactors.apply_to_scale)
+    def from_factors(blueprint: BlueprintFactors, base: Scale, *args, **kwargs):
+        return blueprint.apply_to_scale(base, *args, **kwargs)
+
+    def axes(self):
+        return self.first_value().shape.keys()
+
+    def scaled_axes(self) -> tuple[AxisKey, ...]:
+        """Axes where spacings differ across scales."""
+        if len(self) < 2:
+            return ()
+
+        spacings = list(scale.spacing for scale in self.values())
+        first_spacing = spacings[0]
+        scaled = []
+
+        for axis in first_spacing.keys():
+            first_value = first_spacing[axis]
+            if any(spacing[axis] != first_value for spacing in spacings[1:]):
+                scaled.append(axis)
+
+        return tuple(scaled)
+
+    def to_ome_zarr(
+        self,
+        *,
+        version: Literal["0.4", "0.5"],
+        axis_types: Union[None, Literal["infer"], Mapping[str, Literal["space", "time", "channel"]]] = None,
+    ) -> Dict[str, Any]:
+        _ome_zarr.validate_multiscale(self)
+
+        first_scale = self.first_value()
+        axes = list(first_scale.shape.keys())
+
+        ome_axes = _ome_zarr.build_axis_dicts(axes, first_scale.unit, axis_types)
+
+        result = {"version": version, "axes": ome_axes, "datasets": []}
+
+        # If single-scale, do not include global (multiscale) coordinateTransformations
+        scaled_axes = self.scaled_axes() if len(self) > 1 else tuple(axes)
+        global_scale = first_scale.spacing.with_identity(scaled_axes)
+        global_translation = first_scale.translation if len(self) > 1 else Translation.identity(axes)
+
+        global_transforms = _ome_zarr.build_multiscale_transforms(global_scale, global_translation)
+        if global_transforms:
+            result["coordinateTransformations"] = global_transforms
+
+        for key, scale in self.items():
+            dataset_scale = scale.spacing.with_identity_except(scaled_axes)
+            dataset_translation = scale.translation - global_translation
+
+            dataset = _ome_zarr.build_dataset_dict(key, dataset_scale, dataset_translation)
+            result["datasets"].append(dataset)
+
+        return result

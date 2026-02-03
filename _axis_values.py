@@ -8,9 +8,7 @@ from typing import (
     Union,
     Container,
     Sequence,
-    overload,
     Callable,
-    Tuple,
     Optional,
     List,
     Literal,
@@ -51,7 +49,7 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         if not self._mapping:
             raise ValueError(f"Empty {self.__class__.__name__}. Received: {args=}, {kwargs=}")
         if any(v is None for v in self._mapping.values()):
-            raise ValueError(f"None values not allowed. Received: {args=}, {kwargs=}")
+            raise ValueError(f"None values not allowed. Received: {list(self._mapping.values())}")
 
     def __repr__(self):
         map_substr = self._mapping.__repr__()[len(type(self._mapping).__name__) :]
@@ -125,74 +123,13 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         keep_items = [(a, self[a] if a in axes else self._default) for a in self]
         return self.__class__(keep_items)
 
-    @overload
-    def partition(self, predicate: Callable[[AxisKey], bool]) -> Tuple[_Self, _Self]: ...
-
-    @overload
-    def partition(self, include_axes: Axes) -> Tuple[_Self, _Self]: ...
-
-    def partition(self, first: Union[Axes, Callable[[AxisKey], bool]]) -> Tuple[_Self, _Self]:
-        """Split this metadata into two, with values for `first` axes in the first instance, the rest in the second.
-
-        :param first: Either a set of axis keys (str, list, tuple, ...) or a predicate function (Callable).
-            - If axis keys, values for given axes go into the first instance.
-            - If a predicate, values for axes where `predicate(axis)` is True go into the first instance.
-
-        :return: A (first, rest) tuple of two instances with the same axes, but complementary values.
-
-        Example:
-            >>> resolution = Spacing(x=0.1, y=0.1, z=0.5, t=1.0)
-            >>> by_predicate = resolution.partition(lambda a: a in ["x", "y"])
-            (Resolution(x=0.1, y=0.1, z=1.0, t=1.0), Resolution(x=1.0, y=1.0, z=0.5, t=1.0))
-            >>> by_axes = resolution.partition(["x", "y"])
-            (Resolution(x=0.1, y=0.1, z=1.0, t=1.0), Resolution(x=1.0, y=1.0, z=0.5, t=1.0))
-            >>> by_axes == by_predicate
-            True
-        """
-        if callable(first):
-            predicate = first
-            keep_axes = [key for key in self if (predicate(key))]
-        else:
-            keep_axes = first
-        return self.reset_except(keep_axes), self.reset(keep_axes)
-
-    def merge(
-        self, other: Mapping[AxisKey, ValueType], *, only: Optional[Axes] = None, force: Optional[Axes] = None
-    ) -> _Self:
-        """Merge values from `other` into this instance.
-
-        Args:
-            other: Another instance of this metadata type.
-            only: (Optional) Axes to limit the merge to.
-            force: (Optional) Axes to replace with the other value even if not default in this instance.
-                `only` takes precedence. If `only` is given, axes in `force` are ignored if they are not in `only`.
-
-        Returns:
-            A copy of this instance with potentially some replaced values.
-
-        Raises:
-            TypeError if a value to be copied from other has a different type than this instance,
-            and it can't be cast unambiguously.
-
-        Examples:
-            >>> raw = Shape(x=128, y=128, c=3)
-            >>> feature_chunk = Shape(x=32, y=32, c=25)
-            >>> feature_image = raw.reset("c").merge(feature_chunk)
-            >>> feature_image
-            Shape(x=128, y=128, c=25)
-
-            >>> shape = Shape(x=128, y=128, c=3)
-            >>> shape.merge()
-            >>> feature_image = raw.reset("c").merge(feature_chunk)
-            >>> feature_image
-            Shape(x=128, y=128, c=25)
-        """
-        only = only if only is not None else self.keys()
-        force = force or []
+    def with_values(self, other: Mapping[AxisKey, ValueType], axes: Axes):
+        if not axes:
+            return self.__class__(self)
         replaced_items = []
         for a in self:
             new_value = self[a]
-            if (a in force or self[a] == self._default) and a in only and a in other and other[a] is not None:
+            if a in axes and a in other and other[a] is not None:
                 new_value = other[a]
             if type(self[a]) != type(new_value):
                 if isinstance(new_value, int) and isinstance(self[a], float):
@@ -205,9 +142,6 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
             replaced_items.append((a, new_value))
 
         return self.__class__(replaced_items)
-
-    def with_values(self, other: Mapping[AxisKey, ValueType], axes: Axes):
-        return self.merge(other, only=axes, force=axes)
 
 
 class _AxisFloats(_AxisValues[AxisKey, float], ABC):
@@ -230,19 +164,6 @@ class Factor(_AxisFloats):
     Describes relative scaling factors from some shape to another.
     The values are in units of "scaled pixels per raw pixel".
     This makes them divisors for the original shape.
-
-    Examples:
-        >>> raw = Shape(x=128, y=128, c=3)
-        >>> scaled = Shape(x=32, y=32, c=3)
-        >>> scaling = raw.scaling_to(scaled)
-        >>> scaling
-        Scaling(x=4.0, y=4.0, c=1.0)
-
-        >>> raw = Shape(x=128, y=128, c=2)
-        >>> scaled = Shape(x=32, y=32, c=4)
-        >>> scaling = raw.scaling_to(scaled, fixed="c")
-        >>> scaling
-        Scaling(x=4.0, y=4.0, c=1.0)
     """
 
     _default = 1.0
@@ -276,8 +197,11 @@ class Factor(_AxisFloats):
         """Create a new Scaling with `axes` and all values being `factor`."""
         return Factor(zip(axes, [factor] * len(axes)))
 
+    def magnitude(self):
+        return math.prod(self.values())
+
     def is_identity(self) -> bool:
-        """True if this Scaling is the unit scaling (1.0 along all axes)."""
+        """True if this Factor is the identity scaling (1.0 along all axes)."""
         return super().is_default()
 
     def is_downscaling(self) -> bool:
@@ -298,12 +222,12 @@ class Factor(_AxisFloats):
         """Reset the values for all axes except `axes` to 1.0."""
         return super().reset_except(axes)
 
-    def to_physical(self, base_resolution: Union["Spacing", Mapping[AxisKey, float]]) -> "Spacing":
+    def to_physical(self, base: "Spacing") -> "Spacing":
         """
-        Multiply with `base_resolution` to obtain the resolution at this Scaling level.
+        Convert relative scaling factor to absolute physical spacing.
+        Identical to base.scale_by(self).
         """
-        items_in_physical_units = [(a, self[a] * base_resolution[a]) for a in self]
-        return Spacing(items_in_physical_units)
+        return Spacing(base).scale_by(self)
 
 
 class Spacing(_AxisFloats):
@@ -344,8 +268,47 @@ class Spacing(_AxisFloats):
             resolutions.append(tag.resolution if tag.resolution != vigra_default_resolution else cls._default)
         return cls(zip(axes, resolutions))
 
+    def is_identity(self) -> bool:
+        """True if this Spacing is the unit spacing (1.0 along all axes)."""
+        return super().is_default()
+
+    def with_identity(self, axes: Axes) -> _Self:
+        """Reset the values for `axes` to 1.0."""
+        return super().reset(axes)
+
+    def with_identity_except(self, axes: Axes) -> _Self:
+        """Reset the values for all axes except `axes` to 1.0."""
+        return super().reset_except(axes)
+
+    def scale_by(self, factor: Union[Factor, Mapping[AxisKey, float], float]) -> "Spacing":
+        """
+        Scale this Spacing by factor to obtain a scaled Spacing.
+        This is an axis-wise operation:
+        - Missing axes in `factor` default to 1.0 (no change)
+        - Passing a scalar (float/int) applies it uniformly to all axes
+        - Extra axes in `factor` are rejected
+        Note if passing scalar: factor 2.0 means double spacing = half resolution.
+        """
+        if isinstance(factor, float) or isinstance(factor, int):
+            factor = Factor.uniform(self, factor)
+        elif not isinstance(factor, Factor):
+            factor = Factor(factor)
+        base_axes = set(self.keys())
+        factor_axes = set(factor.keys())
+        invalid_axes = factor_axes - base_axes
+        if invalid_axes:
+            raise ValueError(
+                f"Attempted to scale axes with no base spacing: "
+                f"{sorted(invalid_axes)} not present in {sorted(base_axes)}"
+            )
+        reordered = factor.reorder(self)
+        scaled_items = [(a, reordered[a] * self[a]) for a in self]
+        return Spacing(scaled_items)
+
 
 class Translation(_AxisFloats):
+    """Describes a shift in physical units."""
+
     _default = 0.0
 
     def reorder(self, axes: Sequence[AxisKey]) -> "Translation":
@@ -370,9 +333,19 @@ class Translation(_AxisFloats):
         """True if this Translation is the identity translation (0.0 along all axes)."""
         return super().is_default()
 
-    def __add__(self, other: Union["Translation", Mapping[AxisKey, float]]) -> "Translation":
-        sum_items = [(a, self[a] + other[a]) for a in self]
-        return Translation(sum_items)
+    def __add__(self, other: "Translation") -> "Translation":
+        if not isinstance(other, Translation):
+            return NotImplemented
+        if list(self) != list(other):
+            raise ValueError(f"Incompatible axes/order: {list(self)} vs {list(other)}")
+        return Translation((a, self[a] + other[a]) for a in self)
+
+    def __sub__(self, other: "Translation") -> "Translation":
+        if not isinstance(other, Translation):
+            return NotImplemented
+        if list(self) != list(other):
+            raise ValueError(f"Incompatible axes/order: {list(self)} vs {list(other)}")
+        return Translation((a, self[a] - other[a]) for a in self)
 
 
 class Unit(_AxisValues[AxisKey, str]):
@@ -403,6 +376,11 @@ class Unit(_AxisValues[AxisKey, str]):
         """
         return super().reorder(axes)
 
+    @classmethod
+    def empty(cls, axes: Sequence[AxisKey]) -> "Unit":
+        """Create a new Unit with `axes` and empty string values."""
+        return super().fromkeys(axes)
+
 
 class Offset(_AxisValues[AxisKey, int]):
     """
@@ -430,11 +408,11 @@ class Offset(_AxisValues[AxisKey, int]):
         """
         return super().reorder(axes)
 
-    def to_physical(self, resolution: Union[Spacing, Mapping[AxisKey, float]]) -> Translation:
+    def to_physical(self, spacing: Union[Spacing, Mapping[AxisKey, float]]) -> Translation:
         """
-        Multiply with `resolution` to obtain the translation in physical units that this Offset represents.
+        Multiply with `resolution` to obtain this Offset as a Translation in physical units.
         """
-        items_in_physical_units = [(a, self[a] * resolution[a]) for a in self]
+        items_in_physical_units = [(a, self[a] * spacing[a]) for a in self]
         return Translation(items_in_physical_units)
 
 
@@ -506,26 +484,18 @@ class Shape(_AxisValues[AxisKey, int]):
         scaled_shape = self.__class__([(a, _rescale_size(size, factor[a])) for a, size in self.items()])
         return scaled_shape
 
-    def scaling_to(self, resized: ShapeLike, fixed: Optional[Axes] = None) -> "Factor":
+    def scaling_to(self, resized: "Shape") -> "Factor":
         """
         Returns the Scaling factors of this Shape that would produce the `resized` shape.
         """
-        common_axes = [a for a in resized if a in self]
-        extra_axes = set(self.keys()) ^ set(resized.keys())
-        if extra_axes:
+        if list(self) != list(resized):
             raise ValueError(
-                "Original and resized shapes must have the same axes. "
-                f"Original axes: {list(self.keys())}; target axes {list(resized.keys())}"
+                "Original and resized shapes must have identical axes in identical order. "
+                f"Original axes: {list(self)}; target axes: {list(resized)}"
             )
-        scale_values = [resized[a] for a in common_axes]
-        base_values = [self[a] for a in common_axes]
-        # This scale's scaling relative to base_shape.
-        # Scaling "factors" are technically divisors for the shape (factor 2.0 means half the shape).
-        scaling = Factor((a, base / s) for a, s, base in zip(common_axes, scale_values, base_values))
-        if fixed:
-            return scaling.with_identity(fixed)
-        else:
-            return scaling
+        # In multiscale image context, scaling "factors" are technically divisors for the shape
+        # (factor 2.0 means half the shape).
+        return Factor((a, self[a] / resized[a]) for a in self)
 
     def matches(self, other: ShapeLike, *, only: Optional[Axes] = None) -> bool:
         """Permissive value matching.
