@@ -232,8 +232,8 @@ class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesTy
     def _with_values(self, values: Sequence[_AxisValues]) -> _Self:
         return self.__class__(zip(self.keys(), values))
 
-    def with_order(self, axes: OrderedAxes) -> _Self:
-        return self._with_values([value.with_order(axes) for value in self.values()])
+    def with_axes(self, axes: OrderedAxes) -> _Self:
+        return self._with_values([value.with_axes(axes) for value in self.values()])
 
     @staticmethod
     def _resolve_duplicates(
@@ -317,7 +317,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             shape_limit = base_shape.with_ones(only)
 
         cls._validate_shape_limit(base_shape, only, shape_limit, max_levels, step)
-        shape_limit = Shape(shape_limit).with_order([a for a in shape_limit if a in base_shape])
+        shape_limit = Shape(shape_limit).with_axes_preserving_order(base_shape)
 
         scales_items = []
         for i in range(0, max_levels):
@@ -388,7 +388,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             raise ValueError(
                 f"Cannot apply blueprint with axes {list(self.first_value().keys())} "
                 f"to base scale with axes {list(base.shape.keys())}. "
-                "Axes must match exactly. Maybe blueprint.with_order(base.shape) first?"
+                "Axes must match exactly. Maybe blueprint.with_axes(base.shape) first?"
             )
 
         scales = []

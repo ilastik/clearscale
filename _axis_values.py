@@ -89,7 +89,7 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         return self.__class__(self._mapping)
 
     @classmethod
-    def fromkeys(cls, keys: Sequence[AxisKey]) -> _Self:
+    def fromkeys(cls, keys: OrderedAxes) -> _Self:
         return cls(zip(keys, [cls._default] * len(keys)))
 
     def is_default(self) -> bool:
@@ -102,18 +102,39 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
     def to_list(self):
         return list(self.values())
 
-    def with_order(self, axes: Sequence[AxisKey]) -> _Self:
-        """
-        Reorder to `axes`.
-
-        Inserts this type's default value for target axes that this instance doesn't have yet.
-
-        Equivalent to pandas.DataFrame.reindex(axes, fill_value=self._default).
-        """
+    def with_axes(self, axes: OrderedAxes) -> _Self:
+        """Order like axes. Drop axes, or insert new axes with default value if necessary."""
         if not axes:
-            raise ValueError(f"Empty {self.__class__.__name__} not allowed. Attempted reorder to: '{axes}'")
+            raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to: '{axes}'")
         reordered_items = [(a, self[a] if a in self else self._default) for a in axes]
         return self.__class__(reordered_items)
+
+    def with_axes_order(self, axes: OrderedAxes) -> _Self:
+        """Order like given axes (but no new insertions)."""
+        reordered_items = [(a, self[a]) for a in axes if a in self]
+        if not reordered_items:
+            raise ValueError(
+                f"Cannot create empty {self.__class__.__name__}. "
+                f"None of the specified axes {axes} are present in {list(self.keys())}."
+            )
+        return self.__class__(reordered_items)
+
+    def with_axes_preserving_order(self, axes: Axes) -> _Self:
+        """Keep only given axes (no reordering)."""
+        kept_items = [(a, self[a]) for a in self if a in axes]
+        if not kept_items:
+            raise ValueError(
+                f"Cannot create empty {self.__class__.__name__}. "
+                f"None of the specified axes {axes} are present in {list(self.keys())}."
+            )
+        return self.__class__(kept_items)
+
+    def with_axes_dropping(self, axes: Axes) -> _Self:
+        """Drop given axes."""
+        kept_items = [(a, self[a]) for a in self if a not in axes]
+        if not kept_items:
+            raise ValueError(f"Cannot create empty {self.__class__.__name__}. Removing {axes} would leave no axes.")
+        return self.__class__(kept_items)
 
     def with_default(self, axes: Axes) -> _Self:
         """
@@ -178,7 +199,7 @@ class Factor(_AxisFloats):
 
     _default = 1.0
 
-    def with_order(self, axes: OrderedAxes) -> _Self:
+    def with_axes(self, axes: OrderedAxes) -> _Self:
         """
         Reorder to `axes`.
 
@@ -186,13 +207,13 @@ class Factor(_AxisFloats):
 
         Examples:
             >>> res = Factor(z=0.25, y=120., x=120., t=0.1)
-            >>> res.with_order("tczyx")
+            >>> res.with_axes("tczyx")
             Scaling(t=0.1, c=1.0, z=0.25, y=120.0, x=120.0)
         """
-        return super().with_order(axes)
+        return super().with_axes(axes)
 
     @classmethod
-    def identity(cls, axes: Sequence[AxisKey]) -> "Factor":
+    def identity(cls, axes: OrderedAxes) -> "Factor":
         """Create a new identity Scaling (1.0 along all axes) with `axes`."""
         return super().fromkeys(axes)
 
@@ -203,7 +224,7 @@ class Factor(_AxisFloats):
                 raise ValueError(f"Scaling factor cannot be 0 (got 0 for axis '{axis}').")
 
     @classmethod
-    def uniform(cls, axes: Sequence[AxisKey], factor: float) -> "Factor":
+    def uniform(cls, axes: OrderedAxes, factor: float) -> "Factor":
         """Create a new Scaling with `axes` and all values being `factor`."""
         return Factor(zip(axes, [factor] * len(axes)))
 
@@ -311,7 +332,7 @@ class Spacing(_AxisFloats):
                 f"Attempted to scale axes with no base spacing: "
                 f"{sorted(invalid_axes)} not present in {sorted(base_axes)}"
             )
-        reordered = factor.with_order(self)
+        reordered = factor.with_axes(self)
         scaled_items = [(a, reordered[a] * self[a]) for a in self]
         return Spacing(scaled_items)
 
@@ -321,7 +342,7 @@ class Translation(_AxisFloats):
 
     _default = 0.0
 
-    def with_order(self, axes: Sequence[AxisKey]) -> "Translation":
+    def with_axes(self, axes: OrderedAxes) -> "Translation":
         """
         Reorder to `axes`.
 
@@ -329,13 +350,13 @@ class Translation(_AxisFloats):
 
         Examples:
             >>> translate = Translation(y=0.5, x=0.5, t=0.3)
-            >>> translate.with_order("tczyx")
+            >>> translate.with_axes("tczyx")
             Translation(t=0.3, c=0.0, z=0.0, y=0.5, x=0.5)
         """
-        return super().with_order(axes)
+        return super().with_axes(axes)
 
     @classmethod
-    def identity(cls, axes: Sequence[AxisKey]) -> "Translation":
+    def identity(cls, axes: OrderedAxes) -> "Translation":
         """Create a new identity Translation (0.0 along all axes) with `axes`."""
         return super().fromkeys(axes)
 
@@ -373,7 +394,7 @@ class Unit(_AxisValues[AxisKey, str]):
             if not isinstance(value, str):
                 raise TypeError(f"All values must be strings. Got {type(value).__name__} for axis '{axis}'.")
 
-    def with_order(self, axes: Sequence[AxisKey]) -> _Self:
+    def with_axes(self, axes: OrderedAxes) -> _Self:
         """
         Reorder to `axes`.
 
@@ -381,13 +402,13 @@ class Unit(_AxisValues[AxisKey, str]):
 
         Examples:
             >>> unit = Unit(y="nm", x="nm", t="sec")
-            >>> unit.with_order("tczyx")
+            >>> unit.with_axes("tczyx")
             Unit(t="sec", c="", z="", ="nm", x="nm")
         """
-        return super().with_order(axes)
+        return super().with_axes(axes)
 
     @classmethod
-    def empty(cls, axes: Sequence[AxisKey]) -> "Unit":
+    def empty(cls, axes: OrderedAxes) -> "Unit":
         """Create a new Unit with `axes` and empty string values."""
         return super().fromkeys(axes)
 
@@ -405,7 +426,7 @@ class PixelOffset(_AxisValues[AxisKey, int]):
             if not isinstance(value, int):
                 raise TypeError(f"All values must be integer. Got {type(value).__name__} for axis '{axis}'.")
 
-    def with_order(self, axes: Sequence[AxisKey]) -> "PixelOffset":
+    def with_axes(self, axes: OrderedAxes) -> "PixelOffset":
         """
         Reorder to `axes`.
 
@@ -413,10 +434,10 @@ class PixelOffset(_AxisValues[AxisKey, int]):
 
         Examples:
             >>> crop_offset = PixelOffset(y=15, x=37, t=23)
-            >>> crop_offset.with_order("tczyx")
+            >>> crop_offset.with_axes("tczyx")
             PixelOffset(t=23, c=0, z=0, y=15, x=37)
         """
-        return super().with_order(axes)
+        return super().with_axes(axes)
 
     def to_physical(self, spacing: Union[Spacing, Mapping[AxisKey, float]]) -> Translation:
         """
@@ -445,7 +466,7 @@ class Shape(_AxisValues[AxisKey, int]):
     def all_singletons(cls, axes: OrderedAxes):
         return super().fromkeys(axes)
 
-    def with_order(self, axes: OrderedAxes) -> _Self:
+    def with_axes(self, axes: OrderedAxes) -> _Self:
         """
         Reorder to `axes`.
 
@@ -453,10 +474,10 @@ class Shape(_AxisValues[AxisKey, int]):
 
         Examples:
             >>> shape = Shape(y=256, x=256, t=23)
-            >>> shape.with_order("tczyx")
+            >>> shape.with_axes("tczyx")
             Shape(t=23, c=1, z=1, y=256, x=256)
         """
-        return super().with_order(axes)
+        return super().with_axes(axes)
 
     def with_ones(self, axes: Axes) -> _Self:
         """Reset the values for `axes` to 1."""
@@ -495,7 +516,7 @@ class Shape(_AxisValues[AxisKey, int]):
             rounding = int
         elif rounding == "round":
             rounding = round
-        factor = Factor(factor).with_order(self)
+        factor = Factor(factor).with_axes(self)
 
         def _rescale_size(s: int, f: float) -> int:
             """
