@@ -326,8 +326,8 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             scaling = Factor.uniform(base_shape, scale_factor).with_identity_except(only)
             scaled_shape = base_shape.scaled_by(scaling, rounding=rounding)
             scales_items.append((scale_key, scaled_shape))
-            if (step > 1 and all(scaled_shape[axis] <= shape_limit[axis] for axis in shape_limit)) or (
-                step < 1 and all(scaled_shape[axis] >= shape_limit[axis] for axis in shape_limit)
+            if (step > 1 and all(scaled_shape[axis] <= shape_limit[axis] for axis in only)) or (
+                step < 1 and all(scaled_shape[axis] >= shape_limit[axis] for axis in only)
             ):
                 break
         scales_items = cls._resolve_duplicates(scales_items, on_duplicate, on_duplicate_prefer)
