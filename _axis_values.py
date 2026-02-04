@@ -110,6 +110,8 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
 
         Equivalent to pandas.DataFrame.reindex(axes, fill_value=self._default).
         """
+        if not axes:
+            raise ValueError(f"Empty {self.__class__.__name__} not allowed. Attempted reorder to: '{axes}'")
         reordered_items = [(a, self[a] if a in self else self._default) for a in axes]
         return self.__class__(reordered_items)
 
