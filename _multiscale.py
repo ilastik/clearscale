@@ -306,15 +306,18 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         cls._validate_resampling_step(step)
         if step == 1:
             return cls({name_pattern.format(0): base_shape})
-        if not shape_limit:
-            shape_limit = Shape.all_singletons(base_shape)
-        if not only:
-            only = base_shape.keys()
-        else:
-            only = [a for a in only if a in base_shape]
 
+        if only is None:
+            only = base_shape.keys()
+        only = [a for a in only if a in base_shape]
+        if not only:
+            return cls({name_pattern.format(0): base_shape})
+
+        if not shape_limit:
+            shape_limit = base_shape.with_ones(only)
+
+        cls._validate_shape_limit(base_shape, only, shape_limit, max_levels, step)
         shape_limit = Shape(shape_limit).with_order([a for a in shape_limit if a in base_shape])
-        cls._validate_shape_limit(base_shape, only, shape_limit, step)
 
         scales_items = []
         for i in range(0, max_levels):
@@ -417,9 +420,22 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             raise ValueError(f"Cannot downsample by a negative step size (received: {step})")
 
     @staticmethod
-    def _validate_shape_limit(base_shape: Shape, only: Axes, shape_limit: Shape, step: Union[int, float]):
+    def _validate_shape_limit(
+        base_shape: Shape, only: Axes, shape_limit: ShapeLike, max_levels, step: Union[int, float]
+    ):
+        applicable_limit_axes = [a for a in shape_limit if a in base_shape]
+        if not applicable_limit_axes:
+            raise ValueError(
+                f"Cannot scale to limit if none of the axes in shape_limit "
+                f"({list(shape_limit.keys())}) are in base_shape ({list(base_shape.keys())})."
+            )
+        if step < 1 and set(only) != set(applicable_limit_axes) and not max_levels:
+            raise ValueError(
+                f"When upscaling, either max_levels must be set, or shape_limit must limit all axes in `only`. "
+                f"Received: {only=}, {max_levels=}, {shape_limit=}"
+            )
         for axis in only:
-            if axis not in shape_limit:
+            if axis not in applicable_limit_axes:
                 continue
             if step > 1 and shape_limit[axis] > base_shape[axis]:
                 raise ValueError(f"Cannot limit downsampling to a shape larger than the base (along {axis}).")
