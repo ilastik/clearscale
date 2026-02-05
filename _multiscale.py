@@ -392,7 +392,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         return BlueprintFactors(zip(self.keys(), factors))
 
     def apply_to_scale(
-        self, base: Scale, translation_shift_func: Optional[TranslationShiftFunction] = None
+        self, base: Scale, *, translation_shift_func: Union[None, TranslationShiftFunction]
     ) -> "Multiscale":
         if list(self.first_value().keys()) != list(base.shape.keys()):
             raise ValueError(
