@@ -19,6 +19,7 @@ from typing import (
     Dict,
     Any,
     TYPE_CHECKING,
+    Hashable,
 )
 
 from lazyflow.utility.io_util.clearscale import (
@@ -193,10 +194,36 @@ class _ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueTy
         items = [(k, v) for k, v in self.items() if predicate(k, v)]
         return self.__class__(items)
 
-    def with_key_pattern(self, name_pattern=DEFAULT_NAME_PATTERN) -> "Self":
-        self._validate_name_pattern(name_pattern)
-        items = [(name_pattern.format(i), v) for i, v in enumerate(self.values())]
-        return self.__class__(items)
+    def with_keys(
+        self,
+        keys_pattern_or_func: Union[Sequence[ScaleKey], str, Callable[[int, ScaleKey, "Scale"], ScaleKey]],
+    ) -> "Self":
+        """
+        Assign new scale keys using one of:
+        - a sequence of new scale keys (one per current scale, unique)
+        - a string format pattern with placeholder for the scale's int index
+        - a function that takes the int index, the old scale key, and the Scale object, and returns a new key
+        """
+        if isinstance(keys_pattern_or_func, str):
+            pattern = keys_pattern_or_func
+            if pattern.format(0) == pattern:
+                raise ValueError(
+                    f"Name pattern must contain exactly one placeholder for scale index (received: '{pattern}')"
+                )
+            items = [(keys_pattern_or_func.format(i), v) for i, v in enumerate(self.values())]
+            return self.__class__(items)
+        elif callable(keys_pattern_or_func):
+            new_keys = self._generate_and_validate_new_keys(keys_pattern_or_func)
+            return self.__class__(zip(new_keys, self.values()))
+        else:
+            new_keys = keys_pattern_or_func
+            if len(new_keys) != len(self):
+                raise ValueError(
+                    f"Must provide a new key for every current key: {list(self.keys())}. Received: {new_keys}"
+                )
+            if not self._all_unique(new_keys):
+                raise ValueError(f"All new scale keys must be unique. Received: {new_keys}")
+            return self.__class__(zip(new_keys, self.values()))
 
     def drop_before(self, key: ScaleKey, inclusive=False) -> "Self":
         keys = list(self.keys())
@@ -210,12 +237,32 @@ class _ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueTy
         items = [(k, v) for k, v in self.items() if k in keys[start_idx:]]
         return self.__class__(items)
 
+    def _generate_and_validate_new_keys(self, keys_pattern_or_func: Callable):
+        new_keys = []
+        for i, (key, value) in enumerate(self.items()):
+            try:
+                new_key = keys_pattern_or_func(i, key, value)
+            except TypeError as e:
+                if "positional argument" in str(e):
+                    raise TypeError(
+                        "Key-generating function must accept scale's integer index, "
+                        "the old scale key, and the corresponding value object, e.g.: "
+                        "lambda i, old_key, factor: f\"scale{i}-{factor['x']}\""
+                    ) from e
+                raise e
+            new_keys.append(new_key)
+        if not self._all_unique(new_keys):
+            raise ValueError(f"All new scale keys must be unique. Generated: {new_keys}")
+        return new_keys
+
     @staticmethod
-    def _validate_name_pattern(pattern: str):
-        if pattern.format(0) == pattern:
-            raise ValueError(
-                f"Name pattern must contain exactly one placeholder for scale index (received: '{pattern}')"
-            )
+    def _all_unique(things: Sequence[Hashable]) -> bool:
+        seen = set()
+        for item in things:
+            if item in seen:
+                return False
+            seen.add(item)
+        return True
 
 
 class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesType]):
@@ -312,7 +359,6 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
     ) -> "BlueprintShapes":
         """Generate Blueprint where each scale is a `step` downsampling of the previous scale.
         Applies scaling uniformly to all axes until they become singleton."""
-        cls._validate_name_pattern(name_pattern)
         cls._validate_resampling_step(step)
         if step == 1:
             return cls({name_pattern.format(0): base_shape})
@@ -342,7 +388,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
                 break
         scales_items = cls._resolve_duplicates(scales_items, on_duplicate, on_duplicate_prefer)
         bp = cls(scales_items)
-        return bp.with_key_pattern(name_pattern)
+        return bp.with_keys(name_pattern)
 
     @classmethod
     def downscale_powers_of_2_xyz(
