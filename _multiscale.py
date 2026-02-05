@@ -18,6 +18,7 @@ from typing import (
     Literal,
     Dict,
     Any,
+    TYPE_CHECKING,
 )
 
 from lazyflow.utility.io_util.clearscale import (
@@ -42,7 +43,6 @@ from lazyflow.utility.io_util.clearscale._axis_values import (
 ScaleKey = TypeVar("ScaleKey", bound=str)
 ValueType = TypeVar("ValueType", Shape, Factor, "Scale")
 AxisValuesType = TypeVar("AxisValuesType", Shape, Factor)
-_Self = TypeVar("_Self", bound="ScaleMapping[Any, Any]")
 DEFAULT_NAME_PATTERN = "s{}"
 
 TranslationShiftFunction = Callable[["Scale", "Scale"], "Translation"]
@@ -51,6 +51,16 @@ base_scale: the reference scale being transformed from
 target_scale: the new scale being created (with 0 translation)
 Returns: target_scale's translation
 """
+
+if TYPE_CHECKING:
+    try:
+        from typing import Self  # py 3.11+
+    except ImportError:
+        try:
+            from typing_extensions import Self  # py 3.10 + optional dep
+        except ImportError:
+            _Self = TypeVar("_Self")
+            Self = _Self
 
 
 class _DuplicatePolicy(StrEnum):
@@ -179,16 +189,16 @@ class _ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueTy
     def copy(self):
         return self.__class__(self._mapping)
 
-    def filter_items(self, predicate: Callable[[ScaleKey, ValueType], bool]) -> _Self:
+    def filter_items(self, predicate: Callable[[ScaleKey, ValueType], bool]) -> "Self":
         items = [(k, v) for k, v in self.items() if predicate(k, v)]
         return self.__class__(items)
 
-    def with_key_pattern(self, name_pattern=DEFAULT_NAME_PATTERN) -> _Self:
+    def with_key_pattern(self, name_pattern=DEFAULT_NAME_PATTERN) -> "Self":
         self._validate_name_pattern(name_pattern)
         items = [(name_pattern.format(i), v) for i, v in enumerate(self.values())]
         return self.__class__(items)
 
-    def drop_before(self, key: ScaleKey, inclusive=False) -> _Self:
+    def drop_before(self, key: ScaleKey, inclusive=False) -> "Self":
         keys = list(self.keys())
         if key not in keys:
             raise KeyError(f"No such scale: '{key}' (available: {keys})")
@@ -229,10 +239,10 @@ class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesTy
     def to_dict(self) -> OrderedDict[ScaleKey, OrderedDict[AxisKey, Union[int, float]]]:
         return OrderedDict([(scale_key, OrderedDict(axis_values)) for scale_key, axis_values in self.items()])
 
-    def _with_values(self, values: Sequence[_AxisValues]) -> _Self:
+    def _with_values(self, values: Sequence[_AxisValues]) -> "Self":
         return self.__class__(zip(self.keys(), values))
 
-    def with_axes(self, axes: OrderedAxes) -> _Self:
+    def with_axes(self, axes: OrderedAxes) -> "Self":
         return self._with_values([value.with_axes(axes) for value in self.values()])
 
     @staticmethod
@@ -473,11 +483,11 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
             self._mapping[k] = Factor(v)
 
     @classmethod
-    def from_shapes(cls, shapes: Mapping[ScaleKey, ShapeLike], reference: Shape):
+    def from_shapes(cls, shapes: Mapping[ScaleKey, ShapeLike], reference: Shape) -> "BlueprintFactors":
         return BlueprintShapes(shapes).to_factors(reference)
 
     @classmethod
-    def from_multiscale(cls, multiscale: "Multiscale", reference: Shape) -> _Self:
+    def from_multiscale(cls, multiscale: "Multiscale", reference: Shape) -> "BlueprintFactors":
         return BlueprintShapes.from_multiscale(multiscale).to_factors(reference)
 
     def axes(self):
@@ -504,7 +514,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
     def apply_to_scale(self):
         return NotImplementedError()
 
-    def with_identity(self, axes: Axes):
+    def with_identity(self, axes: Axes) -> "Self":
         return self._with_values([factor.with_identity(axes) for factor in self.values()])
 
 

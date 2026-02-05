@@ -12,16 +12,26 @@ from typing import (
     Optional,
     List,
     Literal,
+    TYPE_CHECKING,
 )
 
 AxisKey = TypeVar("AxisKey", bound=str)
 ValueType = TypeVar("ValueType", int, float, str)
-_Self = TypeVar("_Self", bound="TaggedValues[Any, Any]")
 Axes = Union[Container[AxisKey], str]
 OrderedAxes = Sequence[AxisKey]
 FactorLike = Union["Factor", "Shape", Mapping[AxisKey, int], Mapping[AxisKey, float]]
 ShapeLike = Union["Shape", Mapping[AxisKey, int]]
 RoundingMethod = Union[Literal["ceil"], Literal["floor"], Literal["round"], Callable[[float], int]]
+
+if TYPE_CHECKING:
+    try:
+        from typing import Self  # py 3.11+
+    except ImportError:
+        try:
+            from typing_extensions import Self  # py 3.10 + optional dep
+        except ImportError:
+            _Self = TypeVar("_Self")
+            Self = _Self
 
 
 class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
@@ -89,7 +99,7 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         return self.__class__(self._mapping)
 
     @classmethod
-    def fromkeys(cls, keys: OrderedAxes) -> _Self:
+    def fromkeys(cls, keys: OrderedAxes) -> "Self":
         return cls(zip(keys, [cls._default] * len(keys)))
 
     def is_default(self) -> bool:
@@ -102,14 +112,14 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
     def to_list(self):
         return list(self.values())
 
-    def with_axes(self, axes: OrderedAxes) -> _Self:
+    def with_axes(self, axes: OrderedAxes) -> "Self":
         """Order like axes. Drop axes, or insert new axes with default value if necessary."""
         if not axes:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to: '{axes}'")
         reordered_items = [(a, self[a] if a in self else self._default) for a in axes]
         return self.__class__(reordered_items)
 
-    def with_axes_order(self, axes: OrderedAxes) -> _Self:
+    def with_axes_order(self, axes: OrderedAxes) -> "Self":
         """Order like given axes (but no new insertions)."""
         reordered_items = [(a, self[a]) for a in axes if a in self]
         if not reordered_items:
@@ -119,7 +129,7 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
             )
         return self.__class__(reordered_items)
 
-    def with_axes_preserving_order(self, axes: Axes) -> _Self:
+    def with_axes_preserving_order(self, axes: Axes) -> "Self":
         """Keep only given axes (no reordering)."""
         kept_items = [(a, self[a]) for a in self if a in axes]
         if not kept_items:
@@ -129,14 +139,14 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
             )
         return self.__class__(kept_items)
 
-    def with_axes_dropping(self, axes: Axes) -> _Self:
+    def with_axes_dropping(self, axes: Axes) -> "Self":
         """Drop given axes."""
         kept_items = [(a, self[a]) for a in self if a not in axes]
         if not kept_items:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Removing {axes} would leave no axes.")
         return self.__class__(kept_items)
 
-    def with_default(self, axes: Axes) -> _Self:
+    def with_default(self, axes: Axes) -> "Self":
         """
         Reset the values for `axes` to the type's default value, keeping the rest unchanged.
 
@@ -145,7 +155,7 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         reset_items = [(a, self._default if a in axes else self[a]) for a in self]
         return self.__class__(reset_items)
 
-    def with_default_except(self, axes: Axes) -> _Self:
+    def with_default_except(self, axes: Axes) -> "Self":
         """
         Keep the values for `axes` and reset the remaining values to the type's default value.
 
@@ -199,7 +209,7 @@ class Factor(_AxisFloats):
 
     _default = 1.0
 
-    def with_axes(self, axes: OrderedAxes) -> _Self:
+    def with_axes(self, axes: OrderedAxes) -> "Self":
         """
         Reorder to `axes`.
 
@@ -245,11 +255,11 @@ class Factor(_AxisFloats):
         Note: Factors act as divisors for shape (e.g. 1024 / 0.5 = 2048)."""
         return math.prod(self.values()) < 1
 
-    def with_identity(self, axes: Axes) -> _Self:
+    def with_identity(self, axes: Axes) -> "Self":
         """Reset the values for `axes` to 1.0."""
         return super().with_default(axes)
 
-    def with_identity_except(self, axes: Axes) -> _Self:
+    def with_identity_except(self, axes: Axes) -> "Self":
         """Reset the values for all axes except `axes` to 1.0."""
         return super().with_default_except(axes)
 
@@ -270,7 +280,7 @@ class Spacing(_AxisFloats):
     _default = 1.0
 
     @classmethod
-    def from_vigra(cls, axistags: "vigra.AxisTags") -> _Self:
+    def from_vigra(cls, axistags: "vigra.AxisTags") -> "Self":
         vigra_default_resolution = 0.0
         axes = []
         resolutions = []
@@ -283,11 +293,11 @@ class Spacing(_AxisFloats):
         """True if this Spacing is the unit spacing (1.0 along all axes)."""
         return super().is_default()
 
-    def with_identity(self, axes: Axes) -> _Self:
+    def with_identity(self, axes: Axes) -> "Self":
         """Reset the values for `axes` to 1.0."""
         return super().with_default(axes)
 
-    def with_identity_except(self, axes: Axes) -> _Self:
+    def with_identity_except(self, axes: Axes) -> "Self":
         """Reset the values for all axes except `axes` to 1.0."""
         return super().with_default_except(axes)
 
@@ -394,7 +404,7 @@ class Unit(_AxisValues[AxisKey, str]):
             if not isinstance(value, str):
                 raise TypeError(f"All values must be strings. Got {type(value).__name__} for axis '{axis}'.")
 
-    def with_axes(self, axes: OrderedAxes) -> _Self:
+    def with_axes(self, axes: OrderedAxes) -> "Self":
         """
         Reorder to `axes`.
 
@@ -466,7 +476,7 @@ class Shape(_AxisValues[AxisKey, int]):
     def all_singletons(cls, axes: OrderedAxes):
         return super().fromkeys(axes)
 
-    def with_axes(self, axes: OrderedAxes) -> _Self:
+    def with_axes(self, axes: OrderedAxes) -> "Self":
         """
         Reorder to `axes`.
 
@@ -479,7 +489,7 @@ class Shape(_AxisValues[AxisKey, int]):
         """
         return super().with_axes(axes)
 
-    def with_ones(self, axes: Axes) -> _Self:
+    def with_ones(self, axes: Axes) -> "Self":
         """Reset the values for `axes` to 1."""
         return super().with_default(axes)
 
