@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Union, Literal, Mapping, Dict, List, Any, Optional, Tuple
 
 from lazyflow.utility.io_util.clearscale import Translation, Unit, Spacing, Factor
-from lazyflow.utility.io_util.clearscale._axis_values import OrderedAxes
+from lazyflow.utility.io_util.clearscale._axis_values import OrderedAxes, AxisKey
 
 ####
 # Reading
@@ -240,12 +240,24 @@ def _is_valid_relative_path(path: str) -> bool:
 def build_axis_dicts(
     axes: OrderedAxes,
     unit: Unit,
-    axis_types: Union[None, Literal["infer"], Mapping[str, Literal["space", "time", "channel"]]] = None,
+    axis_types: Union[None, Literal["infer"], Mapping[AxisKey, Literal["space", "time", "channel"]]] = None,
 ) -> List[Dict[str, Any]]:
     if axis_types and axis_types != "infer" and not any(ax in axes for ax in axis_types):
         warnings.warn(f"Provided axis_types {set(axis_types.keys())} don't match any axes in this Multiscale: {axes}")
     elif axis_types == "infer":
-        axis_types = {"t": "time", "c": "channel", "z": "space", "y": "space", "x": "space"}
+        axis_types = {
+            "t": "time",
+            "time": "time",
+            "timestep": "time",
+            "timepoint": "time",
+            "c": "channel",
+            "ch": "channel",
+            "channel": "channel",
+            "channels": "channel",
+            "z": "space",
+            "y": "space",
+            "x": "space",
+        }
 
     ome_axes = []
     for axis in axes:
