@@ -190,8 +190,8 @@ class _ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueTy
     def copy(self):
         return self.__class__(self._mapping)
 
-    def filter_items(self, predicate: Callable[[ScaleKey, ValueType], bool]) -> "Self":
-        items = [(k, v) for k, v in self.items() if predicate(k, v)]
+    def filter_items(self, keep_func: Callable[[ScaleKey, ValueType], bool]) -> "Self":
+        items = [(k, v) for k, v in self.items() if keep_func(k, v)]
         return self.__class__(items)
 
     def with_keys(
