@@ -53,10 +53,10 @@ class _AxisMapping(ABCMapping[AxisKey, AxisMappedAny], Generic[AxisKey, AxisMapp
         self._mapping = OrderedDict(*args, **kwargs)
         if not self._mapping:
             raise ValueError(f"Empty {self.__class__.__name__}. Received: {args=}, {kwargs=}")
-        if any(v is None for v in self._mapping.values()):
+        if None in self._mapping.keys():
+            raise ValueError(f"None keys not allowed. Received: {list(self._mapping.keys())}")
+        if None in self._mapping.values():
             raise ValueError(f"None values not allowed. Received: {list(self._mapping.values())}")
-        if len(set(self._mapping.keys())) != len(self._mapping.keys()):
-            raise ValueError(f"Duplicate keys not allowed. Received: {list(self._mapping.keys())}")
 
     def __repr__(self):
         map_substr = self._mapping.__repr__()[len(type(self._mapping).__name__) :]
@@ -84,7 +84,7 @@ class _AxisMapping(ABCMapping[AxisKey, AxisMappedAny], Generic[AxisKey, AxisMapp
         return self._mapping.items()
 
     def __eq__(self, other):
-        if isinstance(other, _AxisMapping):
+        if isinstance(other, _AxisMapping) and self.__class__ is other.__class__:
             return self._mapping == other._mapping
         if isinstance(other, OrderedDict) or isinstance(other, dict):
             return self._mapping == other
