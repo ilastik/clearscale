@@ -1,6 +1,7 @@
 import warnings
 from abc import ABC
 from collections import OrderedDict, defaultdict
+from collections.abc import Mapping as ABCMapping
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import wraps
@@ -140,7 +141,7 @@ class Scale:
         return f"{name_and_shape}{pixel_size}"
 
 
-class _ScaleMapping(ABC, Mapping[ScaleKey, ValueType], Generic[ScaleKey, ValueType]):
+class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ScaleKey, ValueType]):
     """Common base class for Multiscale, BlueprintShapes and BlueprintFactors"""
 
     def __init__(self, *args, **kwargs):
