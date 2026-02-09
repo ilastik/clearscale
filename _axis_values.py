@@ -1,6 +1,7 @@
 import math
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from collections.abc import Mapping as ABCMapping
 from typing import (
     Mapping,
     Generic,
@@ -16,7 +17,8 @@ from typing import (
 )
 
 AxisKey = TypeVar("AxisKey", bound=str)
-ValueType = TypeVar("ValueType", int, float, str)
+AxisMappedAny = TypeVar("AxisMappedAny")
+AxisMappedPrimitive = TypeVar("AxisMappedPrimitive", int, float, str)
 Axes = Union[Container[AxisKey], str]
 OrderedAxes = Sequence[AxisKey]
 FactorLike = Union["Factor", "Shape", Mapping[AxisKey, int], Mapping[AxisKey, float]]
@@ -34,7 +36,7 @@ if TYPE_CHECKING:
             Self = _Self
 
 
-class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType]):
+class _AxisMapping(ABCMapping[AxisKey, AxisMappedAny], Generic[AxisKey, AxisMappedAny]):
     """
     Base class for "tagged dictionaries" that map axis keys to values (like shape, resolution, unit).
     Instantiation and usage of the subclasses should work pretty much like usual dicts, but with
@@ -46,13 +48,6 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
     - enforce immutability
     - control which parts of the OrderedDict API are exposed
     """
-
-    @property
-    @abstractmethod
-    def _default(self):
-        """Subclasses should provide the Class._default property.
-        Default value for axes where no value is provided."""
-        ...
 
     def __init__(self, *args, **kwargs):
         self._mapping = OrderedDict(*args, **kwargs)
@@ -89,7 +84,7 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         return self._mapping.items()
 
     def __eq__(self, other):
-        if isinstance(other, _AxisValues):
+        if isinstance(other, _AxisMapping):
             return self._mapping == other._mapping
         if isinstance(other, OrderedDict) or isinstance(other, dict):
             return self._mapping == other
@@ -98,6 +93,22 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
     def copy(self):
         return self.__class__(self._mapping)
 
+    def to_tuple(self):
+        return tuple(self.values())
+
+    def to_list(self):
+        return list(self.values())
+
+
+class _AxisValues(ABC, _AxisMapping[AxisKey, AxisMappedPrimitive], Generic[AxisKey, AxisMappedPrimitive]):
+
+    @property
+    @abstractmethod
+    def _default(self):
+        """Subclasses should provide the Class._default property.
+        Default value for axes where no value is provided."""
+        ...
+
     @classmethod
     def fromkeys(cls, keys: OrderedAxes) -> "Self":
         return cls(zip(keys, [cls._default] * len(keys)))
@@ -105,12 +116,6 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
     def is_default(self) -> bool:
         """Check if all values in this metadata are the default value."""
         return self == self.__class__.fromkeys(self)
-
-    def to_tuple(self):
-        return tuple(self.values())
-
-    def to_list(self):
-        return list(self.values())
 
     def with_axes(self, axes: OrderedAxes) -> "Self":
         """Order like axes. Drop axes, or insert new axes with default value if necessary."""
@@ -164,7 +169,7 @@ class _AxisValues(ABC, Mapping[AxisKey, ValueType], Generic[AxisKey, ValueType])
         keep_items = [(a, self[a] if a in axes else self._default) for a in self]
         return self.__class__(keep_items)
 
-    def with_values(self, other: Mapping[AxisKey, ValueType], axes: Axes):
+    def with_values(self, other: Mapping[AxisKey, AxisMappedPrimitive], axes: Axes):
         if not axes:
             return self.__class__(self)
         replaced_items = []
