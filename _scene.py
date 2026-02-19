@@ -65,10 +65,10 @@ class Scene:
                 all_keys.add((path, name))
 
         for t in transforms:
-            if t.input_system not in all_keys:
-                raise ValueError(f"Transform input {t.input_system} not found in any coordinate system")
-            if t.output_system not in all_keys:
-                raise ValueError(f"Transform output {t.output_system} not found in any coordinate system")
+            if t.raw not in all_keys:
+                raise ValueError(f"Transform raw {t.raw} not found in any coordinate system")
+            if t.derived not in all_keys:
+                raise ValueError(f"Transform derived {t.derived} not found in any coordinate system")
 
         graph = _TransformGraph(internal_systems, transforms)
         return cls(graph, multiscales_by_path, {})
@@ -176,37 +176,37 @@ class Scene:
         return self.__class__(self._internal_graph, new_external, new_unresolved)
 
     def transforms_between(
-        self, source: Union[CoordinateSystemKey, Multiscale], target: Union[CoordinateSystemKey, Multiscale]
+        self, raw: Union[CoordinateSystemKey, Multiscale], derived: Union[CoordinateSystemKey, Multiscale]
     ) -> Optional[
         List[Transform]
     ]:  # or maybe return Optional[Transform], but the Transform could be a TransformSequence
         # Individual Scales are always aligned with the multiscale's "intrinsic" coordinate system.
         # Their transforms are not exposed externally.
-        if isinstance(source, Multiscale):
+        if isinstance(raw, Multiscale):
             for path, ms in self._external_multiscales.items():
-                if ms is source:
-                    source_key = (path, source.aligned_system)
+                if ms is raw:
+                    raw_key = (path, raw.aligned_system)
                     break
             else:
-                raise ValueError(f"Scene contains no multiscale matching source. Received: {source}")
+                raise ValueError(f"Scene contains no multiscale matching raw. Received: {raw}")
         else:
-            source_key = source
-        if isinstance(target, Multiscale):
+            raw_key = raw
+        if isinstance(derived, Multiscale):
             for path, ms in self._external_multiscales.items():
-                if ms is target:
-                    target_key = (path, target.aligned_system)
+                if ms is derived:
+                    derived_key = (path, derived.aligned_system)
                     break
             else:
-                raise ValueError(f"Scene contains no multiscale matching target. Received: {target}")
+                raise ValueError(f"Scene contains no multiscale matching derived. Received: {derived}")
         else:
-            target_key = target
+            derived_key = derived
 
-        for key in (source_key, target_key):
+        for key in (raw_key, derived_key):
             path, name = key
             if path is not None and path in self._unresolved_paths and name in self._unresolved_paths[path]:
                 raise ValueError(f"System ({path}, {name}) is unresolved. Provide the metadata via .with_resolved.")
 
-        return self._graph.path_between(source_key, target_key)
+        return self._graph.path_between(raw_key, derived_key)
 
     def _validate_connectedness(self) -> None:
         # TODO: LLM VOMIT; HAVEN'T CHECKED

@@ -164,13 +164,13 @@ class _TransformGraph:
 
     def path_between(
         self,
-        source: CoordinateSystemKey,
-        target: CoordinateSystemKey,
+        raw: CoordinateSystemKey,
+        derived: CoordinateSystemKey,
         allow_inverse=True,
         validate_rfc5_connectedness=False,
     ) -> list[Transform]:
-        if source == target:
-            return [IdentityTransform(source, target)]
+        if raw == derived:
+            return [IdentityTransform(raw=raw, derived=derived)]
 
         # Adjacency
         graph = defaultdict(list)
@@ -181,11 +181,11 @@ class _TransformGraph:
 
         # BFS
         path = []
-        queue = deque([(source, path)])
-        visited = {source}
+        queue = deque([(raw, path)])
+        visited = {raw}
         while queue:
             node, path = queue.popleft()
-            if node == target:
+            if node == derived:
                 break
             for neighbor, transform, is_inverse in graph[node]:
                 if neighbor not in visited:
