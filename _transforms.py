@@ -1,7 +1,7 @@
 import enum
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Optional, List, Tuple, Dict, Mapping, Iterable, Sequence, TYPE_CHECKING, TypeVar
 
@@ -59,11 +59,11 @@ class Transform(ABC):
     def is_invertible(self) -> bool: ...
     def bind(self, raw: CoordinateSystemKey, derived: CoordinateSystemKey) -> "Self":
         # binding required to use the Transform in a TransformGraph
-        return self.__class__(raw=raw, derived=derived)
+        return replace(self, raw=raw, derived=derived)
 
     def unbind(self) -> "Self":
         # for nesting inside a TransformSequence or BijectionTransform
-        return self.__class__(raw=None, derived=None)
+        return replace(self, raw=None, derived=None)
 
     @property
     def is_bound(self) -> bool:
