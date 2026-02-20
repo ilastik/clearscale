@@ -179,6 +179,10 @@ class _TransformGraph:
     transforms: Iterable[Transform]
 
     def __post_init__(self):
+        if any(not key for key in self.coordinate_systems):
+            raise ValueError(
+                f"All coordinate systems must have a name or reference. Received: {list(self.coordinate_systems.keys())}"
+            )
         object.__setattr__(self, "coordinate_systems", MappingProxyType(dict(self.coordinate_systems)))
         object.__setattr__(self, "transforms", tuple(self.transforms))
 
