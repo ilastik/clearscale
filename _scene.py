@@ -1,5 +1,4 @@
 import functools
-from types import MappingProxyType
 from dataclasses import dataclass, replace
 from typing import Mapping, Set, Dict, TYPE_CHECKING, Collection, Iterable
 from typing import Optional, List
@@ -20,15 +19,11 @@ MultiscalesByPath = Mapping[RelativePath, Multiscale]
 CoordinateSystemsByName = Mapping[CoordinateSystemName, CoordinateSystem]
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class Scene:
     _internal_graph: _TransformGraph
     _external_multiscales: Mapping[Multiscale, Optional[RelativePath]]  # each with its own subgraph
     _unresolved_paths: Mapping[RelativePath, Set[CoordinateSystemName]]  # input.path: input.name
-
-    def __post_init__(self):
-        object.__setattr__(self, "_external_multiscales", MappingProxyType(dict(self._external_multiscales)))
-        object.__setattr__(self, "_unresolved_paths", MappingProxyType(dict(self._unresolved_paths)))
 
     @property
     def is_fully_resolved(self) -> bool:
