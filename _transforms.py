@@ -3,11 +3,13 @@ from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import Optional, List, Tuple, Dict, Mapping, Iterable, Sequence, TYPE_CHECKING, TypeVar
+from typing import Optional, List, Tuple, Dict, Mapping, Iterable, Sequence, TYPE_CHECKING, TypeVar, Union
 
 from lazyflow.utility.io_util.clearscale._axis_values import _AxisMapping, AxisKey, OrderedAxes, Spacing, Translation
 
 if TYPE_CHECKING:
+    from lazyflow.utility.io_util.clearscale._multiscale import Multiscale
+
     try:
         from typing import Self  # py 3.11+
     except ImportError:
@@ -19,7 +21,23 @@ if TYPE_CHECKING:
 
 RelativePath = str  # RFC-5: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]
-CoordinateSystemKey = Tuple[Optional[RelativePath], CoordinateSystemName]
+CoordinateSystemKey = Union[
+    CoordinateSystemName,
+    "Multiscale",
+    Tuple["Multiscale", CoordinateSystemName],
+    "_UnresolvedCoordinateSystemReference",
+]
+
+
+class _UnresolvedCoordinateSystemReference:
+    name: CoordinateSystemName
+    path: str
+
+    def __eq__(self, other: CoordinateSystemKey):
+        if isinstance(other, _UnresolvedCoordinateSystemReference):
+            return self.path == other.path and self.name == other.name
+        # Neither name (str), Multiscale, or both can ever tell us whether that Multiscale is the one from self.path
+        return False
 
 
 class Continuity(enum.Enum):
@@ -155,7 +173,9 @@ class OmeZarrDatasetTransforms(TransformSequence):
 
 @dataclass(slots=True)
 class _TransformGraph:
-    coordinate_systems: Mapping[CoordinateSystemKey, CoordinateSystem]
+    coordinate_systems: Mapping[
+        CoordinateSystemKey, CoordinateSystem
+    ]  # keyed by name only inside Multiscale; keyed by any of the options in Scene._internal_graph
     transforms: Iterable[Transform]
 
     def __post_init__(self):

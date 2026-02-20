@@ -599,6 +599,9 @@ class Multiscale(_ScaleMapping[str, Scale]):
             self.transform_graph = transform_graph
             self.aligned_system = aligned_system
 
+    def __eq__(self, other):
+        return self is other
+
     @staticmethod
     @wraps(BlueprintShapes.apply_to_scale)
     def from_shapes(blueprint: BlueprintShapes, base: Scale, *args, **kwargs):
@@ -736,7 +739,7 @@ class Multiscale(_ScaleMapping[str, Scale]):
         # Default just contains the multiscale's "intrinsic" coordinate system.
         system = CoordinateSystem.without_semantics(list(self.axes()))
         name = f"coordinate_system_{uuid.uuid4()}"
-        graph = _TransformGraph({(None, name): system}, transforms=())
+        graph = _TransformGraph({name: system}, transforms=())
         return graph
 
     def _infer_intrinsic_system(self) -> CoordinateSystemName:
