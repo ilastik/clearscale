@@ -44,21 +44,53 @@ class ValidationError(ValueError):
     pass
 
 
-class Continuity(enum.Enum):
+class CoordinateDomain(enum.Enum):
+    Categorical = enum.auto()
     Discrete = enum.auto()
     Continuous = enum.auto()
 
 
+class ValueDomain(enum.Enum):
+    # Not sure this has any value - does it map directly to concepts from image processing packages?
+    Real = enum.auto()
+    OrderedInteger = enum.auto()
+    SequentialInteger = enum.auto()
+    UnorderedInteger = enum.auto()
+
+
 @dataclass(frozen=True, slots=True)
 class AxisSemantics:
-    continuity: Optional[Continuity] = None
+    coordinate_domain: Optional[CoordinateDomain] = None
+    value_domain: Optional[ValueDomain] = None
     _ome_zarr_type: Optional[str] = None
     _ome_zarr_unit: Optional[str] = None
+    _ome_zarr_long_name: Optional[str] = None
 
 
 class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+    @classmethod
+    def from_ome_zarr(cls, system_dict):
+        semantics_by_axis = []
+        for axis_dict in system_dict["axes"]:
+            coordinates = CoordinateDomain.Discrete if axis_dict.get("discrete") == "true" else None
+            oz_type = axis_dict.get("type")
+            values = ValueDomain.UnorderedInteger if oz_type == "channel" else None
+            semantics_by_axis.append(
+                (
+                    axis_dict["name"],
+                    AxisSemantics(
+                        coordinate_domain=coordinates,
+                        value_domain=values,
+                        _ome_zarr_type=oz_type,
+                        _ome_zarr_unit=axis_dict.get("unit"),
+                        _ome_zarr_long_name=axis_dict.get("longName"),
+                    ),
+                )
+            )
+        return cls(semantics_by_axis)
 
     @classmethod
     def without_semantics(cls, axes: OrderedAxes) -> "CoordinateSystem":
