@@ -43,7 +43,12 @@ from lazyflow.utility.io_util.clearscale._axis_values import (
     AxisKey,
 )
 
-from lazyflow.utility.io_util.clearscale._transforms import _TransformGraph, CoordinateSystemName, CoordinateSystem
+from lazyflow.utility.io_util.clearscale._transforms import (
+    CoordinateSystemName,
+    CoordinateSystem,
+    _NamingTransformGraph,
+    _TransformGraph,
+)
 
 ScaleKey = TypeVar("ScaleKey", bound=str)
 ValueType = TypeVar("ValueType", Shape, Factor, "Scale")
@@ -569,14 +574,14 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
 
 
 class Multiscale(_ScaleMapping[str, Scale]):
-    transform_graph: _TransformGraph  # coord system keys are generally (path, name), here (None, name)
+    transform_graph: _NamingTransformGraph  # coord system keys are generally (path, name), here (None, name)
     aligned_system: CoordinateSystemName
     """The system in which the Scales' shape, spacing, translation etc. are correct."""
 
     def __init__(
         self,
         *args,
-        transform_graph: Optional[_TransformGraph] = None,
+        transform_graph: Optional[_NamingTransformGraph] = None,
         aligned_system: Optional[CoordinateSystemName] = None,
         **kwargs,
     ):
@@ -734,7 +739,7 @@ class Multiscale(_ScaleMapping[str, Scale]):
 
         return result
 
-    def _create_default_graph(self) -> _TransformGraph:
+    def _create_default_graph(self) -> _NamingTransformGraph:
         # TODO: Use self.first_value.unit
         # Default just contains the multiscale's "intrinsic" coordinate system.
         system = CoordinateSystem.without_semantics(list(self.axes()))
