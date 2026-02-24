@@ -151,7 +151,7 @@ class Transform(ABC, Generic[SystemKey]):
             elif name is not None:
                 endpoints[side] = name
 
-        t = ome_dict.get("type")
+        t_type = ome_dict.get("type")
         # OME-Zarr uses coordinate semantics for in-out, i.e.:
         # the transform says how to get the output coordinates of a point given its input coordinates.
         # Image processing tools usually work exactly the other way round: Their transforms say
@@ -159,17 +159,16 @@ class Transform(ABC, Generic[SystemKey]):
         source = endpoints["input"]
         target = endpoints["output"]
 
-        match t:
-            case "identity":
-                return IdentityTransform(source=source, target=target)
-            case "scale":
-                return ScaleTransform(source=source, target=target, payload=ome_dict["scale"])
-            case "translation":
-                return TranslationTransform(source=source, target=target, payload=ome_dict["translation"])
-            case "sequence":
-                return TransformSequence(transforms=[cls.from_ome_zarr(td) for td in ome_dict["transformations"]])
-            case _:
-                raise ValueError(f"Unknown transform type: {t}")
+        if t_type == "identity":
+            return IdentityTransform(source=source, target=target)
+        elif t_type == "scale":
+            return ScaleTransform(source=source, target=target, payload=ome_dict["scale"])
+        elif t_type == "translation":
+            return TranslationTransform(source=source, target=target, payload=ome_dict["translation"])
+        elif t_type == "sequence":
+            return TransformSequence(transforms=[cls.from_ome_zarr(td) for td in ome_dict["transformations"]])
+        else:
+            raise ValueError(f"Unknown transform type: {t_type}")
 
     def to_ome_zarr(self, paths_by_multiscale: PathsByMultiscale) -> Dict[Literal["input", "output"], Dict]:
         if isinstance(self.source, CoordinateSystemName):
