@@ -1,8 +1,8 @@
 import enum
+import functools
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from dataclasses import dataclass, field, replace
-from types import MappingProxyType
 from typing import (
     Optional,
     List,
@@ -14,17 +14,16 @@ from typing import (
     TYPE_CHECKING,
     TypeVar,
     Union,
-    Generic,
     Literal,
     Any,
-    Collection,
+    FrozenSet,
+    Set,
 )
 
 from lazyflow.utility.io_util.clearscale._axis_values import _AxisMapping, AxisKey, OrderedAxes, Spacing, Translation
 
 if TYPE_CHECKING:
     from lazyflow.utility.io_util.clearscale._multiscale import Multiscale
-    from lazyflow.utility.io_util.clearscale._scene import MultiscalesByPath, CoordinateSystemEndpoint
 
     try:
         from typing import Self  # py 3.11+
@@ -37,11 +36,8 @@ if TYPE_CHECKING:
 
 RelativePath = str  # RFC-5: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]
-SystemKey = TypeVar("SystemKey")
-
-
-class ValidationError(ValueError):
-    pass
+NodesByPath = Mapping[RelativePath, "TransformGraphNode"]
+PathsByNode = Mapping["TransformGraphNode", RelativePath]
 
 
 class CoordinateDomain(enum.Enum):
@@ -67,9 +63,68 @@ class AxisSemantics:
     _ome_zarr_long_name: Optional[str] = None
 
 
-class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics]):
+class TransformGraphNode(ABC):
+    """Mixin for classes that can act as an endpoint for a Transform (i.e. a node in a _TransformGraph)"""
+
+    @abstractmethod
+    def as_ref(self, name) -> "CoordinateSystemRef": ...
+
+
+@dataclass(frozen=True)
+class CoordinateSystemRef:
+    # Refs are how we deal with the fact that nodes can be of different types (Multiscale, CoordinateSystem),
+    # or absent entirely (_UnresolvedRef), and node referencing works via object identity and/or name.
+    name: CoordinateSystemName
+    owner: Optional[TransformGraphNode]
+    """The Multiscale or CoordinateSystem that produced this, for identity. None only in _UnresolvedRef"""
+
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and self.name == other.name and self.owner is other.owner
+
+    def to_ome_zarr(self, path: Optional[RelativePath] = None) -> Union[str, Dict[Literal["name", "path"], str]]:
+        if path is None:
+            return self.name
+        return {"name": self.name, "path": path}
+
+
+@dataclass(frozen=True, slots=True)
+class _UnresolvedRef(CoordinateSystemRef):
+    """Degenerate placeholder reference.
+    Enables round-trip serialization and graph traversal without fully resolved scene metadata."""
+
+    path: Optional[RelativePath] = None
+    owner: Optional[TransformGraphNode] = field(default=None, init=False)
+
+    def __post_init__(self):
+        if not self.name and not self.path:
+            raise ValueError("_UnresolvedRef requires at least one of: name, path")
+
+    def to_ome_zarr(self, _=None) -> Dict[Literal["name", "path"], str]:
+        d = {}
+        if self.path:
+            d["path"] = self.path
+        if self.name:
+            d["name"] = self.name
+        return d
+
+
+class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+    def __hash__(self):
+        """(See __eq__)"""
+        return id(self)
+
+    def __eq__(self, other):
+        """Identity-based equality and hash.
+        Even content-identical coordinate systems are not necessarily the same system.
+        For example, most JPEGs have content-identical coordinate systems (x, y, color), but there is no
+        relationship between the coordinate systems of two different JPEG scans of paper."""
+        return self is other  # even content-identical coordinate systems may not be the same system
+
+    def as_ref(self, name: CoordinateSystemName):
+        return CoordinateSystemRef(name, self)
 
     @classmethod
     def from_ome_zarr(cls, system_dict):
@@ -98,20 +153,11 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics]):
 
 
 @dataclass(frozen=True, slots=True)
-class _UnresolvedCoordinateSystemReference:
-    name: Optional[CoordinateSystemName]
-    path: Optional[RelativePath]
-
-
-PathsByMultiscale = Mapping["Multiscale", RelativePath]
-
-
-@dataclass(frozen=True, slots=True)
-class Transform(ABC, Generic[SystemKey]):
-    source: Optional[SystemKey] = field(
+class Transform(ABC):
+    source: Optional[CoordinateSystemRef] = field(
         default=None, kw_only=True
     )  # default required; optional when nested in sequence or bijection (and will be None by default in clearscale when nested)
-    target: Optional[SystemKey] = field(default=None, kw_only=True)
+    target: Optional[CoordinateSystemRef] = field(default=None, kw_only=True)
     source_axes: Optional[OrderedAxes] = field(
         default=None, kw_only=True
     )  # default None; required when nested in byDimension
@@ -121,7 +167,15 @@ class Transform(ABC, Generic[SystemKey]):
     @property
     @abstractmethod
     def is_invertible(self) -> bool: ...
-    def bind(self, source: "Multiscale", target: "Multiscale") -> "Self":
+    @property
+    @abstractmethod
+    def inverse(self) -> Optional["Self"]: ...
+
+    @property
+    def is_bound(self) -> bool:
+        return self.source is not None and self.target is not None
+
+    def bind(self, source: Union[CoordinateSystemRef], target: Union[CoordinateSystemRef]) -> "Self":
         # binding required to use the Transform in a TransformGraph
         return replace(self, source=source, target=target)
 
@@ -130,90 +184,88 @@ class Transform(ABC, Generic[SystemKey]):
         return replace(self, source=None, target=None)
 
     @property
-    def is_bound(self) -> bool:
-        return self.source is not None and self.target is not None
-
-    @property
     def has_unresolved_endpoint(self) -> bool:
-        return isinstance(self.source, _UnresolvedCoordinateSystemReference) or isinstance(
-            self.target, _UnresolvedCoordinateSystemReference
-        )
+        return isinstance(self.source, _UnresolvedRef) or isinstance(self.target, _UnresolvedRef)
 
     @classmethod
-    def from_ome_zarr(cls, ome_dict: Dict) -> "Transform[CoordinateSystemEndpoint]":
+    def from_ome_zarr(cls, ome_dict: Dict) -> "Transform":
         endpoints = {"input": None, "output": None}
         for side in endpoints.keys():
             ref = ome_dict.get(side, {})
             path = ref.get("path")
             name = ref.get("name")
-            if path is not None:
-                endpoints[side] = _UnresolvedCoordinateSystemReference(name, path)
-            elif name is not None:
-                endpoints[side] = name
+            if path or name:
+                endpoints[side] = _UnresolvedRef(path=path, name=name)
+        if bool(endpoints["input"]) != bool(endpoints["output"]):
+            raise ValueError(f"Invalid transform (in/out must either both be undefined or both defined): {ome_dict}")
 
         t_type = ome_dict.get("type")
-        # OME-Zarr uses coordinate semantics for in-out, i.e.:
-        # the transform says how to get the output coordinates of a point given its input coordinates.
-        # Image processing tools usually work exactly the other way round: Their transforms say
-        # what coordinates in the input to look for given some output coordinates they want to resample.
         source = endpoints["input"]
         target = endpoints["output"]
 
         if t_type == "identity":
             return IdentityTransform(source=source, target=target)
-        elif t_type == "scale":
-            return ScaleTransform(source=source, target=target, payload=ome_dict["scale"])
-        elif t_type == "translation":
-            return TranslationTransform(source=source, target=target, payload=ome_dict["translation"])
         elif t_type == "sequence":
             return TransformSequence(transforms=[cls.from_ome_zarr(td) for td in ome_dict["transformations"]])
         else:
             raise ValueError(f"Unknown transform type: {t_type}")
 
-    def to_ome_zarr(self, paths_by_multiscale: PathsByMultiscale) -> Dict[Literal["input", "output"], Dict]:
-        if isinstance(self.source, CoordinateSystemName):
-            input_name = self.source
-            input_path = None
-        elif isinstance(self.source, Multiscale):
-            input_name = self.source.aligned_system
-            input_path = paths_by_multiscale.get(self.source)
-        else:
-            raise ValueError("wat? using a wrong type for transform endpoint")
-        # TODO: actually make dict (this method should be an internal helper and to_ome_zarr is on each subclass)
-        raise NotImplementedError()
+    def _get_ome_zarr_inout(
+        self, paths_by_node: Optional[PathsByNode] = None
+    ) -> Dict[Literal["input", "output"], Dict]:
+        # TODO: Use in subclass.to_ome_zarr
+        # Generate the "input" and "output" of the ome-zarr transform - other fields added per-subclass
+        paths_by_node = paths_by_node or {}
+        input_dict = {}
+        output_dict = {}
+        for ms, path in paths_by_node.items():
+            if self.source.owner is ms:
+                input_dict = self.source.to_ome_zarr(path)
+            if self.target.owner is ms:
+                output_dict = self.target.to_ome_zarr(path)
+        input_dict = input_dict or self.source.to_ome_zarr()
+        output_dict = output_dict or self.target.to_ome_zarr()
+        return {"input": input_dict, "output": output_dict}
 
-    def resolved_with(self, multiscales: MultiscalesByPath) -> Tuple["Transform", Dict[Multiscale, RelativePath]]:
-        if not self.has_unresolved_endpoint:
-            return self, {}
-        used_multiscales: Dict[Multiscale, RelativePath] = {}
-        new_source = self.source
-        if isinstance(self.source, _UnresolvedCoordinateSystemReference):
-            maybe_match = self._extract_multiscale_for_ref(self.source, multiscales)
-            if maybe_match is not None:
-                new_source = maybe_match[0]
-                used_multiscales[new_source] = maybe_match[1]
-        new_target = self.target
-        if isinstance(self.target, _UnresolvedCoordinateSystemReference):
-            maybe_match = self._extract_multiscale_for_ref(self.target, multiscales)
-            if maybe_match is not None:
-                new_target = maybe_match[0]
-                used_multiscales[new_target] = maybe_match[1]
-        return replace(self, source=new_source, target=new_target), used_multiscales
+    def with_resolved(
+        self, path_nodes: Optional[NodesByPath], *, named_refs: Optional[Set[CoordinateSystemRef]]
+    ) -> "Self":
+        """
+        Resolving name-only references takes a lot of care: coordinate system names are not unique,
+        and there is no robust way to determine if a system with the expected name is actually the specific
+        system the transform referenced.
+        Using this (or wrapping its usage) with named_refs should be avoided, or force explicit intention.
+        """
+        if not self.has_unresolved_endpoint or (not path_nodes and not named_refs):
+            return self
+        path_nodes = path_nodes or {}
+        named_refs = named_refs or {}
+        new_source = self._resolve_ref(self.source, path_nodes, named_refs)
+        new_target = self._resolve_ref(self.target, path_nodes, named_refs)
+        if new_source is self.source and new_target is self.target:
+            return self
+        return replace(self, source=new_source, target=new_target)
 
     @staticmethod
-    def _extract_multiscale_for_ref(
-        ref: _UnresolvedCoordinateSystemReference, multiscales: MultiscalesByPath
-    ) -> Optional[Tuple[Multiscale, RelativePath]]:
-        if ref.path not in multiscales:
-            return None
-        try:
-            # TODO: settle method name and implement (whereby calling with name == self.aligned_system returns self?)
-            return multiscales[ref.path].aligned_with(ref.name)
-        except ValueError as e:
-            raise ValueError(
-                f"Multiscale provided for path '{ref.path}' does not have a coordinate system '{ref.name}' as "
-                f"expected for transform."
-            ) from e
+    def _resolve_ref(
+        ref: CoordinateSystemRef, path_nodes: NodesByPath, named_refs: Set[CoordinateSystemRef]
+    ) -> CoordinateSystemRef:
+        if not isinstance(ref, _UnresolvedRef):
+            return ref
+        if ref.path:
+            new_node = path_nodes.get(ref.path)
+            if new_node is not None:
+                return new_node.as_ref(ref.name)
+        if ref.name:
+            name_matches = [other for other in named_refs if other.name == ref.name]
+            if len(name_matches) > 1:
+                raise ValueError(
+                    f"Cannot resolve transform: Received multiple coordinate systems named '{ref.name}': "
+                    ", ".join([r.name for r in named_refs])
+                )
+            elif name_matches:
+                return name_matches[0]
+        return ref
 
     # Import methods: These handle normalizing common image processing packages' conventions for
     # computing/providing transforms to OME-Zarr's convention.
@@ -229,19 +281,21 @@ class Transform(ABC, Generic[SystemKey]):
 
 @dataclass(frozen=True, slots=True)
 class IdentityTransform(Transform):
-    ome_zarr_path: Optional[str] = (
-        None  # ome-zarr rfc-5: transform["path"] (e.g. for displacement); required for e.g. displacement
-    )
-
     @property
     def is_invertible(self) -> bool:
         return True
+
+    @property
+    def inverse(self) -> "IdentityTransform":
+        return replace(self, source=self.target, target=self.source)
 
 
 @dataclass(frozen=True, slots=True)
 class ScaleTransform(Transform):
     spacing: Spacing
-    ome_zarr_path: Optional[str] = None
+    ome_zarr_path: Optional[str] = (
+        None  # ome-zarr rfc-5: transform["path"] (e.g. for displacement); required for e.g. displacement
+    )
 
     @property
     def is_invertible(self) -> bool:
@@ -300,50 +354,84 @@ class OmeZarrDatasetTransforms(TransformSequence):
 
 
 @dataclass(frozen=True, slots=True)
-class _TransformGraph(Generic[SystemKey]):
-    coordinate_systems: Mapping[SystemKey, CoordinateSystem]
-    transforms: Iterable[Transform[SystemKey]]
+class _TransformGraph:
+    # Graph was originally supposed to primarily just be Mapping[CoordinateSystemName, CoordinateSystem]
+    # with Graph._transforms acting as a hidden store for .path_between
+    # But this doesn't work out: coordinate systems won't be uniquely named across scenes. Multiple multiscales
+    # will likely have systems named "physical". So (Multiscale, CoordinateSystemName) as a combined key?
+    # This isn't sufficient: Transform source/target need to be lazy because Scene cannot know all
+    # Multiscales when first loading OME-Zarr scene metadata.
+    # So there needs to be an "unresolved multiscale" node key.
+    # Plus, both multiscales and scenes are allowed to define coordinate systems that act as source/target for
+    # transforms defined elsewhere. In this case, we only know a system name, and the fact that it doesn't appear
+    # in any transform the current multiscale/scene is parsing.
+    # So there needs to be a name-only "unresolved system" node key.
+    transforms: Iterable[Transform]
+    isolated_system_refs: Optional[FrozenSet[CoordinateSystemRef]] = None
+    # isolated_system_refs should only be used to deal with ome-zarr multiscales or scenes that define
+    # coordinate systems without defining any transforms that reference them.
+    # _TransformGraph effectively contains one true graph defined by transform edges;
+    # which may be disjunct and may contain unresolved nodes; plus a set of known-unconnected coordinate system nodes.
+
+    @functools.cached_property
+    def coordinate_system_refs(self) -> FrozenSet[CoordinateSystemRef]:
+        return frozenset(ref for ref in self.node_refs if isinstance(ref.owner, CoordinateSystem))
+
+    @functools.cached_property
+    def multiscales(self) -> FrozenSet["Multiscale"]:
+        from ._multiscale import Multiscale  # kinda unneeded (can't make a graph before importing Multiscale)
+
+        return frozenset(ref.owner for ref in self.node_refs if isinstance(ref.owner, Multiscale))
+
+    @functools.cached_property
+    def node_refs(self) -> FrozenSet[CoordinateSystemRef]:
+        refs = set()
+        for t in self.transforms:
+            refs.add(t.source)
+            refs.add(t.target)
+        return frozenset(refs)
 
     def __post_init__(self):
-        if any(not key for key in self.coordinate_systems):
-            raise ValueError(
-                f"All coordinate systems must have a name or reference. Received: {list(self.coordinate_systems.keys())}"
-            )
-        object.__setattr__(self, "coordinate_systems", MappingProxyType(dict(self.coordinate_systems)))
+        bad = [t for t in self.transforms if t.source is None or t.target is None]
+        if bad:
+            raise ValueError(f"Graph transforms must have bound endpoints: {bad}")
         object.__setattr__(self, "transforms", tuple(self.transforms))
 
     def path_between(
         self,
-        source: SystemKey,
-        target: SystemKey,
+        source: CoordinateSystemRef,
+        target: CoordinateSystemRef,
         allow_inverse=True,
         validate_rfc5_connectedness=False,
-    ) -> list[Transform]:
+    ) -> Optional[list[Transform]]:
         if source == target:
             return [IdentityTransform(source=source, target=target)]
 
-        # Adjacency
+        # Adjacency - could be worth caching for performance
         graph = defaultdict(list)
         for t in self.transforms:
             graph[t.source].append((t.target, t, False))  # (dest, transform, is_inverse)
             if validate_rfc5_connectedness or (allow_inverse and t.is_invertible):
                 graph[t.target].append((t.source, t, True))
 
-        # BFS
-        path = []
-        queue = deque([(source, path)])
-        visited = {source}
+        # BFS tracking (predecessor, transform) instead of copying paths
+        visited = {source: None}  # node -> (predecessor, transform)
+        queue = deque([source])
         while queue:
-            node, path = queue.popleft()
+            node = queue.popleft()
             if node == target:
                 break
             for neighbor, transform, is_inverse in graph[node]:
                 if neighbor not in visited:
-                    visited.add(neighbor)
-                    new_path = path + [transform.inverse() if is_inverse else transform]
-                    queue.append((neighbor, new_path))
+                    visited[neighbor] = (node, transform.inverse() if is_inverse else transform)
+                    queue.append(neighbor)
+
+        # Reconstruct path
+        path = []
+        node = target
+        while visited[node] is not None:
+            predecessor, transform = visited[node]
+            path.append(transform)
+            node = predecessor
+        path.reverse()
         return path
-
-
-_NamingTransformGraph = _TransformGraph[CoordinateSystemName]
-_ReferencingTransformGraph = _TransformGraph[CoordinateSystemEndpoint]

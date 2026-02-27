@@ -22,6 +22,7 @@ from typing import (
     Any,
     TYPE_CHECKING,
     Hashable,
+    FrozenSet,
 )
 
 from lazyflow.utility.io_util.clearscale import (
@@ -42,12 +43,14 @@ from lazyflow.utility.io_util.clearscale._axis_values import (
     _AxisValues,
     AxisKey,
 )
-
 from lazyflow.utility.io_util.clearscale._transforms import (
     CoordinateSystemName,
     CoordinateSystem,
-    _NamingTransformGraph,
     _TransformGraph,
+    CoordinateSystemRef,
+    IdentityTransform,
+    TransformGraphNode,
+    Transform,
 )
 
 ScaleKey = TypeVar("ScaleKey", bound=str)
@@ -573,16 +576,20 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         return self._with_values([factor.with_identity(axes) for factor in self.values()])
 
 
-class Multiscale(_ScaleMapping[str, Scale]):
-    transform_graph: _NamingTransformGraph  # coord system keys are generally (path, name), here (None, name)
-    aligned_system: CoordinateSystemName
+class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
+    transform_graph: _TransformGraph
+    intrinsic_ref: CoordinateSystemRef
     """The system in which the Scales' shape, spacing, translation etc. are correct."""
+    unresolved_transforms: FrozenSet[Transform]
+    _ome_zarr_array_sys_refs: Optional[FrozenSet[CoordinateSystemRef]]  # one CoordinateSystemRef per dataset path
+    _ome_zarr_intermediate_sys_ref: Optional[
+        CoordinateSystemRef
+    ]  # TODO: the system after dataset-level but before multiscale-level transforms
 
     def __init__(
         self,
         *args,
-        transform_graph: Optional[_NamingTransformGraph] = None,
-        aligned_system: Optional[CoordinateSystemName] = None,
+        transform_graph: Optional[_TransformGraph] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -592,20 +599,8 @@ class Multiscale(_ScaleMapping[str, Scale]):
                     f"All Scales must have identical axes. Scale at '{key}' has {list(scale.shape.keys())}"
                 )
 
-        if transform_graph is None:
-            if aligned_system:
-                raise ValueError(f"Cannot align to undefined coordinate system '{aligned_system}'.")
-            self.transform_graph = self._create_default_graph()
-            self.aligned_system = next(iter(self.transform_graph.coordinate_systems.values())).name
-        elif aligned_system is None:
-            self.transform_graph = transform_graph
-            self.aligned_system = self._infer_intrinsic_system()
-        else:
-            self.transform_graph = transform_graph
-            self.aligned_system = aligned_system
-
-    def __eq__(self, other):
-        return self is other
+        self.transform_graph = transform_graph or self._get_default_graph()
+        self.intrinsic_ref = next(iter(self.transform_graph.isolated_system_refs))
 
     @staticmethod
     @wraps(BlueprintShapes.apply_to_scale)
@@ -618,9 +613,14 @@ class Multiscale(_ScaleMapping[str, Scale]):
         return blueprint.apply_to_scale(base, *args, **kwargs)
 
     @classmethod
-    def from_ome_zarr(cls, multiscale_dict: _ome_zarr.OME_ZARR_MULTISCALE, get_shape: Callable[[str], Tuple[int, ...]]):
-        # Needs to reject transforms from multiscale["coordinateTransformations"]
-        # whose output references names not in multiscale["coordinateSystems"].
+    def from_ome_zarr(
+        cls,
+        multiscale_dict: _ome_zarr.OME_ZARR_MULTISCALE,
+        get_shape: Callable[[str], Tuple[int, ...]],
+        accept_dangling_transforms_and_isolated_systems=False,
+    ):
+        # TODO: Explicit parameter for incuding multiscale["coordinateTransformations"]
+        # whose output references names not in multiscale["coordinateSystems"]?
         # (input is required to be the intrinsic system by spec).
         # Or maybe we can keep them in .external_transforms so they can be explicitly resolved and get paths assigned by best-guessing in Scene.
         #
@@ -739,14 +739,21 @@ class Multiscale(_ScaleMapping[str, Scale]):
 
         return result
 
-    def _create_default_graph(self) -> _NamingTransformGraph:
-        # TODO: Use self.first_value.unit
-        # Default just contains the multiscale's "intrinsic" coordinate system.
-        system = CoordinateSystem.without_semantics(list(self.axes()))
-        name = f"coordinate_system_{uuid.uuid4()}"
-        graph = _TransformGraph({name: system}, transforms=())
-        return graph
+    @property
+    def coordinate_system(self) -> CoordinateSystem:
+        assert isinstance(self.intrinsic_ref.owner, CoordinateSystem), "should always have a coord system"
+        return self.intrinsic_ref.owner
 
-    def _infer_intrinsic_system(self) -> CoordinateSystemName:
-        # TODO: intrinsic system must match self.axes; could also check units
-        raise NotImplementedError()
+    def _get_default_graph(self):
+        intrinsic_sys = CoordinateSystem.without_semantics(list(self.axes()))
+        intrinsic_name = f"ms-{uuid.uuid4()}"
+        return _TransformGraph(
+            transforms=frozenset(), isolated_system_refs=frozenset((intrinsic_sys.as_ref(intrinsic_name),))
+        )
+
+    def as_ref(self, name: CoordinateSystemName):
+        return CoordinateSystemRef(name, self)
+
+    def get_interface_transform(self):
+        """Allows a scene to traverse into this subgraph"""
+        return IdentityTransform(source=self.intrinsic_ref, target=self.as_ref(self.intrinsic_ref.name))

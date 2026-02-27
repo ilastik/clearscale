@@ -14,10 +14,11 @@ from typing import (
     List,
     Literal,
     TYPE_CHECKING,
+    Hashable,
 )
 
 AxisKey = TypeVar("AxisKey", bound=str)
-AxisMappedAny = TypeVar("AxisMappedAny")
+AxisMappedHashable = TypeVar("AxisMappedHashable", bound=Hashable)
 AxisMappedPrimitive = TypeVar("AxisMappedPrimitive", int, float, str)
 Axes = Union[Container[AxisKey], str]
 OrderedAxes = Sequence[AxisKey]
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
             Self = _Self
 
 
-class _AxisMapping(ABCMapping[AxisKey, AxisMappedAny], Generic[AxisKey, AxisMappedAny]):
+class _AxisMapping(ABCMapping[AxisKey, AxisMappedHashable], Generic[AxisKey, AxisMappedHashable]):
     """
     Base class for "tagged dictionaries" that map axis keys to values (like shape, resolution, unit).
     Instantiation and usage of the subclasses should work pretty much like usual dicts, but with
@@ -82,6 +83,9 @@ class _AxisMapping(ABCMapping[AxisKey, AxisMappedAny], Generic[AxisKey, AxisMapp
 
     def items(self):
         return self._mapping.items()
+
+    def __hash__(self):
+        return hash(tuple(self._mapping.items()))
 
     def __eq__(self, other):
         if isinstance(other, _AxisMapping) and self.__class__ is other.__class__:
