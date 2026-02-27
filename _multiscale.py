@@ -710,6 +710,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         self,
         *,
         version: Literal["0.4", "0.5"],
+        name: Optional[str] = None,
         axis_types: Union[None, Literal["infer"], Mapping[str, Literal["space", "time", "channel"]]] = None,
     ) -> Dict[str, Any]:
         _ome_zarr.validate_multiscale(self)
@@ -720,6 +721,9 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         ome_axes = _ome_zarr.build_axis_dicts(axes, first_scale.unit, axis_types)
 
         result = {"version": version, "axes": ome_axes, "datasets": []}
+
+        if name:
+            result["name"] = name
 
         # If single-scale, do not include global (multiscale) coordinateTransformations
         scaled_axes = self.scaled_axes() if len(self) > 1 else tuple(axes)

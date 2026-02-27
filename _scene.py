@@ -16,6 +16,7 @@ from ._transforms import (
 )
 
 MultiscalesByPath = Mapping[RelativePath, Multiscale]
+PathsByMultiscale = Mapping[Multiscale, RelativePath]
 UserFacingCoordinateSystemKey = Union[
     CoordinateSystemName,
     Multiscale,
@@ -142,6 +143,27 @@ class Scene:
             _external_multiscales=updated_external,
             _unresolved_transforms=frozenset(remaining_unresolved),
         )
+
+    def to_ome_zarr(self, version: str = "rfc-5", paths: Optional[PathsByMultiscale] = None) -> Dict:
+        coordinate_system_dicts = []
+        for ref in self._resolved_graph.isolated_system_refs:
+            coordinate_system_dicts.append(ref.owner.to_ome_zarr(ref.name))
+
+        all_paths_by_multiscale = dict(self._external_multiscales)
+        if paths:
+            for ms, path in paths.items():
+                if path:
+                    all_paths_by_multiscale[ms] = path
+
+        coordinate_transformations_dicts = [
+            t.to_ome_zarr(version, for_scene=True, paths_by_node=all_paths_by_multiscale)
+            for t in self._graph_incl_unresolved.transforms
+        ]
+
+        result: Dict = {"coordinateTransformations": coordinate_transformations_dicts}
+        if coordinate_system_dicts:
+            result["coordinateSystems"] = coordinate_system_dicts
+        return result
 
     def transforms_between(
         self, source: UserFacingCoordinateSystemKey, target: UserFacingCoordinateSystemKey, include_children=False
