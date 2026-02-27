@@ -126,7 +126,10 @@ class Scale:
         ):
             raise ValueError(
                 f"Tried to set up invalid scale: Axiskeys differ "
-                f"(shape={self.shape.keys()}, spacing={self.spacing.keys()}, unit={self.unit.keys()})"
+                f"(shape={list(self.shape.keys())}, "
+                f"spacing={list(self.spacing.keys())}, "
+                f"translation={list(self.translation.keys())}, "
+                f"unit={list(self.unit.keys())})"
             )
 
     def has_pixel_size(self):
@@ -665,17 +668,17 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
 
             size = scale_dict["size"]
             if len(size) != 3:
-                raise ValueError(f"Scale '{scale_key}' must have 'size' as [x, y, z]")
+                raise ValueError(f"Scale {scale_key!r} must have 'size' as [x, y, z]")
             shape = Shape(zip(axis_keys, [num_channels] + list(reversed(size))))
 
             resolution = scale_dict["resolution"]
             if len(resolution) != 3:
-                raise ValueError(f"Scale '{scale_key}' must have 'resolution' as [x, y, z]")
+                raise ValueError(f"Scale {scale_key!r} must have 'resolution' as [x, y, z]")
             spacing = Spacing(zip(axis_keys, [1.0] + list(reversed(resolution))))
 
             voxel_offset = scale_dict.get("voxel_offset", [0, 0, 0])
             if len(voxel_offset) != 3:
-                warnings.warn(f"Scale '{scale_key}' has invalid voxel_offset. Using [0, 0, 0].")
+                warnings.warn(f"Scale {scale_key!r} has invalid voxel_offset. Using [0, 0, 0].")
                 voxel_offset = [0, 0, 0]
             offset = PixelOffset(zip(axis_keys, [0] + list(reversed(voxel_offset))))
             translation = offset.to_physical(spacing)

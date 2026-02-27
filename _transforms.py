@@ -224,7 +224,7 @@ class Transform(ABC):
             if path or name:
                 endpoints[side] = _UnresolvedRef(path=path, name=name)
         if bool(endpoints["input"]) != bool(endpoints["output"]):
-            raise ValueError(f"Invalid transform (in/out must either both be undefined or both defined): {ome_dict}")
+            raise ValueError(f"Invalid transform (in/out must either both be undefined or both defined): {ome_dict!r}")
 
         t_type = ome_dict.get("type")
         source = endpoints["input"]
@@ -235,7 +235,7 @@ class Transform(ABC):
         elif t_type == "sequence":
             return TransformSequence(transforms=[cls.from_ome_zarr(td) for td in ome_dict["transformations"]])
         else:
-            raise ValueError(f"Unknown transform type: {t_type}")
+            raise ValueError(f"Unknown transform type: {t_type!r}")
 
     @abstractmethod
     def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict: ...
@@ -380,7 +380,7 @@ class TransformSequence(Transform):
         if len(transforms) > 1:
             for i, (a, b) in enumerate(zip(transforms, transforms[1:])):
                 if a.target is not None and b.source is not None and a.target != b.source:
-                    raise ValueError(f"Transform chain broken at position {i}→{i+1}: {a.target} != {b.source}")
+                    raise ValueError(f"Transform chain broken at position {i}→{i+1}: {a.target!r} != {b.source!r}")
         super().__init__(source=transforms[0].source, target=transforms[-1].target)
         object.__setattr__(self, "_children", tuple(transforms))
 
