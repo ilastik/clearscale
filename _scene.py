@@ -1,7 +1,6 @@
 import functools
-import itertools
 from dataclasses import dataclass, replace
-from typing import Mapping, Dict, Union, FrozenSet, Tuple, Literal
+from typing import Mapping, Dict, Union, Tuple, Literal
 from typing import Optional, List
 
 from lazyflow.utility.io_util.clearscale._multiscale import Multiscale
@@ -17,6 +16,7 @@ from ._transforms import (
 
 MultiscalesByPath = Mapping[RelativePath, Multiscale]
 PathsByMultiscale = Mapping[Multiscale, RelativePath]
+CoordinateSystemsByName = Mapping[CoordinateSystemName, CoordinateSystem]
 UserFacingCoordinateSystemKey = Union[
     CoordinateSystemName,
     Multiscale,
@@ -27,20 +27,17 @@ UserFacingCoordinateSystemKey = Union[
 
 @dataclass(frozen=True, slots=True)
 class Scene:
-    _resolved_graph: _TransformGraph  # only fully resolved transforms get to go here
+    _internal_graph: _TransformGraph
     _external_multiscales: Mapping[Multiscale, Optional[RelativePath]]  # remembers paths for to_ome_zarr
-    _unresolved_transforms: FrozenSet[
-        Transform
-    ]  # transforms with either input or output being unresolved reference; needed for ome-zarr scene
 
     @property
     def is_fully_resolved(self) -> bool:
-        return len(self._unresolved_transforms) == 0
+        return len(self._internal_graph.unresolved_transforms) == 0
 
     @property
     def unresolved_paths(self) -> List[RelativePath]:
         refs = set()
-        for t in self._unresolved_transforms:
+        for t in self._internal_graph.unresolved_transforms:
             refs.add(t.source)
             refs.add(t.target)
         paths = {ref.path for ref in refs}
@@ -50,114 +47,91 @@ class Scene:
 
     @functools.cached_property
     def _full_graph(self):
-        all_transforms = list(self._resolved_graph.transforms) + list(self._unresolved_transforms)
+        all_transforms = list(self._internal_graph.transforms)
         for ms in self._external_multiscales:
             all_transforms.extend(ms.get_interface_transform())
             all_transforms.extend(ms.transform_graph.transforms)
         return _TransformGraph(all_transforms)
 
-    @functools.cached_property
-    def _graph_incl_unresolved(self):
-        return _TransformGraph(list(self._resolved_graph.transforms) + list(self._unresolved_transforms))
-
     @classmethod
-    def from_ome_zarr(cls, scene_attrs: Dict, multiscales: Optional[MultiscalesByPath] = None):
-        # TODO: optional multiscales parameter could only ever be useful if user pre-parses scene and resolves some multiscales
-        # better would be an optional callable get_multiscale_meta; where the default provided implementation simply chooses
-        # the first entry in the multiscales-array at the path.
-        # Problem: will also need get_shape for Multiscale.from_ome_zarr :)
-        isolated_systems: List[CoordinateSystemRef] = []
-        seen_names = []
-        for system_dict in scene_attrs.get("coordinateSystems", []):
-            system = CoordinateSystem.from_ome_zarr(system_dict)
-            name: CoordinateSystemName = system_dict.get("name")
-            if not name:
-                raise ValueError(f"Invalid metadata: Coordinate system has no name. Received: {system_dict}")
-            if name in seen_names:
-                raise ValueError(
-                    f'Invalid metadata: Multiple coordinate systems named "{name}". Received: {scene_attrs}'
-                )
-            isolated_systems.append(system.as_ref(name))
-            seen_names.append(name)
-
-        unresolved_transforms: List[Transform] = []
-        resolved_transforms: List[Transform] = []
-        for transform_dict in scene_attrs.get("coordinateTransformations", []):
-            t = Transform.from_ome_zarr(transform_dict).with_resolved(multiscales, named_refs=set(isolated_systems))
-            if not t.is_bound:
-                raise ValueError(
-                    f'Transform input and output must have "path", "name" or both. Received: {transform_dict}'
-                )
-            if not t.has_unresolved_endpoint:
-                resolved_transforms.append(t)
-            else:
-                unresolved_transforms.append(t)
-
-        external_multiscales: Dict[Multiscale, RelativePath] = {v: k for k, v in multiscales}
-        graph = _TransformGraph(resolved_transforms, isolated_system_refs=frozenset(isolated_systems))
-        return cls(graph, external_multiscales, frozenset(unresolved_transforms))
+    def from_ome_zarr(cls, scene_attrs: Dict):
+        # TODO: accept an optional callable get_multiscale_meta;
+        #  where the default provided implementation simply chooses
+        #  the first entry in the multiscales-array at the path.
+        #  Problem: will also need get_shape for Multiscale.from_ome_zarr :)
+        transform_dicts = scene_attrs.get("coordinateTransformations", [])
+        system_dicts = scene_attrs.get("coordinateSystems", [])
+        graph = _TransformGraph.from_ome_zarr(transform_dicts, system_dicts)
+        return cls(graph, _external_multiscales={})
 
     def with_resolved(
         self,
-        multiscales: Optional[MultiscalesByPath],
-        *,
-        connect_to_child_isolated_systems_and_dangling_transforms=False,
+        multiscales: Optional[MultiscalesByPath] = None,
+        coordinate_systems: Optional[CoordinateSystemsByName] = None,  # not sure if really needed
     ) -> "Scene":
         multiscales = multiscales if multiscales else {}
+        coordinate_systems = coordinate_systems if coordinate_systems else {}
+        if not multiscales and not coordinate_systems:
+            return self
         updated_external: Dict[Multiscale, Optional[RelativePath]] = dict(self._external_multiscales)
-        # Invert for quicker lookup.
-        # Keeps only the last path if multiple paths are provided for the same Multiscale.
-        # Presumably they're all equally valid (pointing to copies I guess?).
-        multiscales_inverted: Optional[Dict[Multiscale, RelativePath]] = {v: k for k, v in multiscales.items()}
-        all_isolated_systems = set(self._resolved_graph.isolated_system_refs)  # we mainly do lookups
-        transforms_to_resolve = list(self._unresolved_transforms)  # we mainly iterate
-        if connect_to_child_isolated_systems_and_dangling_transforms:
-            # Hopefully this flag name makes it clear enough you're really not supposed to do this.
-            all_multiscales = itertools.chain(multiscales.values(), self._resolved_graph.multiscales)
-            for ms in all_multiscales:
-                all_isolated_systems.update(ms.transform_graph.isolated_system_refs)
-                transforms_to_resolve.extend(ms.unresolved_transforms)
-        resolved_transforms = list(self._resolved_graph.transforms)
+        # Invert for quicker lookup. Keeps only the last path if multiple for the same Multiscale.
+        # Presumably they're all equally valid. Pointing to copies I guess?
+        paths_by_multiscale: Optional[Dict[Multiscale, RelativePath]] = {v: k for k, v in multiscales.items()}
+        coordinate_system_refs = set(sys.as_ref(name) for name, sys in coordinate_systems.items())
         remaining_unresolved = []
-        for t in transforms_to_resolve:
-            maybe_resolved_t = t.with_resolved(multiscales, named_refs=all_isolated_systems)
+        remaining_isolated = set(self._internal_graph.isolated_system_refs)
+        for t in self._internal_graph.unresolved_transforms:
+            maybe_resolved_t = t.with_resolved(multiscales, named_refs=coordinate_system_refs)
             if maybe_resolved_t.has_unresolved_endpoint:
                 remaining_unresolved.append(maybe_resolved_t)
-            else:
-                resolved_transforms.append(maybe_resolved_t)
             for ref in (maybe_resolved_t.source, maybe_resolved_t.target):
-                assert ref is not None, "Should never have unbound refs in scene transforms"
+                assert ref is not None, f"Should never have unbound refs in scene transforms {t!r}"
+                remaining_isolated.discard(ref)
                 if not isinstance(ref.owner, Multiscale) or ref.owner in updated_external:
                     continue
-                if connect_to_child_isolated_systems_and_dangling_transforms and ref.owner not in multiscales_inverted:
-                    # ref.owner was connected through a name-only reference and not originally defined in this Scene
-                    continue
                 assert (
-                    ref.owner in multiscales_inverted
-                ), f"If this multiscale wasn't already known and wasn't just provided, then where did it come from? {ref.owner}."
-                updated_external[ref.owner] = multiscales_inverted[ref.owner]
-        graph = replace(self._resolved_graph, transforms=resolved_transforms)
+                    ref.owner in paths_by_multiscale
+                ), f"If this multiscale wasn't already known and wasn't just provided, then where did it come from? {ref!r}."
+                updated_external[ref.owner] = paths_by_multiscale[ref.owner]
+        graph = replace(
+            self._internal_graph,
+            unresolved_transforms=tuple(remaining_unresolved),
+            isolated_system_refs=frozenset(remaining_isolated),
+        )
         return replace(
             self,
-            _resolved_graph=graph,
+            _internal_graph=graph,
             _external_multiscales=updated_external,
-            _unresolved_transforms=frozenset(remaining_unresolved),
         )
+
+    def extract_unresolved_transforms_by_name_matching(
+        self, multiscales: Optional[MultiscalesByPath] = None
+    ) -> Tuple["Scene", Dict[Multiscale, Multiscale]]:
+        # TODO: Similar to with_resolved. Try to resolve unresolved transforms and isolated systems
+        #  from this scene, from all of its external_multiscales, and from all provided multiscales.
+        #  Separate function because this explicitly breaks round-trip:
+        #  If any new systems or transforms resolve, they are merged into this Scene and "removed"
+        #  from the respective Multiscale. Multiscales are immutable, so "removal" means making a new one.
+        #  Hence the tuple return: The second value is a mapping of old Multiscales to modified Multiscales.
+        raise NotImplementedError()
 
     def to_ome_zarr(self, version: str = "rfc-5", paths: Optional[PathsByMultiscale] = None) -> Dict:
         coordinate_system_dicts = []
-        for ref in self._resolved_graph.isolated_system_refs:
-            coordinate_system_dicts.append(ref.owner.to_ome_zarr(ref.name))
+        for ref in self._internal_graph.all_system_refs:
+            coordinate_system_dicts.extend(ref.owner.to_ome_zarr(ref.name))
 
-        all_paths_by_multiscale = dict(self._external_multiscales)
-        if paths:
-            for ms, path in paths.items():
-                if path:
-                    all_paths_by_multiscale[ms] = path
+        all_paths_by_multiscale = {}
+        for ms, path in self._external_multiscales.items():
+            if path:
+                all_paths_by_multiscale[ms] = path
+        paths = paths if paths else {}
+        for ms, path in paths.items():
+            if path:
+                all_paths_by_multiscale[ms] = path
 
         coordinate_transformations_dicts = [
             t.to_ome_zarr(version, for_scene=True, paths_by_node=all_paths_by_multiscale)
-            for t in self._graph_incl_unresolved.transforms
+            for t in self._internal_graph.transforms
         ]
 
         result: Dict = {"coordinateTransformations": coordinate_transformations_dicts}
@@ -174,7 +148,7 @@ class Scene:
             return None
         if include_children:
             return self._full_graph.path_between(source_ref, target_ref)
-        return self._graph_incl_unresolved.path_between(source_ref, target_ref)
+        return self._internal_graph.path_between(source_ref, target_ref)
 
     def _get_ref_for_key(
         self, key: UserFacingCoordinateSystemKey, include_children: bool
@@ -193,12 +167,12 @@ class Scene:
         if isinstance(key, CoordinateSystemName):
             # Purely matching by name could bring up refs to any TransformGraphNode
             # (Multiscale, CoordinateSystem, or None in case of _UnresolvedRef)
-            own_systems = self._resolved_graph.coordinate_system_refs
+            own_systems = self._internal_graph.connected_system_refs
             for ref in own_systems:  # Expected: These CoordinateSystems can only be retrieved by name
                 if ref.name == key:
                     return ref
             # Best effort: Maybe the name is still unique among unresolved refs or multiscales
-            all_refs = self._full_graph.node_refs if include_children else self._graph_incl_unresolved.node_refs
+            all_refs = self._full_graph.node_refs if include_children else self._internal_graph.node_refs
             name_matches = [ref for ref in all_refs if ref.name == key]
             if len(name_matches) > 1:
                 raise ValueError(

@@ -17,6 +17,7 @@ from typing import (
     Any,
     FrozenSet,
     Set,
+    List,
 )
 
 from lazyflow.utility.io_util.clearscale._axis_values import _AxisMapping, AxisKey, OrderedAxes, Spacing, Translation
@@ -238,9 +239,9 @@ class Transform(ABC):
             raise ValueError(f"Unknown transform type: {t_type!r}")
 
     @abstractmethod
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict: ...
-
-    """Should use _get_ome_zarr_inout for the shared fields and add the transform-specific ones."""
+    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
+        """Should use _get_ome_zarr_inout for the shared fields and add the transform-specific ones."""
+        pass
 
     def _get_ome_zarr_inout(
         self, version: str, for_scene: bool, paths_by_node: Optional[PathsByNode]
@@ -430,20 +431,21 @@ class _TransformGraph:
     # So there needs to be a name-only "unresolved system" node key.
     transforms: Iterable[Transform]
     isolated_system_refs: Optional[FrozenSet[CoordinateSystemRef]] = None
-    # isolated_system_refs should only be used to deal with ome-zarr multiscales or scenes that define
-    # coordinate systems without defining any transforms that reference them.
-    # _TransformGraph effectively contains one true graph defined by transform edges;
-    # which may be disjunct and may contain unresolved nodes; plus a set of known-unconnected coordinate system nodes.
+    unresolved_transforms: Optional[Iterable[Transform]] = None
+    # isolated_system_refs and unresolved_transforms are used to deal with ome-zarr multiscales
+    # or scenes that define coordinate systems without defining any transforms that reference them;
+    # and respectively with transforms whose source/target metadata have not been loaded into memory yet.
+    # `unresolved_transforms` should be a SUBSET of `transforms`. It is implemented as a parameter
+    # rather than a cached_property only because it is more efficient for Scene.from_ome_zarr to build it
+    # as it iterates the metadata.
 
     @functools.cached_property
-    def coordinate_system_refs(self) -> FrozenSet[CoordinateSystemRef]:
+    def all_system_refs(self) -> FrozenSet[CoordinateSystemRef]:
+        return self.connected_system_refs | self.isolated_system_refs
+
+    @functools.cached_property
+    def connected_system_refs(self) -> FrozenSet[CoordinateSystemRef]:
         return frozenset(ref for ref in self.node_refs if isinstance(ref.owner, CoordinateSystem))
-
-    @functools.cached_property
-    def multiscales(self) -> FrozenSet["Multiscale"]:
-        from ._multiscale import Multiscale  # kinda unneeded (can't make a graph before importing Multiscale)
-
-        return frozenset(ref.owner for ref in self.node_refs if isinstance(ref.owner, Multiscale))
 
     @functools.cached_property
     def node_refs(self) -> FrozenSet[CoordinateSystemRef]:
@@ -458,6 +460,42 @@ class _TransformGraph:
         if bad:
             raise ValueError(f"Graph transforms must have bound endpoints: {bad}")
         object.__setattr__(self, "transforms", tuple(self.transforms))
+
+    @classmethod
+    def from_ome_zarr(cls, transform_dicts: List[Dict], system_dicts: List[Dict]):
+        named_systems: Set[CoordinateSystemRef] = set()
+        seen_names = set()
+        for system_dict in system_dicts:
+            system = CoordinateSystem.from_ome_zarr(system_dict)
+            name: CoordinateSystemName = system_dict.get("name")
+            if not name:
+                raise ValueError(f"Invalid metadata: Coordinate system has no name. Received: {system_dict}")
+            if name in seen_names:
+                raise ValueError(
+                    f'Invalid metadata: Multiple coordinate systems named "{name}". Received: {system_dict}'
+                )
+            named_systems.add(system.as_ref(name))
+            seen_names.add(name)
+        unresolved_transforms: List[Transform] = []
+        all_transforms: List[Transform] = []
+        isolated_systems = set(named_systems)
+        for transform_dict in transform_dicts:
+            t = Transform.from_ome_zarr(transform_dict).with_resolved(None, named_refs=named_systems)
+            if not t.is_bound:
+                raise ValueError(
+                    f'Transform input and output must have "path", "name" or both. Received: {transform_dict}'
+                )
+            all_transforms.append(t)
+            isolated_systems.discard(t.source)
+            isolated_systems.discard(t.target)
+            if t.has_unresolved_endpoint:
+                unresolved_transforms.append(t)
+        graph = _TransformGraph(
+            all_transforms,
+            unresolved_transforms=frozenset(unresolved_transforms),
+            isolated_system_refs=frozenset(isolated_systems),
+        )
+        return graph
 
     def path_between(
         self,

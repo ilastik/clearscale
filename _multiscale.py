@@ -583,7 +583,6 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     transform_graph: _TransformGraph
     intrinsic_ref: CoordinateSystemRef
     """The system in which the Scales' shape, spacing, translation etc. are correct."""
-    unresolved_transforms: FrozenSet[Transform]
     _ome_zarr_array_sys_refs: Optional[FrozenSet[CoordinateSystemRef]]  # one CoordinateSystemRef per dataset path
     _ome_zarr_intermediate_sys_ref: Optional[
         CoordinateSystemRef
