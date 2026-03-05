@@ -658,7 +658,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             intrinsic_system_ref = intrinsic_system.as_ref(intrinsic_system_name)
             axis_keys = list(intrinsic_system.keys())
             unit = intrinsic_system.get_unit()
-            graph = None
+            graph = _TransformGraph([], isolated_system_refs=frozenset(intrinsic_system_ref))
             multiscale_transforms_raw = multiscale_dict.get("coordinateTransformations")
             multiscale_transforms = _ome_zarr.validate_transforms(multiscale_transforms_raw)
             if multiscale_transforms is not None:
