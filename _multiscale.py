@@ -598,7 +598,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                     f"All Scales must have identical axes. Scale at '{key}' has {list(scale.shape.keys())}"
                 )
 
-        self.transform_graph = transform_graph or self._get_default_graph()
+        self.transform_graph = transform_graph or self._make_default_graph()
         self.intrinsic_ref = intrinsic_ref or next(iter(self.transform_graph.isolated_system_refs))
 
     @staticmethod
@@ -809,15 +809,13 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         assert isinstance(self.intrinsic_ref.owner, CoordinateSystem), "should always have a coord system"
         return self.intrinsic_ref.owner
 
-    def _get_default_graph(self):
+    def _make_default_graph(self) -> _TransformGraph:
         intrinsic_sys = CoordinateSystem.without_semantics(list(self.axes()))
         intrinsic_name = f"ms-{uuid.uuid4()}"
-        return _TransformGraph(
-            transforms=frozenset(), isolated_system_refs=frozenset((intrinsic_sys.as_ref(intrinsic_name),))
-        )
+        return _TransformGraph([], isolated_system_refs=frozenset((intrinsic_sys.as_ref(intrinsic_name),)))
 
     def as_ref(self, name: CoordinateSystemName):
-        return CoordinateSystemRef(name, self)
+        return CoordinateSystemRef(name=name, owner=self)
 
     def get_interface_transform(self):
         """Allows a scene to traverse into this subgraph"""
