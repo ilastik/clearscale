@@ -76,7 +76,7 @@ if TYPE_CHECKING:
             Self = _Self
 
 
-class _DuplicatePolicy(StrEnum):
+class DuplicatePolicy(StrEnum):
     ERROR = "error"
     KEEP_ALL = "keep_all"
     KEEP_FIRST = "keep_first"
@@ -309,7 +309,7 @@ class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesTy
 
     @staticmethod
     def _resolve_duplicates(
-        raw_items: Iterable[Tuple[ScaleKey, _AxisValues]], on_duplicate: _DuplicatePolicy, on_duplicate_prefer
+        raw_items: Iterable[Tuple[ScaleKey, _AxisValues]], on_duplicate: DuplicatePolicy, on_duplicate_prefer
     ) -> List[Tuple[ScaleKey, _AxisValues]]:
         """
         Ensure raw_items contains no duplicate values. Resolve duplicates according to on_duplicate:
@@ -321,7 +321,7 @@ class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesTy
         In this case, if the `on_duplicate_prefer` key is involved in a duplication, it has priority over first/last.
         """
         raw_items = list(raw_items)
-        if on_duplicate == _DuplicatePolicy.KEEP_ALL:
+        if on_duplicate == DuplicatePolicy.KEEP_ALL:
             return raw_items
 
         by_value = defaultdict(list)
@@ -329,16 +329,16 @@ class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesTy
             by_value[tuple(v.items())].append(k)
         duplicates = {tuple(ks): v for v, ks in by_value.items() if len(ks) > 1}
 
-        if duplicates and on_duplicate == _DuplicatePolicy.ERROR:
+        if duplicates and on_duplicate == DuplicatePolicy.ERROR:
             raise ValueError(f"Duplicate values not allowed. Collisions: {duplicates}")
 
         pop_keys = []
         for dup_keys in duplicates:
             if on_duplicate_prefer is not None and on_duplicate_prefer in dup_keys:
                 keep = on_duplicate_prefer
-            elif on_duplicate == _DuplicatePolicy.KEEP_FIRST:
+            elif on_duplicate == DuplicatePolicy.KEEP_FIRST:
                 keep = dup_keys[0]
-            elif on_duplicate == _DuplicatePolicy.KEEP_LAST:
+            elif on_duplicate == DuplicatePolicy.KEEP_LAST:
                 keep = dup_keys[-1]
             else:
                 raise AssertionError(f"Invalid duplicate scale policy: '{on_duplicate}'")
@@ -369,7 +369,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         only: Optional[Axes] = None,
         max_levels: Optional[int] = 42,
         name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=_DuplicatePolicy.KEEP_FIRST,
+        on_duplicate=DuplicatePolicy.KEEP_FIRST,
         on_duplicate_prefer: ScaleKey = None,
     ) -> "BlueprintShapes":
         """Generate Blueprint where each scale is a `step` downsampling of the previous scale.
@@ -414,7 +414,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         shape_limit: Optional[ShapeLike] = None,
         max_levels: int = 42,
         name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=_DuplicatePolicy.KEEP_FIRST,
+        on_duplicate=DuplicatePolicy.KEEP_FIRST,
         on_duplicate_prefer: ScaleKey = None,
     ):
         return cls.uniform_steps(
