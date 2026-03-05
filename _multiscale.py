@@ -599,7 +599,15 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                 )
 
         self.transform_graph = transform_graph or self._make_default_graph()
-        self.intrinsic_ref = intrinsic_ref or next(iter(self.transform_graph.isolated_system_refs))
+        if intrinsic_ref:
+            self.intrinsic_ref = intrinsic_ref
+        elif transform_graph:
+            raise ValueError(
+                "Must specify intrinsic_ref when transform_graph is given. "
+                "Ensure this ref is actually inside the graph."
+            )
+        else:  # default graph guaranteed to have exactly one sys
+            self.intrinsic_ref = next(iter(self.transform_graph.isolated_system_refs))
 
     @staticmethod
     @wraps(BlueprintShapes.apply_to_scale)
