@@ -804,11 +804,6 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                 result["datasets"].append(dataset)
         return result
 
-    @property
-    def coordinate_system(self) -> CoordinateSystem:
-        assert isinstance(self.intrinsic_ref.owner, CoordinateSystem), "should always have a coord system"
-        return self.intrinsic_ref.owner
-
     def _make_default_graph(self) -> _TransformGraph:
         intrinsic_sys = CoordinateSystem.without_semantics(list(self.axes()))
         intrinsic_name = f"ms-{uuid.uuid4()}"
