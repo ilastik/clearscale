@@ -118,7 +118,7 @@ class Scene:
     def to_ome_zarr(self, version: str = "rfc-5", paths: Optional[PathsByMultiscale] = None) -> Dict:
         coordinate_system_dicts = []
         for ref in self._internal_graph.all_system_refs:
-            coordinate_system_dicts.extend(ref.owner.to_ome_zarr(ref.name))
+            coordinate_system_dicts.append(ref.owner.to_ome_zarr(name=ref.name, version=version))
 
         all_paths_by_multiscale = {}
         for ms, path in self._external_multiscales.items():

@@ -1,15 +1,15 @@
 import enum
 import functools
+import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, replace, fields
 from typing import (
     Optional,
     Tuple,
     Dict,
     Mapping,
     Iterable,
-    Sequence,
     TYPE_CHECKING,
     TypeVar,
     Union,
@@ -20,11 +20,16 @@ from typing import (
     List,
 )
 
-from lazyflow.utility.io_util.clearscale._axis_values import _AxisMapping, AxisKey, OrderedAxes, Spacing, Translation
+from lazyflow.utility.io_util.clearscale._axis_values import (
+    _AxisMapping,
+    AxisKey,
+    OrderedAxes,
+    Spacing,
+    Translation,
+    Unit,
+)
 
 if TYPE_CHECKING:
-    from lazyflow.utility.io_util.clearscale._multiscale import Multiscale
-
     try:
         from typing import Self  # py 3.11+
     except ImportError:
@@ -42,37 +47,42 @@ PathsByNode = Mapping["TransformGraphNode", RelativePath]
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
 
 
-class CoordinateDomain(enum.Enum):
+class CoordinateContinuity(enum.StrEnum):
     Categorical = enum.auto()
     Discrete = enum.auto()
     Continuous = enum.auto()
 
 
-class ValueDomain(enum.Enum):
-    # Not sure this has any value - does it map directly to concepts from image processing packages?
-    Real = enum.auto()
-    OrderedInteger = enum.auto()
-    SequentialInteger = enum.auto()
-    UnorderedInteger = enum.auto()
-
-
 @dataclass(frozen=True, slots=True)
 class AxisSemantics:
-    coordinate_domain: Optional[CoordinateDomain] = None
-    value_domain: Optional[ValueDomain] = None
+    coordinate_domain: Optional[CoordinateContinuity] = None
     _ome_zarr_type: Optional[str] = None
     _ome_zarr_unit: Optional[str] = None
     _ome_zarr_long_name: Optional[str] = None
 
-    def to_ome_zarr(self) -> Dict:
-        axis_dict = {}
+    @classmethod
+    def from_ome_zarr(cls, axis_dict: Dict) -> "AxisSemantics":
+        coordinates = CoordinateContinuity.Discrete if axis_dict.get("discrete") else None
+        return cls(
+            coordinate_domain=coordinates,
+            _ome_zarr_type=axis_dict.get("type"),
+            _ome_zarr_unit=axis_dict.get("unit"),
+            _ome_zarr_long_name=axis_dict.get("longName"),
+        )
+
+    def __repr__(self):
+        items = (f"{f.name}={getattr(self, f.name)!r}" for f in fields(self) if getattr(self, f.name) is not None)
+        return f"{self.__class__.__name__}({', '.join(items)})"
+
+    def to_ome_zarr(self, *, name: str) -> Dict:
+        axis_dict = {"name": name}
         if self._ome_zarr_type:
             axis_dict["type"] = self._ome_zarr_type
         if self._ome_zarr_unit:
             axis_dict["unit"] = self._ome_zarr_unit
         if self._ome_zarr_long_name:
             axis_dict["longName"] = self._ome_zarr_long_name
-        if self.coordinate_domain == CoordinateDomain.Discrete:
+        if self.coordinate_domain == CoordinateContinuity.Discrete:
             axis_dict["discrete"] = True
         return axis_dict
 
@@ -81,10 +91,13 @@ class TransformGraphNode(ABC):
     """Mixin for classes that can act as an endpoint for a Transform (i.e. a node in a _TransformGraph)"""
 
     @abstractmethod
-    def as_ref(self, name) -> "CoordinateSystemRef": ...
+    def axes(self) -> Iterable[AxisKey]: ...
 
     @abstractmethod
-    def to_ome_zarr(self, name) -> Dict: ...
+    def as_ref(self, name: CoordinateSystemName) -> "CoordinateSystemRef": ...
+
+    @abstractmethod
+    def to_ome_zarr(self, *, name: CoordinateSystemName, version: str) -> Dict: ...
 
 
 @dataclass(frozen=True)
@@ -145,39 +158,87 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
         relationship between the coordinate systems of two different JPEG scans of paper."""
         return self is other  # even content-identical coordinate systems may not be the same system
 
+    @property
+    def axes(self) -> Iterable[AxisKey]:
+        return self.keys()
+
     def as_ref(self, name: CoordinateSystemName):
         return CoordinateSystemRef(name, self)
 
     @classmethod
-    def from_ome_zarr(cls, system_dict):
-        semantics_by_axis = []
-        for axis_dict in system_dict["axes"]:
-            coordinates = CoordinateDomain.Discrete if axis_dict.get("discrete") == "true" else None
-            oz_type = axis_dict.get("type")
-            values = ValueDomain.UnorderedInteger if oz_type == "channel" else None
-            semantics_by_axis.append(
-                (
-                    axis_dict["name"],
-                    AxisSemantics(
-                        coordinate_domain=coordinates,
-                        value_domain=values,
-                        _ome_zarr_type=oz_type,
-                        _ome_zarr_unit=axis_dict.get("unit"),
-                        _ome_zarr_long_name=axis_dict.get("longName"),
-                    ),
-                )
-            )
-        return cls(semantics_by_axis)
-
-    def to_ome_zarr(self, name: CoordinateSystemName) -> Dict:
-        if not name:
-            raise ValueError("Cannot store coordinate system without name.")
-        axis_dicts = [sem.to_ome_zarr() for sem in self.values()]
-        return {"name": name, "axes": axis_dicts}
-
-    @classmethod
     def without_semantics(cls, axes: OrderedAxes) -> "CoordinateSystem":
         return cls([(a, AxisSemantics()) for a in axes])
+
+    @classmethod
+    def from_ome_zarr(cls, system_or_multiscale_dict: Dict):
+        axis_dicts = system_or_multiscale_dict.get("axes")
+        if not axis_dicts:
+            # v0.1 and v0.2 did not have any axis metadata
+            return cls.without_semantics(["t", "c", "z", "y", "x"])
+        if not isinstance(axis_dicts, list):
+            raise ValueError(f"Invalid axis metadata. Received: {system_or_multiscale_dict}")
+        if isinstance(axis_dicts[0], str):
+            # v0.3 allowed specifying a subset of tczyx, e.g. ["t", "c", "y", "x"]
+            return cls.without_semantics(axis_dicts)
+        semantics_by_axis = []
+        for axis_dict in system_or_multiscale_dict["axes"]:
+            if not axis_dict.get("name"):
+                raise ValueError(f"Invalid OME-Zarr metadata: Missing axis name. Received: {system_or_multiscale_dict}")
+            semantics_by_axis.append((axis_dict["name"], AxisSemantics.from_ome_zarr(axis_dict)))
+        return cls(semantics_by_axis)
+
+    def to_ome_zarr(
+        self,
+        *,
+        name: CoordinateSystemName,
+        version="rfc-5",
+        axis_types: Union[None, Literal["infer"], Mapping[str, Literal["space", "time", "channel"]]] = None,
+        unit: Unit = None,
+        long_names: Mapping[AxisKey, str] = None,
+        discrete: Mapping[AxisKey, bool] = None,
+    ) -> Dict:
+        if not name and version not in PRE_TRANSFORMS_VERSIONS:
+            raise ValueError(f"Cannot store coordinate system without name in OME-Zarr version {version}.")
+        unit = unit or {}
+        long_names = long_names or {}
+        discrete = discrete or {}
+        if not axis_types:
+            axis_types = {}
+        if axis_types == "infer":
+            axis_types = {
+                "t": "time",
+                "time": "time",
+                "timestep": "time",
+                "timepoint": "time",
+                "c": "channel",
+                "ch": "channel",
+                "channel": "channel",
+                "channels": "channel",
+                "z": "space",
+                "y": "space",
+                "x": "space",
+            }
+        elif not any(ax in self.axes for ax in axis_types):
+            warnings.warn(f"Unexpected axis types provided: Did not find any axis of: {list(axis_types.keys())}")
+        axis_dicts = []
+        for ax, sem in self.items():
+            adict = sem.to_ome_zarr(name=ax)
+            if ax in unit and unit[ax]:
+                adict["unit"] = unit[ax]
+            if ax in axis_types and axis_types[ax]:
+                adict["type"] = axis_types[ax]
+            if ax in long_names and long_names[ax]:
+                adict["longName"] = long_names[ax]
+            if ax in discrete and discrete[ax]:
+                adict["discrete"] = discrete[ax]
+            axis_dicts.append(adict)
+        d = {"axes": axis_dicts}
+        if name:
+            d["name"] = name
+        return d
+
+    def get_unit(self) -> Unit:
+        return Unit([(a, sem._ome_zarr_unit or "") for a, sem in self.items()])  # noqa
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,20 +264,41 @@ class Transform(ABC):
     def is_bound(self) -> bool:
         return self.source is not None and self.target is not None
 
-    def bind(self, source: CoordinateSystemRef, target: CoordinateSystemRef) -> "Self":
+    def bound(self, source: CoordinateSystemRef, target: CoordinateSystemRef) -> "Self":
         # binding required to use the Transform in a TransformGraph
         return replace(self, source=source, target=target)
 
-    def unbind(self) -> "Self":
+    def unbound(self) -> "Self":
         # for nesting inside a TransformSequence or BijectionTransform
         return replace(self, source=None, target=None)
 
     @property
     def has_unresolved_endpoint(self) -> bool:
-        return isinstance(self.source, _UnresolvedRef) or isinstance(self.target, _UnresolvedRef)
+        return self.source.owner is None or self.target.owner is None
+
+    @property
+    def is_fully_unresolved(self) -> bool:
+        return self.source.owner is None and self.target.owner is None
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Dict) -> "Transform":
+        t_type = ome_dict.get("type")
+        if t_type == "identity":
+            source, target = cls._parse_source_and_target(ome_dict)
+            return IdentityTransform(source=source, target=target)
+        elif t_type == "scale":
+            return ScaleTransform.from_ome_zarr(ome_dict)
+        elif t_type == "translation":
+            return TranslationTransform.from_ome_zarr(ome_dict)
+        elif t_type == "sequence":
+            return TransformSequence(
+                transforms=tuple(Transform.from_ome_zarr(td) for td in ome_dict["transformations"])
+            )
+        else:
+            raise ValueError(f"Unknown transform type: {t_type!r}")
+
+    @staticmethod
+    def _parse_source_and_target(ome_dict: Dict):
         endpoints = {"input": None, "output": None}
         for side in endpoints.keys():
             ref = ome_dict.get(side, {})
@@ -226,17 +308,9 @@ class Transform(ABC):
                 endpoints[side] = _UnresolvedRef(path=path, name=name)
         if bool(endpoints["input"]) != bool(endpoints["output"]):
             raise ValueError(f"Invalid transform (in/out must either both be undefined or both defined): {ome_dict!r}")
-
-        t_type = ome_dict.get("type")
         source = endpoints["input"]
         target = endpoints["output"]
-
-        if t_type == "identity":
-            return IdentityTransform(source=source, target=target)
-        elif t_type == "sequence":
-            return TransformSequence(transforms=[cls.from_ome_zarr(td) for td in ome_dict["transformations"]])
-        else:
-            raise ValueError(f"Unknown transform type: {t_type!r}")
+        return source, target
 
     @abstractmethod
     def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
@@ -249,7 +323,7 @@ class Transform(ABC):
         if version in PRE_TRANSFORMS_VERSIONS:
             return {}
         if for_scene and not self.is_bound:
-            raise ValueError("Scene transforms must be bound for OME-Zarr. Use .bind(source, target)")
+            raise ValueError("OME-Zarr Scene transforms must be `.bound(source, target)`")
         paths_by_node = paths_by_node or {}
         input_dict = {}
         output_dict = {}
@@ -332,17 +406,45 @@ class IdentityTransform(Transform):
 
 @dataclass(frozen=True, slots=True)
 class ScaleTransform(Transform):
-    spacing: Spacing
+    _scale: Tuple[float, ...]
     ome_zarr_path: Optional[str] = None
+
+    @classmethod
+    def from_ome_zarr(cls, ome_dict: Dict) -> "ScaleTransform":
+        source, target = cls._parse_source_and_target(ome_dict)
+        return cls(
+            _scale=tuple(ome_dict.get("scale") or []),
+            ome_zarr_path=ome_dict.get("path"),
+            source=source,
+            target=target,
+        )
+
+    @property
+    def spacing(self) -> Spacing:
+        if not self._scale:
+            raise ValueError("Cannot derive Spacing: ")
+        axes = self._axes()
+        return Spacing(zip(axes, self._scale))
+
+    def _axes(self):
+        if self.source_axes:  # noqa  # keep in sync with TranslationTransform._axes
+            return self.source_axes
+        if not self.is_bound:
+            raise ValueError("Missing axes: Bind to coordinate systems or multiscales first to define.")
+        if self.is_fully_unresolved:
+            raise ValueError(
+                "Missing axes: Resolve at least one multiscale first to define. "
+                f"Source: {self.source}, Target: {self.target}"
+            )
+        return self.source.owner.axes() if self.source.owner else self.target.owner.axes()
 
     @property
     def is_invertible(self) -> bool:
-        return all(v for v in self.spacing.values())  # Not invertible with 0 values
+        return all(v for v in self._scale)  # Not invertible with 0 values
 
-    @property
     def inverted(self) -> "ScaleTransform":
-        spacing_inverted = Spacing([(a, 1 / v) for a, v in self.spacing.items()])
-        return replace(self, spacing=spacing_inverted, ome_zarr_path=None)
+        scale_inverted = tuple(1 / v for v in self._scale)
+        return replace(self, _scale=scale_inverted, ome_zarr_path=None)
 
     def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
         payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"scale": list(self.spacing.values())}
@@ -351,17 +453,45 @@ class ScaleTransform(Transform):
 
 @dataclass(frozen=True, slots=True)
 class TranslationTransform(Transform):
-    translation: Translation
+    _translation: Tuple[float, ...]
     ome_zarr_path: Optional[str] = None
+
+    @classmethod
+    def from_ome_zarr(cls, ome_dict: Dict) -> "TranslationTransform":
+        source, target = cls._parse_source_and_target(ome_dict)
+        return cls(
+            _translation=tuple(ome_dict.get("translation") or []),
+            ome_zarr_path=ome_dict.get("path"),
+            source=source,
+            target=target,
+        )
+
+    @property
+    def translation(self) -> Translation:
+        if not self._translation:
+            raise ValueError("Cannot derive Spacing: ")
+        axes = self._axes()
+        return Translation(zip(axes, self._translation))
+
+    def _axes(self):
+        if self.source_axes:  # noqa  # keep in sync with ScaleTransform._axes
+            return self.source_axes
+        if not self.is_bound:
+            raise ValueError("Missing axes: Bind to coordinate systems or multiscales first to define.")
+        if self.is_fully_unresolved:
+            raise ValueError(
+                "Missing axes: Resolve at least one multiscale first to define. "
+                f"Source: {self.source}, Target: {self.target}"
+            )
+        return self.source.owner.axes() if self.source.owner else self.target.owner.axes()
 
     @property
     def is_invertible(self) -> bool:
         return True
 
-    @property
     def inverted(self) -> "TranslationTransform":
-        translation_inverted = Translation([(a, -v) for a, v in self.translation.items()])
-        return replace(self, translation=translation_inverted, ome_zarr_path=None)
+        translation_inverted = tuple(-v for v in self._translation)
+        return replace(self, _translation=translation_inverted, ome_zarr_path=None)
 
     def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
         payload_dict = (
@@ -370,50 +500,71 @@ class TranslationTransform(Transform):
         return {"type": "translation", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
 
 
+@dataclass(frozen=True, slots=True)
 class TransformSequence(Transform):
-    _children: Tuple[Transform]
+    transforms: Tuple[Transform, ...] = field(default=())
 
-    def __init__(self, transforms: Sequence["Transform"]):
-        if not transforms:
+    def __post_init__(self):
+        if not self.transforms:
             raise ValueError("Cannot make empty TransformSequence.")
-        if any(not isinstance(t, Transform) for t in transforms):
+        if any(not isinstance(t, Transform) for t in self.transforms):
             raise ValueError("All children must be Transform instances.")
-        if len(transforms) > 1:
-            for i, (a, b) in enumerate(zip(transforms, transforms[1:])):
-                if a.target is not None and b.source is not None and a.target != b.source:
-                    raise ValueError(f"Transform chain broken at position {i}→{i+1}: {a.target!r} != {b.source!r}")
-        super().__init__(source=transforms[0].source, target=transforms[-1].target)
-        object.__setattr__(self, "_children", tuple(transforms))
+        for i, (a, b) in enumerate(zip(self.transforms, self.transforms[1:])):
+            if a.target is not None and b.source is not None and a.target != b.source:
+                raise ValueError(f"Transform chain broken at {i}→{i+1}: {a.target!r} != {b.source!r}")
+        # Infer source/target from children if not explicitly provided
+        inferred_source = self.transforms[0].source
+        inferred_target = self.transforms[-1].target
+        if self.source is None and inferred_source is not None:
+            object.__setattr__(self, "source", inferred_source)
+        if self.target is None and inferred_target is not None:
+            object.__setattr__(self, "target", inferred_target)
 
     def __hash__(self):
-        return hash(self._children)
+        return hash(self.transforms)
 
     def __eq__(self, other):
-        return isinstance(other, TransformSequence) and self._children == other._children
+        return isinstance(other, TransformSequence) and self.transforms == other.transforms
 
     def __iter__(self):
-        return iter(self._children)
+        return iter(self.transforms)
 
     def __len__(self):
-        return len(self._children)
+        return len(self.transforms)
+
+    def __getitem__(self, item):
+        return self.transforms[item]
 
     @property
     def is_invertible(self) -> bool:
-        return all(t.is_invertible for t in self._children)
+        return all(t.is_invertible for t in self.transforms)
 
     def inverted(self) -> "TransformSequence":
         if not self.is_invertible:
             raise ValueError("TransformSequence is not invertible: contains non-invertible transform(s).")
-        return TransformSequence(list(reversed([t.inverted() for t in self._children])))
+        return TransformSequence(tuple(reversed([t.inverted() for t in self.transforms])))
 
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
-        return {
-            "type": "sequence",
-            "transformations": [
-                t.to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node) for t in self._children
-            ],
-            **self._get_ome_zarr_inout(version, for_scene, paths_by_node),
-        }
+    def to_ome_zarr(
+        self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None
+    ) -> Union[Dict, List]:
+        if version in PRE_TRANSFORMS_VERSIONS:
+            return [t.to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node) for t in self.transforms]
+        else:
+            return {
+                "type": "sequence",
+                "transformations": [
+                    t.to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node) for t in self.transforms
+                ],
+                **self._get_ome_zarr_inout(version, for_scene, paths_by_node),
+            }
+
+    def is_valid_for_ome_zarr_multiscale(self) -> bool:
+        if len(self) == 1:
+            return isinstance(self[0], ScaleTransform)
+        elif len(self) == 2:
+            return isinstance(self[0], ScaleTransform) and isinstance(self[1], TranslationTransform)
+        else:
+            return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -429,7 +580,7 @@ class _TransformGraph:
     # transforms defined elsewhere. In this case, we only know a system name, and the fact that it doesn't appear
     # in any transform the current multiscale/scene is parsing.
     # So there needs to be a name-only "unresolved system" node key.
-    transforms: Iterable[Transform]
+    transforms: Iterable[Transform]  # This could be ~15k entries in prod
     isolated_system_refs: Optional[FrozenSet[CoordinateSystemRef]] = None
     unresolved_transforms: Optional[Iterable[Transform]] = None
     # isolated_system_refs and unresolved_transforms are used to deal with ome-zarr multiscales
@@ -438,6 +589,9 @@ class _TransformGraph:
     # `unresolved_transforms` should be a SUBSET of `transforms`. It is implemented as a parameter
     # rather than a cached_property only because it is more efficient for Scene.from_ome_zarr to build it
     # as it iterates the metadata.
+
+    def __bool__(self):
+        return bool(self.transforms) or bool(self.isolated_system_refs)
 
     @functools.cached_property
     def all_system_refs(self) -> FrozenSet[CoordinateSystemRef]:
@@ -496,6 +650,23 @@ class _TransformGraph:
             isolated_system_refs=frozenset(isolated_systems),
         )
         return graph
+
+    def to_ome_zarr(
+        self, version="rfc-5", paths_by_node: Optional[PathsByNode] = None
+    ) -> Dict[Literal["coordinateTransformations", "coordinateSystems"], List[Dict]]:
+        if version != "rfc-5":
+            warnings.warn(
+                f"Unsupported OME-Zarr version {version!r}. "
+                f"This method only targets RFC-5 as of 03/2026. Metadata may be invalid."
+            )
+        systems = [ref.owner.to_ome_zarr(name=ref.name, version=version) for ref in self.all_system_refs]
+        transforms = [t.to_ome_zarr(version, for_scene=True, paths_by_node=paths_by_node) for t in self.transforms]
+        d: Dict[Literal["coordinateTransformations", "coordinateSystems"], List[Dict]] = {}
+        if systems:
+            d["coordinateSystems"] = systems
+        if transforms:
+            d["coordinateTransformations"] = transforms
+        return d
 
     def path_between(
         self,

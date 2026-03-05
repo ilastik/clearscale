@@ -1,10 +1,11 @@
 import re
 import warnings
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union, Literal, Mapping, Dict, List, Any, Optional, Tuple
 
 from lazyflow.utility.io_util.clearscale import Translation, Unit, Spacing, Factor
 from lazyflow.utility.io_util.clearscale._axis_values import OrderedAxes, AxisKey
+from lazyflow.utility.io_util.clearscale._transforms import TransformSequence, ScaleTransform, TranslationTransform
 
 ####
 # Reading
@@ -14,9 +15,51 @@ from lazyflow.utility.io_util.clearscale._axis_values import OrderedAxes, AxisKe
 OME_ZARR_DATASET = Dict[Literal["path", "coordinateTransformations"], Any]  # single dataset (= scale)
 OME_ZARR_MULTISCALE = Dict[  # single multiscales entry of a json-validated OME-Zarr zattrs (any version)
     # The spec allows for multiple multiscales, but in practice we only ever see one.
-    Literal["axes", "datasets", "version", "coordinateTransformations", "name"],
+    Literal["axes", "datasets", "version", "coordinateTransformations", "name", "coordinateSystems"],
     Union[List[Dict], List[OME_ZARR_DATASET], str],
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class LegacyMultiscaleTransforms(TransformSequence):
+    """Special class for legacy interpretation of 'coordinateTransformations'
+    in OME-Zarr 0.4 and 0.5 multiscale metadata."""
+
+    scale_transform: ScaleTransform = field(default=None)
+    translation_transform: Optional[TranslationTransform] = field(default=None)
+
+    def __post_init__(self):
+        if self.scale_transform is None:
+            raise ValueError("LegacyMultiscaleTransforms requires a scale transform.")
+        transforms = (
+            (self.scale_transform, self.translation_transform)
+            if self.translation_transform
+            else (self.scale_transform,)
+        )
+        object.__setattr__(self, "transforms", transforms)
+        TransformSequence.__post_init__(self)
+
+    @property
+    def scale(self) -> ScaleTransform:
+        return self.transforms[0]  # noqa
+
+    @property
+    def translation(self) -> Optional[TranslationTransform]:
+        return self.transforms[1] if len(self.transforms) == 2 else None
+
+    @classmethod
+    def from_ome_zarr(cls, ome_transforms: List[Dict]) -> "LegacyMultiscaleTransforms":
+        ome_dict = {"type": "sequence", "transformations": ome_transforms}
+        seq = TransformSequence.from_ome_zarr(ome_dict)
+        if not seq.is_valid_for_ome_zarr_multiscale():
+            raise ValueError(
+                "Invalid coordinateTransformations metadata: Expected exactly one 'scale' and "
+                f"optionally one 'translation' transform. Received: {ome_transforms}"
+            )
+        return cls(
+            scale_transform=seq.transforms[0],
+            translation_transform=seq.transforms[1] if len(seq.transforms) == 2 else None,
+        )
 
 
 class InvalidTransformationError(ValueError):
@@ -25,19 +68,14 @@ class InvalidTransformationError(ValueError):
 
 def validate_multiscales_dict(raw: Dict):
     """Light top-level checks. coordinateTransformations are validated later."""
-    if raw.get("version") not in ("0.1", "0.2", "0.3", "0.4", "0.5"):
+    if raw.get("version") not in ("0.1", "0.2", "0.3", "0.4", "0.5", "rfc-5"):
         v = raw.get("version")
         warnings.warn(f"Attempting to parse unknown OME-Zarr version '{v}'. This might break...")
 
-    if "datasets" not in raw or not raw["datasets"]:
-        raise ValueError(f"Invalid OME-Zarr multiscale metadata: no datasets. Received:\n{raw}")
-
-    if (
-        "axes" in raw
-        and any(not isinstance(ax, str) for ax in raw["axes"])
-        and any("name" not in ax for ax in raw["axes"])
-    ):
-        raise ValueError(f"Invalid OME-Zarr multiscale metadata: axes missing name. Received:\n{raw}")
+    if "datasets" not in raw or not raw["datasets"] or any(not d["coordinateTransformations"] for d in raw["datasets"]):
+        raise ValueError(
+            f"Invalid OME-Zarr datasets metadata: no datasets or some without transforms. Received:\n{raw}"
+        )
 
 
 def axes_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> List[str]:
@@ -69,6 +107,11 @@ def units_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> Unit:
         # v0.1 to v0.3 did not provide a standard for keeping unit metadata
         units = ["" for _ in axis_keys]
     return Unit(zip(axis_keys, units))
+
+
+def get_intrinsic_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> Optional[str]:
+    transforms: List[Dict] = multiscale["datasets"][0]["coordinateTransformations"]
+    return transforms[0].get("output")
 
 
 @dataclass(frozen=True)
