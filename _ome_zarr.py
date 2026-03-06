@@ -92,37 +92,6 @@ def validate_multiscales_dict(raw: Dict):
         raise ValueError(f"Invalid OME-Zarr datasets metadata: datasets without transformations. Received:\n{raw}")
 
 
-def axes_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> List[str]:
-    if "axes" in multiscale:
-        ome_axes = multiscale["axes"]
-        if "name" in ome_axes[0]:
-            # v0.4: spec["axes"] requires name, recommends type and unit; like:
-            # [
-            #   {'name': 'c', 'type': 'channel'},
-            #   {'name': 'y', 'type': 'space', 'unit': 'nanometer'},
-            #   {'name': 'x', 'type': 'space', 'unit': 'nanometer'}
-            # ]
-            axis_keys = [d["name"] for d in ome_axes]
-        else:
-            # v0.3: ['t', 'c', 'y', 'x']
-            axis_keys = ome_axes
-    else:
-        # v0.1 and v0.2 did not allow variable axes
-        axis_keys = ["t", "c", "z", "y", "x"]
-    return axis_keys
-
-
-def units_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> Unit:
-    axis_keys = axes_from_multiscale(multiscale)
-    if "axes" in multiscale and "name" in multiscale["axes"][0]:
-        # v0.4: Each axis entry may contain a unit key
-        units = [a["unit"] if "unit" in a else "" for a in multiscale["axes"]]
-    else:
-        # v0.1 to v0.3 did not provide a standard for keeping unit metadata
-        units = ["" for _ in axis_keys]
-    return Unit(zip(axis_keys, units))
-
-
 def intrinsic_system_name_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> Optional[str]:
     transforms: Optional[List[Dict]] = multiscale["datasets"][0].get("coordinateTransformations")
     if not transforms:
@@ -351,50 +320,6 @@ def _is_valid_relative_path(path: str) -> bool:
     if not OME_ZARR_PATH_RE.fullmatch(path):
         return False
     return all(seg not in {".", ".."} for seg in path.split("/"))
-
-
-def build_axis_dicts(
-    axes: OrderedAxes,
-    unit: Unit,
-    axis_types: Union[None, Literal["infer"], Mapping[AxisKey, Literal["space", "time", "channel"]]] = None,
-) -> List[Dict[str, Any]]:
-    if axis_types and axis_types != "infer" and not any(ax in axes for ax in axis_types):
-        warnings.warn(f"Provided axis_types {set(axis_types.keys())} don't match any axes in this Multiscale: {axes}")
-    elif axis_types == "infer":
-        axis_types = {
-            "t": "time",
-            "time": "time",
-            "timestep": "time",
-            "timepoint": "time",
-            "c": "channel",
-            "ch": "channel",
-            "channel": "channel",
-            "channels": "channel",
-            "z": "space",
-            "y": "space",
-            "x": "space",
-        }
-
-    ome_axes = []
-    for axis in axes:
-        axis_dict = {"name": str(axis)}
-        if axis_types and axis in axis_types:
-            axis_dict["type"] = axis_types[axis]
-        if unit[axis]:
-            axis_dict["unit"] = unit[axis]
-        ome_axes.append(axis_dict)
-    return ome_axes
-
-
-def build_multiscale_transforms(global_scale: Spacing, global_translation: Translation) -> List[Dict[str, Any]]:
-    global_transforms = []
-    if not global_scale.is_identity():
-        global_transforms.append({"type": "scale", "scale": global_scale.to_list()})
-    if not global_translation.is_identity():
-        if not global_transforms:  # Must have scale before translation
-            global_transforms.append({"type": "scale", "scale": global_scale.to_list()})
-        global_transforms.append({"type": "translation", "translation": global_translation.to_list()})
-    return global_transforms
 
 
 def build_dataset_dict(
