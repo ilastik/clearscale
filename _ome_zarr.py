@@ -13,6 +13,7 @@ from lazyflow.utility.io_util.clearscale._transforms import (
     CoordinateSystemRef,
     CoordinateSystem,
     _UnresolvedRef,
+    PRE_TRANSFORMS_VERSIONS,
 )
 
 ####
@@ -396,9 +397,21 @@ def build_multiscale_transforms(global_scale: Spacing, global_translation: Trans
     return global_transforms
 
 
-def build_dataset_dict(key, dataset_scale: Spacing, dataset_translation: Translation) -> Dict[str, Any]:
-    dataset_transforms = [{"type": "scale", "scale": dataset_scale.to_list()}]
+def build_dataset_dict(
+    version,
+    key,
+    dataset_scale: Spacing,
+    dataset_translation: Translation,
+    intrinsic_ref: Optional[CoordinateSystemRef[CoordinateSystem]] = None,
+) -> Dict[str, Any]:
+    scale = ScaleTransform.from_spacing(dataset_scale)
     if not dataset_translation.is_identity():
-        dataset_transforms.append({"type": "translation", "translation": dataset_translation.to_list()})
+        translation = TranslationTransform.from_translation(dataset_translation)
+        final = TransformSequence((scale, translation)).bound(source=_UnresolvedRef(name=key), target=intrinsic_ref)
+    elif version in PRE_TRANSFORMS_VERSIONS:
+        final = TransformSequence((scale,))
+    else:
+        final = scale.bound(source=_UnresolvedRef(name=key), target=intrinsic_ref)
+    dataset_transforms = final.to_ome_zarr(version, for_scene=False)
     dataset_dict = {"path": str(key), "coordinateTransformations": dataset_transforms}
     return dataset_dict

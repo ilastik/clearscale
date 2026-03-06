@@ -736,6 +736,11 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
 
         if version == "rfc-5":
             result.update(self.transform_graph.to_ome_zarr(version=version))
+            for key, scale in self.items():
+                dataset = _ome_zarr.build_dataset_dict(
+                    version, key, scale.spacing, scale.translation, self.intrinsic_ref
+                )
+                result["datasets"].append(dataset)
         elif self.intrinsic_ref:
             ome_zarr_0_6_sys = self.intrinsic_ref.owner.to_ome_zarr(
                 name="", version=version, axis_types=axis_types, unit=self.first_value().unit
@@ -745,9 +750,9 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                 legacy_tfs = [
                     t for t in self.transform_graph.transforms if isinstance(t, _ome_zarr.LegacyMultiscaleTransforms)
                 ]
-                assert len(legacy_tfs) <= 1, (
-                    "Dev error: More than one multiscale-level transform tuple " f"in {self.transform_graph.transforms}"
-                )
+                assert (
+                    len(legacy_tfs) <= 1
+                ), f"Dev error: More than one multiscale-level transform tuple in {self.transform_graph.transforms}"
                 if legacy_tfs:
                     result["coordinateTransformations"] = legacy_tfs[0].to_ome_zarr(version, for_scene=False)
                     global_scale = legacy_tfs[0].scale.spacing
@@ -757,15 +762,15 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                     for key, scale in self.items():
                         dataset_scale = scale.spacing.scaled_by(Factor(global_scale))
                         dataset_translation = scale.translation - global_translation
-                        dataset = _ome_zarr.build_dataset_dict(key, dataset_scale, dataset_translation)
+                        dataset = _ome_zarr.build_dataset_dict(version, key, dataset_scale, dataset_translation)
                         result["datasets"].append(dataset)
                 else:
                     for key, scale in self.items():
-                        dataset = _ome_zarr.build_dataset_dict(key, scale.spacing, scale.translation)
+                        dataset = _ome_zarr.build_dataset_dict(version, key, scale.spacing, scale.translation)
                         result["datasets"].append(dataset)
             else:
                 for key, scale in self.items():
-                    dataset = _ome_zarr.build_dataset_dict(key, scale.spacing, scale.translation)
+                    dataset = _ome_zarr.build_dataset_dict(version, key, scale.spacing, scale.translation)
                     result["datasets"].append(dataset)
         else:
             first_scale = self.first_value()
@@ -775,7 +780,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             # Either have no multiscale-level transforms, or impossible to reconstruct now.
             # Export scale meta to datasets as-is.
             for key, scale in self.items():
-                dataset = _ome_zarr.build_dataset_dict(key, scale.spacing, scale.translation)
+                dataset = _ome_zarr.build_dataset_dict(version, key, scale.spacing, scale.translation)
                 result["datasets"].append(dataset)
         return result
 

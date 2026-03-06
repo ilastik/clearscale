@@ -412,6 +412,10 @@ class ScaleTransform(Transform):
     ome_zarr_path: Optional[str] = None
 
     @classmethod
+    def from_spacing(cls, spacing: Spacing):
+        return cls(_scale=tuple(spacing.values()))
+
+    @classmethod
     def from_ome_zarr(cls, ome_dict: Dict) -> "ScaleTransform":
         source, target = cls._parse_source_and_target(ome_dict)
         return cls(
@@ -424,7 +428,7 @@ class ScaleTransform(Transform):
     @property
     def spacing(self) -> Spacing:
         if not self._scale:
-            raise ValueError("Cannot derive Spacing: ")
+            raise ValueError("Cannot derive Spacing: Values not set.")
         axes = self._axes()
         return Spacing(zip(axes, self._scale))
 
@@ -449,7 +453,7 @@ class ScaleTransform(Transform):
         return replace(self, _scale=scale_inverted, ome_zarr_path=None)
 
     def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
-        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"scale": list(self.spacing.values())}
+        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"scale": list(self._scale)}
         return {"type": "scale", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
 
 
@@ -457,6 +461,10 @@ class ScaleTransform(Transform):
 class TranslationTransform(Transform):
     _translation: Tuple[float, ...]
     ome_zarr_path: Optional[str] = None
+
+    @classmethod
+    def from_translation(cls, translation: Translation):
+        return cls(_translation=tuple(translation.values()))
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Dict) -> "TranslationTransform":
@@ -496,9 +504,7 @@ class TranslationTransform(Transform):
         return replace(self, _translation=translation_inverted, ome_zarr_path=None)
 
     def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
-        payload_dict = (
-            {"path": self.ome_zarr_path} if self.ome_zarr_path else {"translation": list(self.translation.values())}
-        )
+        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"translation": list(self._translation)}
         return {"type": "translation", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
 
 
