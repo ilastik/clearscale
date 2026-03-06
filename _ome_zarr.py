@@ -5,7 +5,15 @@ from typing import Union, Literal, Mapping, Dict, List, Any, Optional, Tuple
 
 from lazyflow.utility.io_util.clearscale import Translation, Unit, Spacing, Factor
 from lazyflow.utility.io_util.clearscale._axis_values import OrderedAxes, AxisKey
-from lazyflow.utility.io_util.clearscale._transforms import TransformSequence, ScaleTransform, TranslationTransform
+from lazyflow.utility.io_util.clearscale._transforms import (
+    TransformSequence,
+    ScaleTransform,
+    TranslationTransform,
+    _TransformGraph,
+    CoordinateSystemRef,
+    CoordinateSystem,
+    _UnresolvedRef,
+)
 
 ####
 # Reading
@@ -68,14 +76,19 @@ class InvalidTransformationError(ValueError):
 
 def validate_multiscales_dict(raw: Dict):
     """Light top-level checks. coordinateTransformations are validated later."""
-    if raw.get("version") not in ("0.1", "0.2", "0.3", "0.4", "0.5", "rfc-5"):
+    version = raw.get("version")
+    if version not in ("0.1", "0.2", "0.3", "0.4", "0.5", "rfc-5"):
         v = raw.get("version")
         warnings.warn(f"Attempting to parse unknown OME-Zarr version '{v}'. This might break...")
 
-    if "datasets" not in raw or not raw["datasets"] or any(not d["coordinateTransformations"] for d in raw["datasets"]):
-        raise ValueError(
-            f"Invalid OME-Zarr datasets metadata: no datasets or some without transforms. Received:\n{raw}"
-        )
+    if "datasets" not in raw or not raw["datasets"]:
+        raise ValueError(f"Invalid OME-Zarr datasets metadata: no datasets. Received:\n{raw}")
+    if (
+        version is not None
+        and version not in ("0.1", "0.2", "0.3")
+        and any(not d["coordinateTransformations"] for d in raw["datasets"])
+    ):
+        raise ValueError(f"Invalid OME-Zarr datasets metadata: datasets without transformations. Received:\n{raw}")
 
 
 def axes_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> List[str]:
@@ -109,9 +122,68 @@ def units_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> Unit:
     return Unit(zip(axis_keys, units))
 
 
-def get_intrinsic_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> Optional[str]:
-    transforms: List[Dict] = multiscale["datasets"][0]["coordinateTransformations"]
+def intrinsic_system_name_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> Optional[str]:
+    transforms: Optional[List[Dict]] = multiscale["datasets"][0].get("coordinateTransformations")
+    if not transforms:
+        return None
     return transforms[0].get("output")
+
+
+def multiscale_graph_from_transforms(
+    multiscale: OME_ZARR_MULTISCALE, *, name: str
+) -> Tuple[_TransformGraph, CoordinateSystemRef[CoordinateSystem]]:
+    try:
+        graph = _TransformGraph.from_ome_zarr(
+            multiscale.get("coordinateTransformations"), multiscale.get("coordinateSystems")
+        )
+        potential_intrinsics = [ref for ref in graph.all_system_refs if ref.name == name]
+        if len(potential_intrinsics) != 1:
+            raise ValueError(
+                "Invalid OME-Zarr multiscale metadata: Expected exactly one coordinate system named "
+                f"{name!r}. Received: {multiscale}"
+            )
+        intrinsic_system_ref = potential_intrinsics[0]
+        return graph, intrinsic_system_ref
+    except ValueError as e:
+        try:
+            # Best effort: Is there any coordinate system we can use at all?
+            name_matches = [sys_d for sys_d in multiscale["coordinateSystems"] if sys_d["name"] == name]
+            if name_matches:
+                intrinsic_sys = CoordinateSystem.from_ome_zarr(name_matches[0])
+            elif multiscale["coordinateSystems"]:
+                intrinsic_sys = CoordinateSystem.from_ome_zarr(multiscale["coordinateSystems"][0])
+            else:
+                raise ValueError()
+        except (KeyError, ValueError):
+            raise e
+        warnings.warn(
+            "Invalid coordinateTransformations and/or coordinateSystems metadata. Proceeding without. "
+            f"Error: {str(e)}"
+            f"Received: {multiscale}"
+        )
+        intrinsic_system_ref = intrinsic_sys.as_ref(name)
+        graph = _TransformGraph.single_isolated_system(intrinsic_system_ref)
+        return graph, intrinsic_system_ref
+
+
+def multiscale_graph_from_legacy(
+    multiscale: OME_ZARR_MULTISCALE,
+    *,
+    name: str,
+    validated_multiscale_transforms: Optional["ValidTransformations"] = None,
+) -> Tuple[_TransformGraph, CoordinateSystemRef[CoordinateSystem]]:
+    intrinsic_system = CoordinateSystem.from_ome_zarr(multiscale)
+    intrinsic_system_ref = intrinsic_system.as_ref(name)
+    graph = _TransformGraph.single_isolated_system(intrinsic_system_ref)
+    if validated_multiscale_transforms is not None:
+        # Store the multiscale-level transforms as a transform to a non-existent mock system.
+        # This allows Multiscale.to_ome_zarr to divide/subtract them back out of Scale.spacing/.translation
+        # for perfect metadata round-trip.
+        mock_ref = _UnresolvedRef(name=f"{name}-intermediate")
+        transform = LegacyMultiscaleTransforms.from_ome_zarr(multiscale.get("coordinateTransformations"))
+        bound_transform = transform.bound(source=mock_ref, target=intrinsic_system_ref)
+        graph = _TransformGraph([bound_transform])
+    return graph, intrinsic_system_ref
 
 
 @dataclass(frozen=True)
@@ -190,7 +262,7 @@ def validate_transforms(
     return (scale_transform, translation_transform) if scale_transform else InvalidTransformationError()
 
 
-def compute_spacing(
+def combine_spacings(
     axis_keys: List[str],
     dataset_path: str,
     multiscale_transforms: Union[None, ValidTransformations, InvalidTransformationError],
@@ -213,7 +285,7 @@ def compute_spacing(
     return spacing.scaled_by(scale)
 
 
-def compute_translation(
+def combine_translations(
     axis_keys: List[str],
     multiscale_transforms: Union[None, ValidTransformations, InvalidTransformationError],
     dataset_transforms: Union[None, ValidTransformations, InvalidTransformationError],

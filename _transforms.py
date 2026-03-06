@@ -18,6 +18,7 @@ from typing import (
     FrozenSet,
     Set,
     List,
+    Generic,
 )
 
 from lazyflow.utility.io_util.clearscale._axis_values import (
@@ -43,6 +44,7 @@ RelativePath = str  # RFC-5: scene["coordinateTransformations"][]["input"]["path
 CoordinateSystemName = str  # str from ["input"]["name"]
 NodesByPath = Mapping[RelativePath, "TransformGraphNode"]
 PathsByNode = Mapping["TransformGraphNode", RelativePath]
+AnyTransformGraphNode = TypeVar("AnyTransformGraphNode", bound="TransformGraphNode")
 
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
 
@@ -101,11 +103,11 @@ class TransformGraphNode(ABC):
 
 
 @dataclass(frozen=True)
-class CoordinateSystemRef:
+class CoordinateSystemRef(Generic[AnyTransformGraphNode]):
     # Refs are how we deal with the fact that nodes can be of different types (Multiscale, CoordinateSystem),
     # or absent entirely (_UnresolvedRef), and node referencing works via object identity and/or name.
     name: CoordinateSystemName
-    owner: Optional[TransformGraphNode]
+    owner: Optional[AnyTransformGraphNode]
     """The Multiscale or CoordinateSystem that produced this, for identity. None only in _UnresolvedRef"""
 
     def __eq__(self, other):
@@ -183,7 +185,7 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
         semantics_by_axis = []
         for axis_dict in system_or_multiscale_dict["axes"]:
             if not axis_dict.get("name"):
-                raise ValueError(f"Invalid OME-Zarr metadata: Missing axis name. Received: {system_or_multiscale_dict}")
+                raise ValueError(f"Invalid axis metadata: Missing axis name. Received: {system_or_multiscale_dict}")
             semantics_by_axis.append((axis_dict["name"], AxisSemantics.from_ome_zarr(axis_dict)))
         return cls(semantics_by_axis)
 
@@ -614,6 +616,10 @@ class _TransformGraph:
         if bad:
             raise ValueError(f"Graph transforms must have bound endpoints: {bad}")
         object.__setattr__(self, "transforms", tuple(self.transforms))
+
+    @classmethod
+    def single_isolated_system(cls, sys_ref: CoordinateSystemRef[CoordinateSystem]):
+        return cls([], isolated_system_refs=frozenset([sys_ref]))
 
     @classmethod
     def from_ome_zarr(cls, transform_dicts: List[Dict], system_dicts: List[Dict]):

@@ -628,76 +628,43 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         # TODO: for really perfect round-tripping, get_shape needs to become get_array, and to_ome_zarr needs write_array
         #  Otherwise, arrayCoordinateSystem metadata in the array zarr.json can be lost.
         _ome_zarr.validate_multiscales_dict(multiscale_dict)
-        intrinsic_system_name = _ome_zarr.get_intrinsic_from_multiscale(multiscale_dict)
-        is_v06_or_newer = bool(intrinsic_system_name)
-        if is_v06_or_newer:
-            graph = _TransformGraph.from_ome_zarr(
-                multiscale_dict.get("coordinateTransformations"), multiscale_dict.get("coordinateSystems")
+        intrinsic_system_name = _ome_zarr.intrinsic_system_name_from_multiscale(multiscale_dict)
+        if intrinsic_system_name:
+            graph, intrinsic_system_ref = _ome_zarr.multiscale_graph_from_transforms(
+                multiscale_dict, name=intrinsic_system_name
             )
-            potential_intrinsics = [ref for ref in graph.all_system_refs if ref.name == intrinsic_system_name]
-            if len(potential_intrinsics) != 1:
-                raise ValueError(
-                    "Invalid OME-Zarr multiscale metadata: Expected exactly one coordinate system named "
-                    f"{intrinsic_system_name!r}. Received: {multiscale_dict}"
-                )
-            intrinsic_system_ref = potential_intrinsics[0]
-            axis_keys = list(intrinsic_system_ref.owner.keys())
-            unit = intrinsic_system_ref.owner.get_unit()
-            datasets = multiscale_dict["datasets"]
-            scales_items = []
-            for scale in datasets:
-                # TODO: Now with proper Transforms, we should be able to do this a bit more neatly...
-                scale_key = scale["path"]
-                dataset_transforms = _ome_zarr.validate_transforms(scale.get("coordinateTransformations"))
-                scales_items.append(
-                    (
-                        scale_key,
-                        Scale(
-                            shape=Shape(zip(axis_keys, get_shape(scale_key))),
-                            spacing=_ome_zarr.compute_spacing(axis_keys, scale_key, None, dataset_transforms),
-                            translation=_ome_zarr.compute_translation(axis_keys, None, dataset_transforms),
-                            unit=unit,
-                        ),
-                    )
-                )
+            multiscale_transforms = None
         else:
-            intrinsic_system = CoordinateSystem.from_ome_zarr(multiscale_dict)
             intrinsic_system_name = f"multiscale-{uuid.uuid4()}"
-            intrinsic_system_ref = intrinsic_system.as_ref(intrinsic_system_name)
-            axis_keys = list(intrinsic_system.keys())
-            unit = intrinsic_system.get_unit()
-            graph = _TransformGraph([], isolated_system_refs=frozenset(intrinsic_system_ref))
-            multiscale_transforms_raw = multiscale_dict.get("coordinateTransformations")
-            multiscale_transforms = _ome_zarr.validate_transforms(multiscale_transforms_raw)
-            if multiscale_transforms is not None:
-                if not isinstance(multiscale_transforms, tuple):
-                    warnings.warn("Pixel resolution metadata at pyramid level was invalid.")
-                else:
-                    mock_ref = _UnresolvedRef(name=f"{intrinsic_system_name}-intermediate")
-                    transform = _ome_zarr.LegacyMultiscaleTransforms.from_ome_zarr(multiscale_transforms_raw)
-                    t_bound = transform.bound(source=mock_ref, target=intrinsic_system_ref)
-                    graph = _TransformGraph([t_bound])
-            datasets = multiscale_dict["datasets"]
-            scales_items = []
-            for scale in datasets:
-                scale_key = scale["path"]
-                scale_transforms_raw = scale.get("coordinateTransformations")
-                dataset_transforms = _ome_zarr.validate_transforms(scale_transforms_raw)
-                scales_items.append(
-                    (
-                        scale_key,
-                        Scale(
-                            shape=Shape(zip(axis_keys, get_shape(scale_key))),
-                            spacing=_ome_zarr.compute_spacing(
-                                axis_keys, scale_key, multiscale_transforms, dataset_transforms
-                            ),
-                            translation=_ome_zarr.compute_translation(
-                                axis_keys, multiscale_transforms, dataset_transforms
-                            ),
-                            unit=unit,
+            multiscale_transforms = _ome_zarr.validate_transforms(multiscale_dict.get("coordinateTransformations"))
+            if multiscale_transforms and not isinstance(multiscale_transforms, tuple):
+                warnings.warn("Pixel resolution metadata at multiscale-level was invalid.")
+                multiscale_transforms = None
+            graph, intrinsic_system_ref = _ome_zarr.multiscale_graph_from_legacy(
+                multiscale_dict, name=intrinsic_system_name, validated_multiscale_transforms=multiscale_transforms
+            )
+        axis_keys = list(intrinsic_system_ref.owner.axes)
+        unit = intrinsic_system_ref.owner.get_unit()
+        datasets = multiscale_dict["datasets"]
+        scales_items = []
+        for dataset in datasets:
+            scale_key = dataset["path"]
+            dataset_transforms = _ome_zarr.validate_transforms(dataset.get("coordinateTransformations"))
+            scales_items.append(
+                (
+                    scale_key,
+                    Scale(
+                        shape=Shape(zip(axis_keys, get_shape(scale_key))),
+                        spacing=_ome_zarr.combine_spacings(
+                            axis_keys, scale_key, multiscale_transforms, dataset_transforms
                         ),
-                    )
+                        translation=_ome_zarr.combine_translations(
+                            axis_keys, multiscale_transforms, dataset_transforms
+                        ),
+                        unit=unit,
+                    ),
                 )
+            )
         return cls(scales_items, transform_graph=graph, intrinsic_ref=intrinsic_system_ref)
 
     @classmethod
@@ -815,7 +782,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     def _make_default_graph(self) -> _TransformGraph:
         intrinsic_sys = CoordinateSystem.without_semantics(list(self.axes()))
         intrinsic_name = f"ms-{uuid.uuid4()}"
-        return _TransformGraph([], isolated_system_refs=frozenset((intrinsic_sys.as_ref(intrinsic_name),)))
+        return _TransformGraph.single_isolated_system(intrinsic_sys.as_ref(intrinsic_name))
 
     def as_ref(self, name: CoordinateSystemName):
         return CoordinateSystemRef(name=name, owner=self)
