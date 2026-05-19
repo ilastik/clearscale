@@ -22,7 +22,6 @@ from typing import (
     Any,
     TYPE_CHECKING,
     Hashable,
-    FrozenSet,
 )
 
 from lazyflow.utility.io_util.clearscale import (
@@ -50,7 +49,8 @@ from lazyflow.utility.io_util.clearscale._transforms import (
     CoordinateSystemRef,
     IdentityTransform,
     TransformGraphNode,
-    _UnresolvedRef,
+    PRE_TRANSFORMS_VERSIONS,
+    TransformSequence,
 )
 
 ScaleKey = TypeVar("ScaleKey", bound=str)
@@ -633,36 +633,46 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             graph, intrinsic_system_ref = _ome_zarr.multiscale_graph_from_transforms(
                 multiscale_dict, name=intrinsic_system_name
             )
-            multiscale_transforms = None
+            global_transforms = None
         else:
             intrinsic_system_name = f"multiscale-{uuid.uuid4()}"
-            multiscale_transforms = _ome_zarr.validate_transforms(multiscale_dict.get("coordinateTransformations"))
-            if multiscale_transforms and not isinstance(multiscale_transforms, tuple):
-                warnings.warn("Pixel resolution metadata at multiscale-level was invalid.")
-                multiscale_transforms = None
-            graph, intrinsic_system_ref = _ome_zarr.multiscale_graph_from_legacy(
-                multiscale_dict, name=intrinsic_system_name, validated_multiscale_transforms=multiscale_transforms
+            multiscale_tf_list = multiscale_dict.get("coordinateTransformations")
+            global_transforms = _ome_zarr.MultiscaleTransforms.from_list(multiscale_tf_list)
+            if multiscale_tf_list and global_transforms is None:
+                warnings.warn("Pixel size metadata at multiscale-level was invalid.")
+            graph, intrinsic_system_ref, global_transforms = _ome_zarr.multiscale_graph_from_legacy(
+                multiscale_dict, name=intrinsic_system_name, global_transforms=global_transforms
             )
-        axis_keys = list(intrinsic_system_ref.owner.axes)
+        axis_keys = list(intrinsic_system_ref.owner.axes())
         unit = intrinsic_system_ref.owner.get_unit()
         datasets = multiscale_dict["datasets"]
+        base_shape = None
         scales_items = []
         for dataset in datasets:
             scale_key = dataset["path"]
-            dataset_transforms = _ome_zarr.validate_transforms(dataset.get("coordinateTransformations"))
+            scale_shape = Shape(zip(axis_keys, get_shape(scale_key)))
+            if base_shape is None:
+                base_shape = scale_shape
+            transformations = dataset.get("coordinateTransformations")
+            dataset_transforms = _ome_zarr.MultiscaleTransforms.from_list(transformations)
+            if dataset_transforms is None:
+                # OME-Zarr up to v0.3 didn't have coordinateTransformations
+                scale_factor = base_shape.scaling_to(scale_shape)
+                scale_spacing = Spacing.identity(axis_keys).scaled_by(scale_factor)
+                scale_translation = None
+            else:
+                if global_transforms is not None:
+                    dataset_transforms = TransformSequence((dataset_transforms, global_transforms)).collapsed(
+                        raise_uncollapsed=True
+                    )
+                scale_spacing = dataset_transforms.scale.to_spacing(axis_keys)
+                scale_translation = (
+                    dataset_transforms.translation.to_translation(axis_keys) if dataset_transforms.translation else None
+                )
             scales_items.append(
                 (
                     scale_key,
-                    Scale(
-                        shape=Shape(zip(axis_keys, get_shape(scale_key))),
-                        spacing=_ome_zarr.combine_spacings(
-                            axis_keys, scale_key, multiscale_transforms, dataset_transforms
-                        ),
-                        translation=_ome_zarr.combine_translations(
-                            axis_keys, multiscale_transforms, dataset_transforms
-                        ),
-                        unit=unit,
-                    ),
+                    Scale(shape=scale_shape, spacing=scale_spacing, translation=scale_translation, unit=unit),
                 )
             )
         return cls(scales_items, transform_graph=graph, intrinsic_ref=intrinsic_system_ref)
@@ -702,7 +712,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
 
         return cls(scales_items)
 
-    def axes(self):
+    def axes(self) -> Iterable[AxisKey]:
         return self.first_value().shape.keys()
 
     def scaled_axes(self) -> tuple[AxisKey, ...]:
@@ -736,54 +746,48 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         if name:
             result["name"] = name
 
-        if version == "rfc-5":
+        if version not in PRE_TRANSFORMS_VERSIONS:
             result.update(self.transform_graph.to_ome_zarr(version=version))
             for key, scale in self.items():
                 dataset = _ome_zarr.build_dataset_dict(
                     version, key, scale.spacing, scale.translation, self.intrinsic_ref
                 )
                 result["datasets"].append(dataset)
-        elif self.intrinsic_ref:
-            ome_zarr_0_6_sys = self.intrinsic_ref.owner.to_ome_zarr(
-                name="", version=version, axis_types=axis_types, unit=self.first_value().unit
-            )
-            result["axes"] = ome_zarr_0_6_sys["axes"]
-            if self.transform_graph:
-                legacy_tfs = [
-                    t for t in self.transform_graph.transforms if isinstance(t, _ome_zarr.LegacyMultiscaleTransforms)
-                ]
-                assert (
-                    len(legacy_tfs) <= 1
-                ), f"Dev error: More than one multiscale-level transform tuple in {self.transform_graph.transforms}"
-                if legacy_tfs:
-                    result["coordinateTransformations"] = legacy_tfs[0].to_ome_zarr(version, for_scene=False)
-                    global_scale = legacy_tfs[0].scale.spacing
-                    global_translation = Translation.identity(list(global_scale.keys()))
-                    if legacy_tfs[0].translation:
-                        global_translation = legacy_tfs[0].translation.translation
-                    for key, scale in self.items():
-                        dataset_scale = scale.spacing.scaled_by(Factor(global_scale))
-                        dataset_translation = scale.translation - global_translation
-                        dataset = _ome_zarr.build_dataset_dict(version, key, dataset_scale, dataset_translation)
-                        result["datasets"].append(dataset)
-                else:
-                    for key, scale in self.items():
-                        dataset = _ome_zarr.build_dataset_dict(version, key, scale.spacing, scale.translation)
-                        result["datasets"].append(dataset)
-            else:
-                for key, scale in self.items():
-                    dataset = _ome_zarr.build_dataset_dict(version, key, scale.spacing, scale.translation)
-                    result["datasets"].append(dataset)
-        else:
-            first_scale = self.first_value()
-            axes = list(first_scale.shape.keys())
-            ome_axes = _ome_zarr.build_axis_dicts(axes, first_scale.unit, axis_types)
-            result["axes"] = ome_axes
-            # Either have no multiscale-level transforms, or impossible to reconstruct now.
-            # Export scale meta to datasets as-is.
+            return result
+
+        intrinsic_system_dict = self.intrinsic_ref.owner.to_ome_zarr(
+            name="", version=version, axis_types=axis_types, unit=self.first_value().unit
+        )
+        result["axes"] = intrinsic_system_dict["axes"]
+
+        legacy_tfs = []
+        if self.transform_graph:
+            legacy_tfs = [t for t in self.transform_graph.transforms if isinstance(t, _ome_zarr.MultiscaleTransforms)]
+        if not legacy_tfs:
+            # "Clean" legacy multiscale without global/multiscale-level transforms
             for key, scale in self.items():
                 dataset = _ome_zarr.build_dataset_dict(version, key, scale.spacing, scale.translation)
                 result["datasets"].append(dataset)
+            return result
+
+        # Legacy compatibility with convention where constant parts of the dataset scale transform were
+        # placed on multiscale-level. (Or other arbitrary custom multiscale-level transforms)
+        assert (
+            len(legacy_tfs) <= 1
+        ), f"Dev error: More than one multiscale-level transform in {self.transform_graph.transforms}"
+        result["coordinateTransformations"] = legacy_tfs[0].to_ome_zarr(version, for_scene=False)
+        global_scale = legacy_tfs[0].scale.to_spacing()
+        global_translation = Translation.identity(list(global_scale.keys()))
+        if legacy_tfs[0].translation:
+            global_translation = legacy_tfs[0].translation.to_translation()
+        # Multiscale.from_ome_zarr collapses the global transforms into each Scale so that
+        # Scale.spacing/.translation are correct independent of their containing Multiscale.
+        # That means we have to decompose them back out for perfect metadata round-trip.
+        for key, scale in self.items():
+            dataset_scale = scale.spacing.scaled_by(Factor(global_scale).inverted())
+            dataset_translation = scale.translation - global_translation
+            dataset = _ome_zarr.build_dataset_dict(version, key, dataset_scale, dataset_translation)
+            result["datasets"].append(dataset)
         return result
 
     def _make_default_graph(self) -> _TransformGraph:

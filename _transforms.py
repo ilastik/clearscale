@@ -160,7 +160,6 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
         relationship between the coordinate systems of two different JPEG scans of paper."""
         return self is other  # even content-identical coordinate systems may not be the same system
 
-    @property
     def axes(self) -> Iterable[AxisKey]:
         return self.keys()
 
@@ -249,10 +248,6 @@ class Transform(ABC):
         default=None, kw_only=True
     )  # default required; optional when nested in sequence or bijection (and will be None by default in clearscale when nested)
     target: Optional[CoordinateSystemRef] = field(default=None, kw_only=True)
-    source_axes: Optional[OrderedAxes] = field(
-        default=None, kw_only=True
-    )  # default None; required when nested in byDimension
-    target_axes: Optional[OrderedAxes] = field(default=None, kw_only=True)
     payload: Union[RelativePath, Any] = field(default=None, kw_only=True)
 
     @property
@@ -263,10 +258,14 @@ class Transform(ABC):
     def inverted(self) -> Optional["Self"]: ...
 
     @property
-    def is_bound(self) -> bool:
+    def is_fully_bound(self) -> bool:
         return self.source is not None and self.target is not None
 
-    def bound(self, source: CoordinateSystemRef, target: CoordinateSystemRef) -> "Self":
+    @property
+    def is_fully_unbound(self) -> bool:
+        return self.source is None and self.target is None
+
+    def bound(self, source: Optional[CoordinateSystemRef], target: Optional[CoordinateSystemRef]) -> "Self":
         # binding required to use the Transform in a TransformGraph
         return replace(self, source=source, target=target)
 
@@ -276,11 +275,11 @@ class Transform(ABC):
 
     @property
     def has_unresolved_endpoint(self) -> bool:
-        return self.source.owner is None or self.target.owner is None
+        return self.source is None or self.target is None or self.source.owner is None or self.target.owner is None
 
     @property
     def is_fully_unresolved(self) -> bool:
-        return self.source.owner is None and self.target.owner is None
+        return (self.source is None or self.source.owner is None) and (self.target is None or self.target.owner is None)
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Dict) -> "Transform":
@@ -324,7 +323,7 @@ class Transform(ABC):
     ) -> Dict[Literal["input", "output"], Dict]:
         if version in PRE_TRANSFORMS_VERSIONS:
             return {}
-        if for_scene and not self.is_bound:
+        if for_scene and not self.is_fully_bound:
             raise ValueError("OME-Zarr Scene transforms must be `.bound(source, target)`")
         paths_by_node = paths_by_node or {}
         input_dict = {}
@@ -380,6 +379,9 @@ class Transform(ABC):
                 return name_matches[0]
         return ref
 
+    @abstractmethod
+    def composed_with(self, earlier: "Transform") -> Optional["Transform"]: ...
+
     # Import methods: These handle normalizing common image processing packages' conventions for
     # computing/providing transforms to OME-Zarr's convention.
     # They're only applicable for certain subclasses, so should go there
@@ -405,6 +407,11 @@ class IdentityTransform(Transform):
     def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
         return {"type": "identity", **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
 
+    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
+        if earlier.target is not None and self.source is not None and earlier.target != self.source:
+            return None
+        return replace(earlier, target=self.target)
+
 
 @dataclass(frozen=True, slots=True)
 class ScaleTransform(Transform):
@@ -425,24 +432,23 @@ class ScaleTransform(Transform):
             target=target,
         )
 
-    @property
-    def spacing(self) -> Spacing:
+    def to_spacing(self, axes: Optional[Iterable[AxisKey]] = None) -> Spacing:
         if not self._scale:
             raise ValueError("Cannot derive Spacing: Values not set.")
-        axes = self._axes()
-        return Spacing(zip(axes, self._scale))
+        final_axes = axes or self._axes()
+        return Spacing(zip(final_axes, self._scale))
 
-    def _axes(self):
-        if self.source_axes:  # noqa  # keep in sync with TranslationTransform._axes
-            return self.source_axes
-        if not self.is_bound:
+    def _axes(self) -> Iterable[AxisKey]:
+        """Must be kept in sync with TranslationTransform._axes"""
+        # TODO: Move to base class?
+        if self.is_fully_unbound:
             raise ValueError("Missing axes: Bind to coordinate systems or multiscales first to define.")
         if self.is_fully_unresolved:
             raise ValueError(
                 "Missing axes: Resolve at least one multiscale first to define. "
                 f"Source: {self.source}, Target: {self.target}"
             )
-        return self.source.owner.axes() if self.source.owner else self.target.owner.axes()
+        return self.source.owner.axes() if self.source else self.target.owner.axes()
 
     @property
     def is_invertible(self) -> bool:
@@ -455,6 +461,11 @@ class ScaleTransform(Transform):
     def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
         payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"scale": list(self._scale)}
         return {"type": "scale", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
+
+    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
+        if not isinstance(earlier, ScaleTransform):
+            return None
+        return replace(self, _scale=tuple(a * b for a, b in zip(self._scale, earlier._scale)), ome_zarr_path=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -476,17 +487,15 @@ class TranslationTransform(Transform):
             target=target,
         )
 
-    @property
-    def translation(self) -> Translation:
+    def to_translation(self, axes: Optional[Iterable[AxisKey]] = None) -> Translation:
         if not self._translation:
-            raise ValueError("Cannot derive Spacing: ")
-        axes = self._axes()
-        return Translation(zip(axes, self._translation))
+            raise ValueError("Cannot derive Translation: Values not set")
+        final_axes = axes or self._axes()
+        return Translation(zip(final_axes, self._translation))
 
     def _axes(self):
-        if self.source_axes:  # noqa  # keep in sync with ScaleTransform._axes
-            return self.source_axes
-        if not self.is_bound:
+        """Must be kept in sync with ScaleTransform._axes"""
+        if self.is_fully_unbound:
             raise ValueError("Missing axes: Bind to coordinate systems or multiscales first to define.")
         if self.is_fully_unresolved:
             raise ValueError(
@@ -506,6 +515,13 @@ class TranslationTransform(Transform):
     def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
         payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"translation": list(self._translation)}
         return {"type": "translation", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
+
+    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
+        if not isinstance(earlier, TranslationTransform):
+            return None
+        return replace(
+            self, _translation=tuple(a + b for a, b in zip(self._translation, earlier._translation)), ome_zarr_path=None
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -543,6 +559,17 @@ class TransformSequence(Transform):
     def __getitem__(self, item):
         return self.transforms[item]
 
+    def bound(self, source: Optional[CoordinateSystemRef], target: Optional[CoordinateSystemRef]) -> "Self":
+        # Override from base: Sequence needs to update endpoint transforms
+        if len(self.transforms) == 1:
+            first = self.transforms[0].bound(source=source, target=target)
+            new_transforms = (first,)
+        else:
+            first = self.transforms[0].bound(source=source, target=self.transforms[0].target)
+            last = self.transforms[-1].bound(source=self.transforms[-1].source, target=target)
+            new_transforms = (first,) + self.transforms[1:-1] + (last,)
+        return replace(self, source=source, target=target, transforms=new_transforms)
+
     @property
     def is_invertible(self) -> bool:
         return all(t.is_invertible for t in self.transforms)
@@ -566,13 +593,30 @@ class TransformSequence(Transform):
                 **self._get_ome_zarr_inout(version, for_scene, paths_by_node),
             }
 
-    def is_valid_for_ome_zarr_multiscale(self) -> bool:
-        if len(self) == 1:
-            return isinstance(self[0], ScaleTransform)
-        elif len(self) == 2:
-            return isinstance(self[0], ScaleTransform) and isinstance(self[1], TranslationTransform)
-        else:
-            return False
+    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
+        # TODO: compatibility check if self or earlier is bound, and/or axis compatibility
+        # See if maybe that check ends up working out identical across Transform subclasses
+        # and move to the base class if so
+        if isinstance(earlier, TransformSequence):
+            return replace(earlier, transforms=tuple(earlier.transforms + self.transforms))
+        return replace(self, transforms=(earlier,) + self.transforms)
+
+    def collapsed(self, *, raise_uncollapsed: bool = False) -> "Transform | TransformSequence":
+        result: list[Transform] = [self.transforms[0]]
+
+        for current in self.transforms[1:]:
+            previous = result[-1]
+            merged = current.composed_with(previous)
+            if merged is not None:
+                result[-1] = merged
+            elif raise_uncollapsed:
+                raise ValueError(f"Cannot collapse {type(previous).__name__} followed by {type(current).__name__}")
+            else:
+                result.append(current)
+
+        if len(result) == 1:
+            return result[0]
+        return replace(self, transforms=tuple(result))
 
 
 @dataclass(frozen=True, slots=True)
@@ -647,7 +691,7 @@ class _TransformGraph:
         isolated_systems = set(named_systems)
         for transform_dict in transform_dicts:
             t = Transform.from_ome_zarr(transform_dict).with_resolved(None, named_refs=named_systems)
-            if not t.is_bound:
+            if not t.is_fully_bound:
                 raise ValueError(
                     f'Transform input and output must have "path", "name" or both. Received: {transform_dict}'
                 )

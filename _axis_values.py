@@ -264,6 +264,11 @@ class Factor(_AxisFloats):
         Note: Factors act as divisors for shape (e.g. 1024 / 0.5 = 2048)."""
         return math.prod(self.values()) < 1
 
+    def inverted(self) -> "Self":
+        """Axis-wise 1/factor."""
+        inverted_items = [(a, 1 / self[a]) for a in self]
+        return self.__class__(inverted_items)
+
     def with_identity(self, axes: Axes) -> "Self":
         """Reset the values for `axes` to 1.0."""
         return super().with_default(axes)
@@ -287,6 +292,11 @@ class Spacing(_AxisFloats):
     """
 
     _default = 1.0
+
+    @classmethod
+    def identity(cls, axes: OrderedAxes) -> "Spacing":
+        """Create a new identity Spacing (1.0 along all axes) with `axes`."""
+        return super().fromkeys(axes)
 
     @classmethod
     def from_vigra(cls, axistags: "vigra.AxisTags") -> "Self":

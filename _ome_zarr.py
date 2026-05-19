@@ -1,10 +1,9 @@
 import re
 import warnings
-from dataclasses import dataclass, field
-from typing import Union, Literal, Mapping, Dict, List, Any, Optional, Tuple
+from dataclasses import dataclass, replace
+from typing import Union, Literal, Dict, List, Any, Optional, Tuple
 
-from lazyflow.utility.io_util.clearscale import Translation, Unit, Spacing, Factor
-from lazyflow.utility.io_util.clearscale._axis_values import OrderedAxes, AxisKey
+from lazyflow.utility.io_util.clearscale import Translation, Spacing, Factor
 from lazyflow.utility.io_util.clearscale._transforms import (
     TransformSequence,
     ScaleTransform,
@@ -14,6 +13,7 @@ from lazyflow.utility.io_util.clearscale._transforms import (
     CoordinateSystem,
     _UnresolvedRef,
     PRE_TRANSFORMS_VERSIONS,
+    Transform,
 )
 
 ####
@@ -30,22 +30,15 @@ OME_ZARR_MULTISCALE = Dict[  # single multiscales entry of a json-validated OME-
 
 
 @dataclass(frozen=True, slots=True)
-class LegacyMultiscaleTransforms(TransformSequence):
-    """Special class for legacy interpretation of 'coordinateTransformations'
-    in OME-Zarr 0.4 and 0.5 multiscale metadata."""
-
-    scale_transform: ScaleTransform = field(default=None)
-    translation_transform: Optional[TranslationTransform] = field(default=None)
-
+class MultiscaleTransforms(TransformSequence):
     def __post_init__(self):
-        if self.scale_transform is None:
-            raise ValueError("LegacyMultiscaleTransforms requires a scale transform.")
-        transforms = (
-            (self.scale_transform, self.translation_transform)
-            if self.translation_transform
-            else (self.scale_transform,)
-        )
-        object.__setattr__(self, "transforms", transforms)
+        if len(self.transforms) not in (1, 2):
+            raise ValueError("MultiscaleTransforms requires one or two transforms.")
+        if not isinstance(self.transforms[0], ScaleTransform):
+            raise TypeError("First transform must be a ScaleTransform.")
+        if len(self.transforms) == 2 and not isinstance(self.transforms[1], TranslationTransform):
+            raise TypeError("Second transform must be a TranslationTransform.")
+
         TransformSequence.__post_init__(self)
 
     @property
@@ -57,22 +50,64 @@ class LegacyMultiscaleTransforms(TransformSequence):
         return self.transforms[1] if len(self.transforms) == 2 else None
 
     @classmethod
-    def from_ome_zarr(cls, ome_transforms: List[Dict]) -> "LegacyMultiscaleTransforms":
-        ome_dict = {"type": "sequence", "transformations": ome_transforms}
-        seq = TransformSequence.from_ome_zarr(ome_dict)
-        if not seq.is_valid_for_ome_zarr_multiscale():
-            raise ValueError(
-                "Invalid coordinateTransformations metadata: Expected exactly one 'scale' and "
-                f"optionally one 'translation' transform. Received: {ome_transforms}"
-            )
-        return cls(
-            scale_transform=seq.transforms[0],
-            translation_transform=seq.transforms[1] if len(seq.transforms) == 2 else None,
-        )
+    def from_list(cls, ome_transformations: Optional[List[Dict]]) -> Optional["MultiscaleTransforms"]:
+        """
+        Possibilities for ome_transformations:
+        RFC-5 multiscale[datasets][n][coordinateTransformations]:
+        - List of one ScaleTransform
+        - List of one IdentityTransform
+        - List of one TransformSequence containing one ScaleTransform and one TranslationTransform
+        OME-Zarr v0.4 and 0.5:
+        - multiscale[coordinateTransformations]:
+          - absent or empty
+          - List of one ScaleTransform
+          - List of one ScaleTransform and one TranslationTransform
+        - multiscale[datasets][][coordinateTransformations]:
+          - List of one ScaleTransform
+          - List of one ScaleTransform and one TranslationTransform
+        """
+        if not ome_transformations or not hasattr(ome_transformations, "__len__"):
+            return None
+        scale = None
+        translation = None
+        for t_dict in ome_transformations:
+            # Best effort: Find first valid combination
+            try:
+                t = Transform.from_ome_zarr(t_dict)
+            except ValueError:
+                continue
+            if isinstance(t, TransformSequence):
+                if (len(t) == 1 and isinstance(t[0], ScaleTransform)) or (
+                    len(t) == 2 and isinstance(t[0], ScaleTransform) and isinstance(t[1], TranslationTransform)
+                ):
+                    scale, translation = t.transforms
+                    break
+            if isinstance(t, ScaleTransform) and scale is None:
+                scale = t
+                continue
+            if scale is not None and isinstance(t, TranslationTransform):
+                translation = t
+                break
+        if scale is None:
+            return None
+        return cls(transforms=(scale,) if translation is None else (scale, translation))
 
-
-class InvalidTransformationError(ValueError):
-    pass
+    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
+        if not isinstance(earlier, MultiscaleTransforms):
+            return None
+        if earlier.target is not None and self.source is not None and earlier.target != self.source:
+            return None
+        scale_product = self.scale.composed_with(earlier.scale)
+        if earlier.translation is not None and self.translation is not None:
+            translation_sum = self.translation.composed_with(earlier.translation)
+            transforms = (scale_product, translation_sum)
+        elif earlier.translation is not None:
+            transforms = (scale_product, earlier.translation)
+        elif self.translation is not None:
+            transforms = (scale_product, self.translation)
+        else:
+            transforms = (scale_product,)
+        return replace(self, source=earlier.source, transforms=transforms)
 
 
 def validate_multiscales_dict(raw: Dict):
@@ -140,143 +175,20 @@ def multiscale_graph_from_legacy(
     multiscale: OME_ZARR_MULTISCALE,
     *,
     name: str,
-    validated_multiscale_transforms: Optional["ValidTransformations"] = None,
-) -> Tuple[_TransformGraph, CoordinateSystemRef[CoordinateSystem]]:
+    global_transforms: Optional[MultiscaleTransforms] = None,
+) -> Tuple[_TransformGraph, CoordinateSystemRef[CoordinateSystem], Optional[MultiscaleTransforms]]:
     intrinsic_system = CoordinateSystem.from_ome_zarr(multiscale)
     intrinsic_system_ref = intrinsic_system.as_ref(name)
     graph = _TransformGraph.single_isolated_system(intrinsic_system_ref)
-    if validated_multiscale_transforms is not None:
+    bound_transform = None
+    if global_transforms is not None:
         # Store the multiscale-level transforms as a transform to a non-existent mock system.
         # This allows Multiscale.to_ome_zarr to divide/subtract them back out of Scale.spacing/.translation
         # for perfect metadata round-trip.
         mock_ref = _UnresolvedRef(name=f"{name}-intermediate")
-        transform = LegacyMultiscaleTransforms.from_ome_zarr(multiscale.get("coordinateTransformations"))
-        bound_transform = transform.bound(source=mock_ref, target=intrinsic_system_ref)
+        bound_transform = global_transforms.bound(source=intrinsic_system_ref, target=mock_ref)
         graph = _TransformGraph([bound_transform])
-    return graph, intrinsic_system_ref
-
-
-@dataclass(frozen=True)
-class Transformation:
-    """Used by OME-Zarr export to adjust export metadata according to input."""
-
-    type: Literal["scale", "translation"]
-    values: Optional[List[float]]
-
-    @classmethod
-    def from_json(cls, json_data: Dict) -> "Transformation":
-        """Expected dicts look like
-        {
-          "type": Literal["scale", "translation"]
-          and EITHER "scale": List[number] OR "translation": List[number]
-        }
-        Unfortunately, the spec is internally inconsistent, so there is a chance that we may encounter
-        a coordinateTransformation with a "path" key instead of "scale" or "translation"; and possibly
-        coordinateTransformations with "type": "identity".
-        Afaik, none of the more popular converters/writers do this.
-        """
-        if (
-            json_data["type"] not in ("scale", "translation")
-            or ("scale" not in json_data and "translation" not in json_data)
-            or "path" in json_data
-        ):
-            raise InvalidTransformationError()
-        # Could raise KeyError for real nonsense like {"type": "scale", "translation": [0, 0]}
-        return cls(type=json_data["type"], values=json_data[json_data["type"]])
-
-
-ValidTransformations = Tuple[Transformation, Optional[Transformation]]
-"""tuple(scale_transform, Optional[translation_transform])"""
-
-TransformationsOrError = Union[ValidTransformations, InvalidTransformationError]
-
-
-def validate_transforms(
-    coordinate_transformations: Optional[List[Dict[str, Union[str, List[float]]]]],
-) -> Union[None, ValidTransformations, InvalidTransformationError]:
-    """
-    Resolves the OME-Zarr spec's inconsistency in the coordinateTransformations field.
-    Avoids raising errors because valid metadata are not required to load and work with the data.
-    Distinguishes between None and invalid transformations so that caller can warn on the latter.
-    Returns:
-    - None if input was None (allowed for multiscale_transformations)
-    - Tuple of scale transform and optionally translation transform if valid
-    - InvalidTransformationError if invalid (e.g. not None but also no scale transform present)
-    Inattentive writers might produce invalid transforms, depending on what part of the spec they read.
-    The Transformations spec [1] allows for "identity" transforms and arbitrary numbers of transforms,
-    but the Multiscales spec [2] only allows exactly one "scale", optionally followed by one "translation"
-    transform.
-    The "official" validator's schema [3] implements neither of these rules exactly :) It instead allows
-    for exactly one "scale" transform, plus an arbitrary number of "translation" transforms, in any order.
-    But this, plus the example at the start of the OME-Zarr spec, make a clear enough indicator that
-    "one scale + one optional translation" is the convention, and all public datasets conform to this.
-    To be graceful, we'll accept the first scale and translation.
-    [1] https://ngff.openmicroscopy.org/latest/index.html#trafo-md
-    [2] https://ngff.openmicroscopy.org/latest/index.html#multiscale-md
-    [3] https://github.com/ome/ngff/blob/1383ce6218539baf9fe4350c46d992f2dbfe7af1/0.4/schemas/image.schema#L167
-    """
-    if coordinate_transformations is None:
-        return None
-    if not isinstance(coordinate_transformations, list) or not coordinate_transformations:
-        return InvalidTransformationError()
-    scale_transform = translation_transform = None
-    for t in coordinate_transformations:
-        try:
-            transform = Transformation.from_json(t)
-        except (InvalidTransformationError, KeyError):
-            continue
-        if scale_transform is None and transform.type == "scale":
-            scale_transform = transform
-        if translation_transform is None and transform.type == "translation":
-            translation_transform = transform
-    return (scale_transform, translation_transform) if scale_transform else InvalidTransformationError()
-
-
-def combine_spacings(
-    axis_keys: List[str],
-    dataset_path: str,
-    multiscale_transforms: Union[None, ValidTransformations, InvalidTransformationError],
-    dataset_transforms: Union[None, ValidTransformations, InvalidTransformationError],
-) -> Spacing:
-    def has_valid_resolution(transforms):
-        return isinstance(transforms, tuple) and transforms[0].values and len(transforms[0].values) == len(axis_keys)
-
-    if not has_valid_resolution(dataset_transforms):
-        warnings.warn(f"Missing or invalid pixel resolution metadata for dataset {dataset_path}.")
-        return Spacing.fromkeys(axis_keys)
-
-    dataset_resolution = dataset_transforms[0].values
-
-    if not has_valid_resolution(multiscale_transforms):
-        return Spacing(zip(axis_keys, dataset_resolution))
-
-    spacing = Spacing(zip(axis_keys, multiscale_transforms[0].values))
-    scale = Factor([(k, v) for k, v in zip(axis_keys, dataset_resolution) if v != 0])
-    return spacing.scaled_by(scale)
-
-
-def combine_translations(
-    axis_keys: List[str],
-    multiscale_transforms: Union[None, ValidTransformations, InvalidTransformationError],
-    dataset_transforms: Union[None, ValidTransformations, InvalidTransformationError],
-) -> Translation:
-    def has_valid_translation(transforms):
-        return (
-            isinstance(transforms, tuple)
-            and transforms[1] is not None
-            and transforms[1].values is not None
-            and len(transforms[1].values) == len(axis_keys)
-        )
-
-    dataset_translation = Translation.identity(axis_keys)
-    if has_valid_translation(dataset_transforms):
-        dataset_translation = Translation(zip(axis_keys, dataset_transforms[1].values))
-
-    multiscale_translation = Translation.identity(axis_keys)
-    if has_valid_translation(multiscale_transforms):
-        multiscale_translation = Translation(zip(axis_keys, multiscale_transforms[1].values))
-
-    return multiscale_translation + dataset_translation
+    return graph, intrinsic_system_ref, bound_transform
 
 
 ####
