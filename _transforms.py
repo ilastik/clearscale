@@ -276,10 +276,6 @@ class Transform(ABC):
         # binding required to use the Transform in a TransformGraph
         return replace(self, source=source, target=target)
 
-    def unbound(self) -> "Self":
-        # for nesting inside a TransformSequence or BijectionTransform
-        return replace(self, source=None, target=None)
-
     @property
     def is_fully_resolved(self) -> bool:
         return not (
@@ -352,10 +348,13 @@ class Transform(ABC):
         self, path_nodes: Optional[NodesByPath], *, named_refs: Optional[Set[CoordinateSystemRef]]
     ) -> "Self":
         """
+        Identify _UnresolvedRef endpoints on this Transform and resolve them by matching them to the
+        provided endpoints preferably by their `path` (to path_nodes), or by their `name` (to named_refs).
+
         Resolving name-only references takes a lot of care: coordinate system names are not unique,
         and there is no robust way to determine if a system with the expected name is actually the specific
         system the transform referenced.
-        Using this (or wrapping its usage) with named_refs should be avoided, or force explicit intention.
+        Using this with named_refs (or wrapping such usage) should be avoided, or force explicit intention.
         """
         if self.is_fully_resolved or (not path_nodes and not named_refs):
             return self
