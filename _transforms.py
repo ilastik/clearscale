@@ -244,10 +244,18 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
 
 @dataclass(frozen=True, slots=True)
 class Transform(ABC):
-    source: Optional[CoordinateSystemRef] = field(
-        default=None, kw_only=True
-    )  # default required; optional when nested in sequence or bijection (and will be None by default in clearscale when nested)
+    """
+    Coordinate transformation with OME-Zarr convention for source/target coordinates:
+    `source_coords x t = target_coords`
+    This convention prioritises *technical simplicity*, not mathematical theory.
+    Transforming array indices or slicings to meaningful physical coordinates is simple:
+    `[0, 124, 124] x Scale(1, 0.2, 0.2) = [0, 24.8, 24.8]`
+    """
+
+    source: Optional[CoordinateSystemRef] = field(default=None, kw_only=True)
+    """The transform graph node (coordinate system) whose coordinates this transform acts on"""
     target: Optional[CoordinateSystemRef] = field(default=None, kw_only=True)
+    """The transform graph node (coordinate system) whose coordinates this transform produces"""
 
     @property
     @abstractmethod
