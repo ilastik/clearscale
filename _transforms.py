@@ -104,8 +104,16 @@ class TransformGraphNode(ABC):
 
 @dataclass(frozen=True)
 class CoordinateSystemRef(Generic[AnyTransformGraphNode]):
-    # Refs are how we deal with the fact that nodes can be of different types (Multiscale, CoordinateSystem),
-    # or absent entirely (_UnresolvedRef), and node referencing works via object identity and/or name.
+    """
+    Essentially a fancy tuple to act like dict-keys for selecting nodes inside transform graphs.
+    This solves multiple problems:
+    - nodes can be of different types (Multiscale or CoordinateSystem -- TransformGraphNode subclasses),
+    - nodes can be absent entirely (_UnresolvedRef),
+    - and node referencing must be possible via object identity and/or name
+      (Scenes must be able to identify coordinate systems by name within child Multiscales,
+      i.e. selection by (Multiscale or Scene, CoordinateSystemName) as a combined key)
+    """
+
     name: CoordinateSystemName
     owner: Optional[AnyTransformGraphNode]
     """The Multiscale or CoordinateSystem that produced this, for identity. None only in _UnresolvedRef"""
@@ -625,26 +633,35 @@ class TransformSequence(Transform):
 
 @dataclass(frozen=True, slots=True)
 class _TransformGraph:
-    # Graph was originally supposed to primarily just be Mapping[CoordinateSystemName, CoordinateSystem]
-    # with Graph._transforms acting as a hidden store for .path_between
-    # But this doesn't work out: coordinate systems won't be uniquely named across scenes. Multiple multiscales
-    # will likely have systems named "physical". So (Multiscale, CoordinateSystemName) as a combined key?
-    # This isn't sufficient: Transform source/target need to be lazy because Scene cannot know all
-    # Multiscales when first loading OME-Zarr scene metadata.
-    # So there needs to be an "unresolved multiscale" node key.
-    # Plus, both multiscales and scenes are allowed to define coordinate systems that act as source/target for
-    # transforms defined elsewhere. In this case, we only know a system name, and the fact that it doesn't appear
-    # in any transform the current multiscale/scene is parsing.
-    # So there needs to be a name-only "unresolved system" node key.
+    """
+    Transform graphs consist of
+    - Transforms as edges, and
+    - Multiscales and CoordinateSystems as nodes.
+    The _TransformGraph is defined primarily via Transforms.
+    Nodes are managed by the respective Transforms.
+
+    In OME-Zarr, the _TransformGraph corresponds to two metadata keys:
+    {
+      "coordinateSystems": [...],
+      "coordinateTransformations": [...],
+    }
+    As present on multiscale and scene metadata.
+    """
+
     transforms: Iterable[Transform]  # This could be ~15k entries in prod
+    """Transforms define the graph. Their `.source` and `.target` are the graph nodes."""
     isolated_system_refs: Optional[FrozenSet[CoordinateSystemRef]] = None
+    """Accommodates disjunct nodes.
+    The most common use case for this is the placeholder graph inside newly generated
+    Multiscales, which consists of only one CoordinateSystem and no Transforms
+    (_TransformGraph.single_isolated_system).
+    This also enables handling semi-valid OME-Zarr metadata that defines coordinate systems
+    with no transforms referencing them."""
     unresolved_transforms: Optional[Iterable[Transform]] = None
-    # isolated_system_refs and unresolved_transforms are used to deal with ome-zarr multiscales
-    # or scenes that define coordinate systems without defining any transforms that reference them;
-    # and respectively with transforms whose source/target metadata have not been loaded into memory yet.
-    # `unresolved_transforms` should be a SUBSET of `transforms`. It is implemented as a parameter
-    # rather than a cached_property only because it is more efficient for Scene.from_ome_zarr to build it
-    # as it iterates the metadata.
+    """Keeps references to _UnresolvedRefs on `transforms` in this graph for Scene's convenience.
+    Implemented as a parameter rather than a cached_property because it is more efficient
+    for Scene.from_ome_zarr to build it as it iterates the metadata.
+    Should always be a subset of `transforms`."""
 
     def __bool__(self):
         return bool(self.transforms) or bool(self.isolated_system_refs)
