@@ -694,7 +694,7 @@ class _TransformGraph:
         all_transforms: List[Transform] = []
         isolated_systems = set(named_systems)
         for transform_dict in transform_dicts:
-            t = Transform.from_ome_zarr(transform_dict).with_resolved(None, named_refs=named_systems)
+            t: Transform = Transform.from_ome_zarr(transform_dict).with_resolved(None, named_refs=named_systems)
             if not t.is_fully_bound:
                 raise ValueError(
                     f'Transform input and output must have "path", "name" or both. Received: {transform_dict}'
