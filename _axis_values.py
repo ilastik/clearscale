@@ -1,4 +1,5 @@
 import math
+import numbers
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 from collections.abc import Mapping as ABCMapping
@@ -173,7 +174,7 @@ class _AxisValues(ABC, _AxisMapping[AxisKey, AxisMappedPrimitive], Generic[AxisK
         keep_items = [(a, self[a] if a in axes else self._default) for a in self]
         return self.__class__(keep_items)
 
-    def with_values(self, other: Mapping[AxisKey, AxisMappedPrimitive], axes: Axes):
+    def with_values(self, other: Mapping[AxisKey, Union[numbers.Real, str]], axes: Axes):
         if not axes:
             return self.__class__(self)
         replaced_items = []
@@ -182,7 +183,7 @@ class _AxisValues(ABC, _AxisMapping[AxisKey, AxisMappedPrimitive], Generic[AxisK
             if a in axes and a in other and other[a] is not None:
                 new_value = other[a]
             if type(self[a]) != type(new_value):
-                if isinstance(new_value, int) and isinstance(self[a], float):
+                if isinstance(new_value, numbers.Integral) and isinstance(self[a], float):
                     new_value = float(new_value)
                 else:
                     raise TypeError(
@@ -202,7 +203,7 @@ class _AxisFloats(_AxisValues[AxisKey, float], ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
-            if isinstance(value, int):
+            if isinstance(value, numbers.Integral) or isinstance(value, numbers.Real):
                 self._mapping[axis] = float(value)
                 continue
             if not isinstance(value, float):
@@ -243,7 +244,7 @@ class Factor(_AxisFloats):
                 raise ValueError(f"Scaling factor cannot be 0 (got 0 for axis '{axis}').")
 
     @classmethod
-    def uniform(cls, axes: OrderedAxes, factor: float) -> "Factor":
+    def uniform(cls, axes: OrderedAxes, factor: numbers.Real) -> "Factor":
         """Create a new Scaling with `axes` and all values being `factor`."""
         return Factor(zip(axes, [factor] * len(axes)))
 
@@ -340,7 +341,7 @@ class Spacing(_AxisFloats):
                 tags.setResolution(tag.key, self[tag.key])
         return tags
 
-    def scaled_by(self, factor: Union[Factor, Mapping[AxisKey, float], float]) -> "Spacing":
+    def scaled_by(self, factor: Union[Factor, Mapping[AxisKey, float], numbers.Real]) -> "Spacing":
         """
         Scale this Spacing by factor to obtain a scaled Spacing.
         This is an axis-wise operation:
@@ -349,7 +350,7 @@ class Spacing(_AxisFloats):
         - Extra axes in `factor` are rejected
         Note if passing scalar: factor 2.0 means double spacing = half resolution.
         """
-        if isinstance(factor, float) or isinstance(factor, int):
+        if isinstance(factor, numbers.Real):
             factor = Factor.uniform(self, factor)
         elif not isinstance(factor, Factor):
             factor = Factor(factor)
@@ -452,8 +453,9 @@ class PixelOffset(_AxisValues[AxisKey, int]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
-            if not isinstance(value, int):
+            if not isinstance(value, numbers.Integral):
                 raise TypeError(f"All values must be integer. Got {type(value).__name__} for axis '{axis}'.")
+            self._mapping[axis] = int(value)
 
     def with_axes(self, axes: OrderedAxes) -> "PixelOffset":
         """
@@ -486,10 +488,11 @@ class Shape(_AxisValues[AxisKey, int]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
-            if not isinstance(value, int):
+            if not isinstance(value, numbers.Integral):
                 raise TypeError(f"All values must be integer. Got {type(value).__name__} for axis '{axis}'.")
             if value < 1:
                 raise ValueError(f"Shape cannot be lower than 1 (got {value} for axis '{axis}').")
+            self._mapping[axis] = int(value)
 
     @classmethod
     def all_singletons(cls, axes: OrderedAxes):
