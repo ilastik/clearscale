@@ -260,7 +260,6 @@ class Transform(ABC):
     @property
     @abstractmethod
     def is_invertible(self) -> bool: ...
-    @property
     @abstractmethod
     def inverted(self) -> Optional["Self"]: ...
     @abstractmethod
@@ -406,7 +405,6 @@ class IdentityTransform(Transform):
     def is_invertible(self) -> bool:
         return True
 
-    @property
     def inverted(self) -> "IdentityTransform":
         return replace(self, source=self.target, target=self.source)
 
