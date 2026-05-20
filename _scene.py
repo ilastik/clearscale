@@ -25,7 +25,7 @@ UserFacingCoordinateSystemKey = Union[
 ]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Scene:
     _internal_graph: _TransformGraph
     _external_multiscales: Mapping[Multiscale, Optional[RelativePath]]  # remembers paths for to_ome_zarr

@@ -631,7 +631,7 @@ class TransformSequence(Transform):
         return replace(self, transforms=tuple(result))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class _TransformGraph:
     """
     Transform graphs consist of
@@ -668,7 +668,10 @@ class _TransformGraph:
 
     @functools.cached_property
     def all_system_refs(self) -> FrozenSet[CoordinateSystemRef]:
-        return self.connected_system_refs | self.isolated_system_refs
+        if self.isolated_system_refs is not None:
+            return self.connected_system_refs | self.isolated_system_refs
+        else:
+            return self.connected_system_refs
 
     @functools.cached_property
     def connected_system_refs(self) -> FrozenSet[CoordinateSystemRef]:
