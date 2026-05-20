@@ -408,19 +408,36 @@ class IdentityTransform(Transform):
     def inverted(self) -> "IdentityTransform":
         return replace(self, source=self.target, target=self.source)
 
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
-        return {"type": "identity", **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
-
     def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
         if earlier.target is not None and self.source is not None and earlier.target != self.source:
             return None
         return replace(earlier, target=self.target)
+
+    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
+        return {"type": "identity", **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
 
 
 @dataclass(frozen=True, slots=True)
 class ScaleTransform(Transform):
     _scale: Tuple[float, ...]
     ome_zarr_path: Optional[str] = None
+
+    @property
+    def is_invertible(self) -> bool:
+        return all(v for v in self._scale)  # Not invertible with 0 values
+
+    def inverted(self) -> "ScaleTransform":
+        scale_inverted = tuple(1 / v for v in self._scale)
+        return replace(self, _scale=scale_inverted, ome_zarr_path=None)
+
+    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
+        if not isinstance(earlier, ScaleTransform):
+            return None
+        return replace(self, _scale=tuple(a * b for a, b in zip(self._scale, earlier._scale)), ome_zarr_path=None)
+
+    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
+        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"scale": list(self._scale)}
+        return {"type": "scale", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
 
     @classmethod
     def from_spacing(cls, spacing: Spacing):
@@ -454,28 +471,30 @@ class ScaleTransform(Transform):
             )
         return self.source.owner.axes() if self.source else self.target.owner.axes()
 
-    @property
-    def is_invertible(self) -> bool:
-        return all(v for v in self._scale)  # Not invertible with 0 values
-
-    def inverted(self) -> "ScaleTransform":
-        scale_inverted = tuple(1 / v for v in self._scale)
-        return replace(self, _scale=scale_inverted, ome_zarr_path=None)
-
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
-        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"scale": list(self._scale)}
-        return {"type": "scale", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
-
-    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
-        if not isinstance(earlier, ScaleTransform):
-            return None
-        return replace(self, _scale=tuple(a * b for a, b in zip(self._scale, earlier._scale)), ome_zarr_path=None)
-
 
 @dataclass(frozen=True, slots=True)
 class TranslationTransform(Transform):
     _translation: Tuple[float, ...]
     ome_zarr_path: Optional[str] = None
+
+    @property
+    def is_invertible(self) -> bool:
+        return True
+
+    def inverted(self) -> "TranslationTransform":
+        translation_inverted = tuple(-v for v in self._translation)
+        return replace(self, _translation=translation_inverted, ome_zarr_path=None)
+
+    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
+        if not isinstance(earlier, TranslationTransform):
+            return None
+        return replace(
+            self, _translation=tuple(a + b for a, b in zip(self._translation, earlier._translation)), ome_zarr_path=None
+        )
+
+    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
+        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"translation": list(self._translation)}
+        return {"type": "translation", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
 
     @classmethod
     def from_translation(cls, translation: Translation):
@@ -508,29 +527,41 @@ class TranslationTransform(Transform):
             )
         return self.source.owner.axes() if self.source.owner else self.target.owner.axes()
 
-    @property
-    def is_invertible(self) -> bool:
-        return True
-
-    def inverted(self) -> "TranslationTransform":
-        translation_inverted = tuple(-v for v in self._translation)
-        return replace(self, _translation=translation_inverted, ome_zarr_path=None)
-
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
-        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"translation": list(self._translation)}
-        return {"type": "translation", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
-
-    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
-        if not isinstance(earlier, TranslationTransform):
-            return None
-        return replace(
-            self, _translation=tuple(a + b for a, b in zip(self._translation, earlier._translation)), ome_zarr_path=None
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class TransformSequence(Transform):
     transforms: Tuple[Transform, ...] = field(default=())
+
+    @property
+    def is_invertible(self) -> bool:
+        return all(t.is_invertible for t in self.transforms)
+
+    def inverted(self) -> "TransformSequence":
+        if not self.is_invertible:
+            raise ValueError("TransformSequence is not invertible: contains non-invertible transform(s).")
+        return TransformSequence(tuple(reversed([t.inverted() for t in self.transforms])))
+
+    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
+        # TODO: compatibility check if self or earlier is bound, and/or axis compatibility
+        # See if maybe that check ends up working out identical across Transform subclasses
+        # and move to the base class if so
+        if isinstance(earlier, TransformSequence):
+            return replace(earlier, transforms=tuple(earlier.transforms + self.transforms))
+        return replace(self, transforms=(earlier,) + self.transforms)
+
+    def to_ome_zarr(
+        self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None
+    ) -> Union[Dict, List]:
+        if version in PRE_TRANSFORMS_VERSIONS:
+            return [t.to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node) for t in self.transforms]
+        else:
+            return {
+                "type": "sequence",
+                "transformations": [
+                    t.to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node) for t in self.transforms
+                ],
+                **self._get_ome_zarr_inout(version, for_scene, paths_by_node),
+            }
 
     def __post_init__(self):
         if not self.transforms:
@@ -573,37 +604,6 @@ class TransformSequence(Transform):
             last = self.transforms[-1].bound(source=self.transforms[-1].source, target=target)
             new_transforms = (first,) + self.transforms[1:-1] + (last,)
         return replace(self, source=source, target=target, transforms=new_transforms)
-
-    @property
-    def is_invertible(self) -> bool:
-        return all(t.is_invertible for t in self.transforms)
-
-    def inverted(self) -> "TransformSequence":
-        if not self.is_invertible:
-            raise ValueError("TransformSequence is not invertible: contains non-invertible transform(s).")
-        return TransformSequence(tuple(reversed([t.inverted() for t in self.transforms])))
-
-    def to_ome_zarr(
-        self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None
-    ) -> Union[Dict, List]:
-        if version in PRE_TRANSFORMS_VERSIONS:
-            return [t.to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node) for t in self.transforms]
-        else:
-            return {
-                "type": "sequence",
-                "transformations": [
-                    t.to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node) for t in self.transforms
-                ],
-                **self._get_ome_zarr_inout(version, for_scene, paths_by_node),
-            }
-
-    def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
-        # TODO: compatibility check if self or earlier is bound, and/or axis compatibility
-        # See if maybe that check ends up working out identical across Transform subclasses
-        # and move to the base class if so
-        if isinstance(earlier, TransformSequence):
-            return replace(earlier, transforms=tuple(earlier.transforms + self.transforms))
-        return replace(self, transforms=(earlier,) + self.transforms)
 
     def collapsed(self, *, raise_uncollapsed: bool = False) -> "Transform | TransformSequence":
         result: list[Transform] = [self.transforms[0]]
