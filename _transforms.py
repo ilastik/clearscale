@@ -281,8 +281,10 @@ class Transform(ABC):
         return replace(self, source=None, target=None)
 
     @property
-    def has_unresolved_endpoint(self) -> bool:
-        return self.source is None or self.target is None or self.source.owner is None or self.target.owner is None
+    def is_fully_resolved(self) -> bool:
+        return not (
+            self.source is None or self.target is None or self.source.owner is None or self.target.owner is None
+        )
 
     @property
     def is_fully_unresolved(self) -> bool:
@@ -355,7 +357,7 @@ class Transform(ABC):
         system the transform referenced.
         Using this (or wrapping its usage) with named_refs should be avoided, or force explicit intention.
         """
-        if not self.has_unresolved_endpoint or (not path_nodes and not named_refs):
+        if self.is_fully_resolved or (not path_nodes and not named_refs):
             return self
         path_nodes = path_nodes or {}
         named_refs = named_refs or {}
@@ -705,7 +707,7 @@ class _TransformGraph:
             all_transforms.append(t)
             isolated_systems.discard(t.source)
             isolated_systems.discard(t.target)
-            if t.has_unresolved_endpoint:
+            if not t.is_fully_resolved:
                 unresolved_transforms.append(t)
         graph = _TransformGraph(
             all_transforms,

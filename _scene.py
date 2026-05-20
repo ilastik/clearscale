@@ -82,7 +82,7 @@ class Scene:
         remaining_isolated = set(self._internal_graph.isolated_system_refs)
         for t in self._internal_graph.unresolved_transforms:
             maybe_resolved_t = t.with_resolved(multiscales, named_refs=coordinate_system_refs)
-            if maybe_resolved_t.has_unresolved_endpoint:
+            if not maybe_resolved_t.is_fully_resolved:
                 remaining_unresolved.append(maybe_resolved_t)
             for ref in (maybe_resolved_t.source, maybe_resolved_t.target):
                 assert ref is not None, f"Should never have unbound refs in scene transforms {t!r}"
