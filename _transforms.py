@@ -248,7 +248,6 @@ class Transform(ABC):
         default=None, kw_only=True
     )  # default required; optional when nested in sequence or bijection (and will be None by default in clearscale when nested)
     target: Optional[CoordinateSystemRef] = field(default=None, kw_only=True)
-    payload: Union[RelativePath, Any] = field(default=None, kw_only=True)
 
     @property
     @abstractmethod
