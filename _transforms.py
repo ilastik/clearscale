@@ -263,6 +263,12 @@ class Transform(ABC):
     @property
     @abstractmethod
     def inverted(self) -> Optional["Self"]: ...
+    @abstractmethod
+    def composed_with(self, earlier: "Transform") -> Optional["Transform"]: ...
+    @abstractmethod
+    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
+        """Should use _get_ome_zarr_inout for the shared fields and add the transform-specific ones."""
+        pass
 
     @property
     def is_fully_bound(self) -> bool:
@@ -271,10 +277,6 @@ class Transform(ABC):
     @property
     def is_fully_unbound(self) -> bool:
         return self.source is None and self.target is None
-
-    def bound(self, source: Optional[CoordinateSystemRef], target: Optional[CoordinateSystemRef]) -> "Self":
-        # binding required to use the Transform in a TransformGraph
-        return replace(self, source=source, target=target)
 
     @property
     def is_fully_resolved(self) -> bool:
@@ -286,63 +288,9 @@ class Transform(ABC):
     def is_fully_unresolved(self) -> bool:
         return (self.source is None or self.source.owner is None) and (self.target is None or self.target.owner is None)
 
-    @classmethod
-    def from_ome_zarr(cls, ome_dict: Dict) -> "Transform":
-        t_type = ome_dict.get("type")
-        if t_type == "identity":
-            source, target = cls._parse_source_and_target(ome_dict)
-            return IdentityTransform(source=source, target=target)
-        elif t_type == "scale":
-            return ScaleTransform.from_ome_zarr(ome_dict)
-        elif t_type == "translation":
-            return TranslationTransform.from_ome_zarr(ome_dict)
-        elif t_type == "sequence":
-            return TransformSequence(
-                transforms=tuple(Transform.from_ome_zarr(td) for td in ome_dict["transformations"])
-            )
-        else:
-            raise ValueError(f"Unknown transform type: {t_type!r}")
-
-    @staticmethod
-    def _parse_source_and_target(ome_dict: Dict):
-        endpoints = {"input": None, "output": None}
-        for side in endpoints.keys():
-            ref = ome_dict.get(side, {})
-            path = ref.get("path")
-            name = ref.get("name")
-            if path or name:
-                endpoints[side] = _UnresolvedRef(path=path, name=name)
-        if bool(endpoints["input"]) != bool(endpoints["output"]):
-            raise ValueError(f"Invalid transform (in/out must either both be undefined or both defined): {ome_dict!r}")
-        source = endpoints["input"]
-        target = endpoints["output"]
-        return source, target
-
-    @abstractmethod
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
-        """Should use _get_ome_zarr_inout for the shared fields and add the transform-specific ones."""
-        pass
-
-    def _get_ome_zarr_inout(
-        self, version: str, for_scene: bool, paths_by_node: Optional[PathsByNode]
-    ) -> Dict[Literal["input", "output"], Dict]:
-        if version in PRE_TRANSFORMS_VERSIONS:
-            return {}
-        if for_scene and not self.is_fully_bound:
-            raise ValueError("OME-Zarr Scene transforms must be `.bound(source, target)`")
-        paths_by_node = paths_by_node or {}
-        input_dict = {}
-        output_dict = {}
-        for ms, path in paths_by_node.items():
-            if self.source.owner is ms:
-                input_dict = self.source.to_ome_zarr(for_scene, path)
-            if self.target.owner is ms:
-                output_dict = self.target.to_ome_zarr(for_scene, path)
-            if input_dict and output_dict:
-                break
-        input_dict = input_dict or self.source.to_ome_zarr(for_scene)
-        output_dict = output_dict or self.target.to_ome_zarr(for_scene)
-        return {"input": input_dict, "output": output_dict}
+    def bound(self, source: Optional[CoordinateSystemRef], target: Optional[CoordinateSystemRef]) -> "Self":
+        # binding required to use the Transform in a TransformGraph
+        return replace(self, source=source, target=target)
 
     def with_resolved(
         self, path_nodes: Optional[NodesByPath], *, named_refs: Optional[Set[CoordinateSystemRef]]
@@ -387,8 +335,58 @@ class Transform(ABC):
                 return name_matches[0]
         return ref
 
-    @abstractmethod
-    def composed_with(self, earlier: "Transform") -> Optional["Transform"]: ...
+    @classmethod
+    def from_ome_zarr(cls, ome_dict: Dict) -> "Transform":
+        t_type = ome_dict.get("type")
+        if t_type == "identity":
+            source, target = cls._parse_source_and_target(ome_dict)
+            return IdentityTransform(source=source, target=target)
+        elif t_type == "scale":
+            return ScaleTransform.from_ome_zarr(ome_dict)
+        elif t_type == "translation":
+            return TranslationTransform.from_ome_zarr(ome_dict)
+        elif t_type == "sequence":
+            return TransformSequence(
+                transforms=tuple(Transform.from_ome_zarr(td) for td in ome_dict["transformations"])
+            )
+        else:
+            raise ValueError(f"Unknown transform type: {t_type!r}")
+
+    @staticmethod
+    def _parse_source_and_target(ome_dict: Dict):
+        endpoints = {"input": None, "output": None}
+        for side in endpoints.keys():
+            ref = ome_dict.get(side, {})
+            path = ref.get("path")
+            name = ref.get("name")
+            if path or name:
+                endpoints[side] = _UnresolvedRef(path=path, name=name)
+        if bool(endpoints["input"]) != bool(endpoints["output"]):
+            raise ValueError(f"Invalid transform (in/out must either both be undefined or both defined): {ome_dict!r}")
+        source = endpoints["input"]
+        target = endpoints["output"]
+        return source, target
+
+    def _get_ome_zarr_inout(
+        self, version: str, for_scene: bool, paths_by_node: Optional[PathsByNode]
+    ) -> Dict[Literal["input", "output"], Dict]:
+        if version in PRE_TRANSFORMS_VERSIONS:
+            return {}
+        if for_scene and not self.is_fully_bound:
+            raise ValueError("OME-Zarr Scene transforms must be `.bound(source, target)`")
+        paths_by_node = paths_by_node or {}
+        input_dict = {}
+        output_dict = {}
+        for ms, path in paths_by_node.items():
+            if self.source.owner is ms:
+                input_dict = self.source.to_ome_zarr(for_scene, path)
+            if self.target.owner is ms:
+                output_dict = self.target.to_ome_zarr(for_scene, path)
+            if input_dict and output_dict:
+                break
+        input_dict = input_dict or self.source.to_ome_zarr(for_scene)
+        output_dict = output_dict or self.target.to_ome_zarr(for_scene)
+        return {"input": input_dict, "output": output_dict}
 
     # Import methods: These handle normalizing common image processing packages' conventions for
     # computing/providing transforms to OME-Zarr's convention.
