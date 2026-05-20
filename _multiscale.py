@@ -579,6 +579,10 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         return self._with_values([factor.with_identity(axes) for factor in self.values()])
 
 
+def _random_multiscale_name() -> str:
+    return f"ms-{uuid.uuid4()}"
+
+
 class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     transform_graph: _TransformGraph
     intrinsic_ref: CoordinateSystemRef
@@ -635,7 +639,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             )
             global_transforms = None
         else:
-            intrinsic_system_name = f"multiscale-{uuid.uuid4()}"
+            intrinsic_system_name = _random_multiscale_name()
             multiscale_tf_list = multiscale_dict.get("coordinateTransformations")
             global_transforms = _ome_zarr.MultiscaleTransforms.from_list(multiscale_tf_list)
             if multiscale_tf_list and global_transforms is None:
@@ -792,7 +796,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
 
     def _make_default_graph(self) -> _TransformGraph:
         intrinsic_sys = CoordinateSystem.without_semantics(list(self.axes()))
-        intrinsic_name = f"ms-{uuid.uuid4()}"
+        intrinsic_name = _random_multiscale_name()
         return _TransformGraph.single_isolated_system(intrinsic_sys.as_ref(intrinsic_name))
 
     def as_ref(self, name: CoordinateSystemName):
