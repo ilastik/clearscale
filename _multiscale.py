@@ -584,15 +584,16 @@ def _random_multiscale_name() -> str:
 
 
 class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
-    transform_graph: _TransformGraph
-    intrinsic_ref: CoordinateSystemRef
+    _transform_graph: _TransformGraph
+    """Transform graph that by default consists only of one isolated node: _intrinsic_ref."""
+    _intrinsic_ref: CoordinateSystemRef
     """The system in which the Scales' shape, spacing, translation etc. are correct."""
 
     def __init__(
         self,
         *args,
-        transform_graph: Optional[_TransformGraph] = None,
-        intrinsic_ref: Optional[CoordinateSystemRef] = None,
+        _transform_graph: Optional[_TransformGraph] = None,
+        _intrinsic_ref: Optional[CoordinateSystemRef] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -602,16 +603,16 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                     f"All Scales must have identical axes. Scale at '{key}' has {list(scale.shape.keys())}"
                 )
 
-        self.transform_graph = transform_graph or self._make_default_graph()
-        if intrinsic_ref:
-            self.intrinsic_ref = intrinsic_ref
-        elif transform_graph:
+        self._transform_graph = _transform_graph or self._make_default_graph()
+        if _intrinsic_ref:
+            self._intrinsic_ref = _intrinsic_ref
+        elif _transform_graph:
             raise ValueError(
-                "Must specify intrinsic_ref when transform_graph is given. "
+                "Must specify _intrinsic_ref when _transform_graph is given. "
                 "Ensure this ref is actually inside the graph."
             )
         else:  # default graph guaranteed to have exactly one sys
-            self.intrinsic_ref = next(iter(self.transform_graph.isolated_system_refs))
+            self._intrinsic_ref = next(iter(self._transform_graph.isolated_system_refs))
 
     @staticmethod
     @wraps(BlueprintShapes.apply_to_scale)
@@ -679,7 +680,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                     Scale(shape=scale_shape, spacing=scale_spacing, translation=scale_translation, unit=unit),
                 )
             )
-        return cls(scales_items, transform_graph=graph, intrinsic_ref=intrinsic_system_ref)
+        return cls(scales_items, _transform_graph=graph, _intrinsic_ref=intrinsic_system_ref)
 
     @classmethod
     def from_precomputed(cls, info_dict: _precomputed.INFO_DICT):
@@ -751,22 +752,22 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             result["name"] = name
 
         if version not in PRE_TRANSFORMS_VERSIONS:
-            result.update(self.transform_graph.to_ome_zarr(version=version))
+            result.update(self._transform_graph.to_ome_zarr(version=version))
             for key, scale in self.items():
                 dataset = _ome_zarr.build_dataset_dict(
-                    version, key, scale.spacing, scale.translation, self.intrinsic_ref
+                    version, key, scale.spacing, scale.translation, self._intrinsic_ref
                 )
                 result["datasets"].append(dataset)
             return result
 
-        intrinsic_system_dict = self.intrinsic_ref.owner.to_ome_zarr(
+        intrinsic_system_dict = self._intrinsic_ref.owner.to_ome_zarr(
             name="", version=version, axis_types=axis_types, unit=self.first_value().unit
         )
         result["axes"] = intrinsic_system_dict["axes"]
 
         legacy_tfs = []
-        if self.transform_graph:
-            legacy_tfs = [t for t in self.transform_graph.transforms if isinstance(t, _ome_zarr.MultiscaleTransforms)]
+        if self._transform_graph:
+            legacy_tfs = [t for t in self._transform_graph.transforms if isinstance(t, _ome_zarr.MultiscaleTransforms)]
         if not legacy_tfs:
             # "Clean" legacy multiscale without global/multiscale-level transforms
             for key, scale in self.items():
@@ -778,7 +779,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         # placed on multiscale-level. (Or other arbitrary custom multiscale-level transforms)
         assert (
             len(legacy_tfs) <= 1
-        ), f"Dev error: More than one multiscale-level transform in {self.transform_graph.transforms}"
+        ), f"Dev error: More than one multiscale-level transform in {self._transform_graph.transforms}"
         result["coordinateTransformations"] = legacy_tfs[0].to_ome_zarr(version, for_scene=False)
         global_scale = legacy_tfs[0].scale.to_spacing()
         global_translation = Translation.identity(list(global_scale.keys()))
@@ -802,6 +803,6 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     def as_ref(self, name: CoordinateSystemName):
         return CoordinateSystemRef(name=name, owner=self)
 
-    def get_interface_transform(self):
+    def _get_interface_transform(self):
         """Allows a scene to traverse into this subgraph"""
-        return IdentityTransform(source=self.intrinsic_ref, target=self.as_ref(self.intrinsic_ref.name))
+        return IdentityTransform(source=self._intrinsic_ref, target=self.as_ref(self._intrinsic_ref.name))

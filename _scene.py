@@ -49,8 +49,8 @@ class Scene:
     def _full_graph(self):
         all_transforms = list(self._internal_graph.transforms)
         for ms in self._external_multiscales:
-            all_transforms.extend(ms.get_interface_transform())
-            all_transforms.extend(ms.transform_graph.transforms)
+            all_transforms.extend(ms._get_interface_transform())  # noqa: package-private, not class-private
+            all_transforms.extend(ms._transform_graph.transforms)  # noqa: package-private, not class-private
         return _TransformGraph(all_transforms)
 
     @classmethod
@@ -162,7 +162,8 @@ class Scene:
             return key[0].as_ref(key[1])
 
         if isinstance(key, Multiscale):
-            return key.intrinsic_ref  # If there were more than 1 and user cared, they'd give us a tuple
+            # If there were more than 1 and user cared, they'd give us a tuple
+            return key._intrinsic_ref  # noqa: package-private, not class-private
 
         if isinstance(key, CoordinateSystemName):
             # Purely matching by name could bring up refs to any TransformGraphNode
