@@ -586,7 +586,7 @@ def _random_multiscale_name() -> str:
 class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     _transform_graph: _TransformGraph
     """Transform graph that by default consists only of one isolated node: _intrinsic_ref."""
-    _intrinsic_ref: CoordinateSystemRef
+    _intrinsic_ref: CoordinateSystemRef[CoordinateSystem]
     """The system in which the Scales' shape, spacing, translation etc. are correct."""
 
     def __init__(
@@ -804,7 +804,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             sys_ref = intrinsic_sys.as_ref(intrinsic_name)
         return _TransformGraph.single_isolated_system(sys_ref)
 
-    def as_ref(self, name: CoordinateSystemName):
+    def as_ref(self, name: CoordinateSystemName) -> CoordinateSystemRef["Multiscale"]:
         return CoordinateSystemRef(name=name, owner=self)
 
     def _get_interface_transform(self):

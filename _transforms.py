@@ -171,7 +171,7 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
     def axes(self) -> Iterable[AxisKey]:
         return self.keys()
 
-    def as_ref(self, name: CoordinateSystemName):
+    def as_ref(self, name: CoordinateSystemName) -> CoordinateSystemRef["CoordinateSystem"]:
         return CoordinateSystemRef(name, self)
 
     @classmethod
@@ -650,7 +650,7 @@ class _TransformGraph:
 
     transforms: Iterable[Transform]  # This could be ~15k entries in prod
     """Transforms define the graph. Their `.source` and `.target` are the graph nodes."""
-    isolated_system_refs: Optional[FrozenSet[CoordinateSystemRef]] = None
+    isolated_system_refs: Optional[FrozenSet[CoordinateSystemRef[CoordinateSystem]]] = None
     """Accommodates disjunct nodes.
     The most common use case for this is the placeholder graph inside newly generated
     Multiscales, which consists of only one CoordinateSystem and no Transforms
@@ -667,14 +667,14 @@ class _TransformGraph:
         return bool(self.transforms) or bool(self.isolated_system_refs)
 
     @functools.cached_property
-    def all_system_refs(self) -> FrozenSet[CoordinateSystemRef]:
+    def all_system_refs(self) -> FrozenSet[CoordinateSystemRef[CoordinateSystem]]:
         if self.isolated_system_refs is not None:
             return self.connected_system_refs | self.isolated_system_refs
         else:
             return self.connected_system_refs
 
     @functools.cached_property
-    def connected_system_refs(self) -> FrozenSet[CoordinateSystemRef]:
+    def connected_system_refs(self) -> FrozenSet[CoordinateSystemRef[CoordinateSystem]]:
         return frozenset(ref for ref in self.node_refs if isinstance(ref.owner, CoordinateSystem))
 
     @functools.cached_property
@@ -697,7 +697,7 @@ class _TransformGraph:
 
     @classmethod
     def from_ome_zarr(cls, transform_dicts: List[Dict], system_dicts: List[Dict]):
-        named_systems: Set[CoordinateSystemRef] = set()
+        named_systems: Set[CoordinateSystemRef[CoordinateSystem]] = set()
         seen_names = set()
         for system_dict in system_dicts:
             system = CoordinateSystem.from_ome_zarr(system_dict)
