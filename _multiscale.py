@@ -593,7 +593,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         self,
         *args,
         _transform_graph: Optional[_TransformGraph] = None,
-        _intrinsic_ref: Optional[CoordinateSystemRef] = None,
+        _intrinsic_ref: Optional[CoordinateSystemRef[CoordinateSystem]] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -603,16 +603,16 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                     f"All Scales must have identical axes. Scale at '{key}' has {list(scale.shape.keys())}"
                 )
 
-        self._transform_graph = _transform_graph or self._make_default_graph()
-        if _intrinsic_ref:
-            self._intrinsic_ref = _intrinsic_ref
-        elif _transform_graph:
-            raise ValueError(
-                "Must specify _intrinsic_ref when _transform_graph is given. "
-                "Ensure this ref is actually inside the graph."
-            )
-        else:  # default graph guaranteed to have exactly one sys
+        if _intrinsic_ref is None:
+            if _transform_graph:
+                raise AssertionError("Must specify _intrinsic_ref when _transform_graph is given.")
+            self._transform_graph = self._make_single_system_graph()
             self._intrinsic_ref = next(iter(self._transform_graph.isolated_system_refs))
+        else:
+            if _intrinsic_ref not in _transform_graph.all_system_refs:
+                raise AssertionError("_intrinsic_ref must be inside _transform_graph")
+            self._transform_graph = _transform_graph or self._make_single_system_graph(_intrinsic_ref)
+            self._intrinsic_ref = _intrinsic_ref
 
     @staticmethod
     @wraps(BlueprintShapes.apply_to_scale)
@@ -795,10 +795,14 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             result["datasets"].append(dataset)
         return result
 
-    def _make_default_graph(self) -> _TransformGraph:
-        intrinsic_sys = CoordinateSystem.without_semantics(list(self.axes()))
-        intrinsic_name = _random_multiscale_name()
-        return _TransformGraph.single_isolated_system(intrinsic_sys.as_ref(intrinsic_name))
+    def _make_single_system_graph(
+        self, sys_ref: Optional[CoordinateSystemRef[CoordinateSystem]] = None
+    ) -> _TransformGraph:
+        if sys_ref is None:
+            intrinsic_sys = CoordinateSystem.without_semantics(list(self.axes()))
+            intrinsic_name = _random_multiscale_name()
+            sys_ref = intrinsic_sys.as_ref(intrinsic_name)
+        return _TransformGraph.single_isolated_system(sys_ref)
 
     def as_ref(self, name: CoordinateSystemName):
         return CoordinateSystemRef(name=name, owner=self)
