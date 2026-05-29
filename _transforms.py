@@ -273,9 +273,34 @@ class Transform(ABC):
     @abstractmethod
     def composed_with(self, earlier: "Transform") -> Optional["Transform"]: ...
     @abstractmethod
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
-        """Should use _get_ome_zarr_inout for the shared fields and add the transform-specific ones."""
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict:
+        """Must return the OME-Zarr object properties that are specific to the respective Transform type.
+        At a minimum, this includes {'type': '<ome-zarr type name>'}.
+        The common properties (input/output) are handled in the base class."""
         pass
+
+    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
+        ome_zarr_transform_dict = self._get_subtype_ome_zarr_properties(version)
+        if version in PRE_TRANSFORMS_VERSIONS:
+            return ome_zarr_transform_dict
+        if for_scene and not self.is_fully_bound:
+            raise ValueError("OME-Zarr Scene transforms must be `.bound(source, target)`")
+        paths_by_node = paths_by_node or {}
+        input_dict = {}
+        output_dict = {}
+        for ms, path in paths_by_node.items():
+            if ms is None:
+                continue
+            if self.source.owner is ms:
+                input_dict = self.source.to_ome_zarr(for_scene, path)
+            if self.target.owner is ms:
+                output_dict = self.target.to_ome_zarr(for_scene, path)
+            if input_dict and output_dict:
+                break
+        input_dict = input_dict or self.source.to_ome_zarr(for_scene)
+        output_dict = output_dict or self.target.to_ome_zarr(for_scene)
+        ome_zarr_transform_dict.update({"input": input_dict, "output": output_dict})
+        return ome_zarr_transform_dict
 
     @property
     def is_fully_bound(self) -> bool:
@@ -374,27 +399,6 @@ class Transform(ABC):
         target = endpoints["output"]
         return source, target
 
-    def _get_ome_zarr_inout(
-        self, version: str, for_scene: bool, paths_by_node: Optional[PathsByNode]
-    ) -> Dict[Literal["input", "output"], Dict]:
-        if version in PRE_TRANSFORMS_VERSIONS:
-            return {}
-        if for_scene and not self.is_fully_bound:
-            raise ValueError("OME-Zarr Scene transforms must be `.bound(source, target)`")
-        paths_by_node = paths_by_node or {}
-        input_dict = {}
-        output_dict = {}
-        for ms, path in paths_by_node.items():
-            if self.source.owner is ms:
-                input_dict = self.source.to_ome_zarr(for_scene, path)
-            if self.target.owner is ms:
-                output_dict = self.target.to_ome_zarr(for_scene, path)
-            if input_dict and output_dict:
-                break
-        input_dict = input_dict or self.source.to_ome_zarr(for_scene)
-        output_dict = output_dict or self.target.to_ome_zarr(for_scene)
-        return {"input": input_dict, "output": output_dict}
-
     # Import methods: These handle normalizing common image processing packages' conventions for
     # computing/providing transforms to OME-Zarr's convention.
     # They're only applicable for certain subclasses, so should go there
@@ -421,8 +425,8 @@ class IdentityTransform(Transform):
             return None
         return replace(earlier, target=self.target)
 
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
-        return {"type": "identity", **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict:
+        return {"type": "identity"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -443,9 +447,9 @@ class ScaleTransform(Transform):
             return None
         return replace(self, _scale=tuple(a * b for a, b in zip(self._scale, earlier._scale)), ome_zarr_path=None)
 
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict:
         payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"scale": list(self._scale)}
-        return {"type": "scale", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
+        return {"type": "scale", **payload_dict}
 
     @classmethod
     def from_spacing(cls, spacing: Spacing):
@@ -500,9 +504,9 @@ class TranslationTransform(Transform):
             self, _translation=tuple(a + b for a, b in zip(self._translation, earlier._translation)), ome_zarr_path=None
         )
 
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict:
         payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"translation": list(self._translation)}
-        return {"type": "translation", **payload_dict, **self._get_ome_zarr_inout(version, for_scene, paths_by_node)}
+        return {"type": "translation", **payload_dict}
 
     @classmethod
     def from_translation(cls, translation: Translation):
@@ -557,19 +561,19 @@ class TransformSequence(Transform):
             return replace(earlier, transforms=tuple(earlier.transforms + self.transforms))
         return replace(self, transforms=(earlier,) + self.transforms)
 
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict:
+        return {
+            "type": "sequence",
+            "transformations": [t.to_ome_zarr(version, for_scene=False) for t in self.transforms],
+        }
+
     def to_ome_zarr(
         self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None
     ) -> Union[Dict, List]:
         if version in PRE_TRANSFORMS_VERSIONS:
-            return [t.to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node) for t in self.transforms]
+            return [t.to_ome_zarr(version, for_scene=False) for t in self.transforms]
         else:
-            return {
-                "type": "sequence",
-                "transformations": [
-                    t.to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node) for t in self.transforms
-                ],
-                **self._get_ome_zarr_inout(version, for_scene, paths_by_node),
-            }
+            return super().to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node)
 
     def __post_init__(self):
         if not self.transforms:
