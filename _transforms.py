@@ -618,7 +618,7 @@ class TransformSequence(Transform):
         return replace(self, source=source, target=target, transforms=new_transforms)
 
     def collapsed(self, *, raise_uncollapsed: bool = False) -> "Transform | TransformSequence":
-        result: list[Transform] = [self.transforms[0]]
+        result: List[Transform] = [self.transforms[0]]
 
         for current in self.transforms[1:]:
             previous = result[-1]
@@ -758,7 +758,7 @@ class _TransformGraph:
         target: CoordinateSystemRef,
         allow_inverse=True,
         validate_rfc5_connectedness=False,
-    ) -> Optional[list[Transform]]:
+    ) -> Optional[List[Transform]]:
         if source == target:
             return [IdentityTransform(source=source, target=target)]
 

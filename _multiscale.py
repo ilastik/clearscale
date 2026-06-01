@@ -432,7 +432,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
     def axes(self):
         return self.first_value().keys()
 
-    def scaled_axes(self) -> tuple[AxisKey, ...]:
+    def scaled_axes(self) -> Tuple[AxisKey, ...]:
         """Axes where shapes differ across scales."""
         if len(self) < 2:
             return ()
@@ -555,7 +555,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         return self.first_value().keys()
 
     @property
-    def scaled_axes(self) -> tuple[AxisKey, ...]:
+    def scaled_axes(self) -> Tuple[AxisKey, ...]:
         """Axes where any factor is not 1.0."""
         if len(self) < 2:
             return ()
@@ -720,7 +720,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     def axes(self) -> Iterable[AxisKey]:
         return self.first_value().shape.keys()
 
-    def scaled_axes(self) -> tuple[AxisKey, ...]:
+    def scaled_axes(self) -> Tuple[AxisKey, ...]:
         """Axes where spacings differ across scales."""
         if len(self) < 2:
             return ()
