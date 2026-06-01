@@ -71,7 +71,8 @@ class MultiscaleTransforms(TransformSequence):
         scale = None
         translation = None
         for t_dict in ome_transformations:
-            # Best effort: Find first valid combination
+            # Best effort: Find first valid combination,
+            # and accept even a valid translation without valid scale
             try:
                 t = Transform.from_ome_zarr(t_dict)
             except ValueError:
@@ -85,11 +86,15 @@ class MultiscaleTransforms(TransformSequence):
             if isinstance(t, ScaleTransform) and scale is None:
                 scale = t
                 continue
-            if scale is not None and isinstance(t, TranslationTransform):
+            if isinstance(t, TranslationTransform) and translation is None:
                 translation = t
-                break
-        if scale is None:
+                if scale:
+                    break
+                continue
+        if scale is None and translation is None:
             return None
+        elif scale is None:
+            scale = ScaleTransform(_scale=tuple(1.0 for _ in range(len(translation._translation))))
         return cls(transforms=(scale,) if translation is None else (scale, translation))
 
     def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
@@ -119,10 +124,11 @@ def validate_multiscales_dict(raw: Dict):
 
     if "datasets" not in raw or not raw["datasets"]:
         raise ValueError(f"Invalid OME-Zarr datasets metadata: no datasets. Received:\n{raw}")
+
     if (
         version is not None
         and version not in ("0.1", "0.2", "0.3")
-        and any(not d["coordinateTransformations"] for d in raw["datasets"])
+        and any("coordinateTransformations" not in d or not d["coordinateTransformations"] for d in raw["datasets"])
     ):
         raise ValueError(f"Invalid OME-Zarr datasets metadata: datasets without transformations. Received:\n{raw}")
 

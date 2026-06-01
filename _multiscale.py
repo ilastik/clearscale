@@ -5,7 +5,7 @@ from collections import OrderedDict, defaultdict
 from collections.abc import Mapping as ABCMapping
 from dataclasses import dataclass
 from enum import StrEnum
-from functools import wraps
+from functools import cached_property
 from typing import (
     Optional,
     TypeVar,
@@ -131,6 +131,17 @@ class Scale:
                 f"translation={list(self.translation.keys())}, "
                 f"unit={list(self.unit.keys())})"
             )
+
+    def with_axes(self, axes: OrderedAxes) -> "Scale":
+        """Build a Scale with all properties produced by their respective `.with_axes`."""
+        if not axes:
+            raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to: '{axes}'")
+        return Scale(
+            shape=self.shape.with_axes(axes),
+            spacing=self.spacing.with_axes(axes),
+            unit=self.unit.with_axes(axes),
+            translation=self.translation.with_axes(axes),
+        )
 
     def has_pixel_size(self):
         return not self.unit.is_default() or not self.spacing.is_default()
@@ -388,7 +399,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             shape_limit = base_shape.with_ones(only)
 
         cls._validate_shape_limit(base_shape, only, shape_limit, max_levels, step)
-        shape_limit = Shape(shape_limit).with_axes_preserving_order(base_shape)
+        shape_limit = Shape(shape_limit).without_axes_except(base_shape)
 
         scales_items = []
         for i in range(0, max_levels):
@@ -453,7 +464,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         return BlueprintFactors(zip(self.keys(), factors))
 
     def apply_to_scale(
-        self, base: Scale, *, translation_shift_func: Union[None, TranslationShiftFunction]
+        self, base: Scale, *, translation_shift_func: Optional[TranslationShiftFunction] = None
     ) -> "Multiscale":
         if list(self.first_value().keys()) != list(base.shape.keys()):
             raise ValueError(
@@ -596,6 +607,11 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         _intrinsic_ref: Optional[CoordinateSystemRef[CoordinateSystem]] = None,
         **kwargs,
     ):
+        """
+        Multiscales can be constructed from a `scale_key : Scale` mapping, but this should be avoided.
+        Multiscale objects should reflect either metadata read from a file (`.from_ome_zarr`, `.from_precomputed`),
+        or expand a single Scale according to a scaling blueprint (`.from_shapes`, `.from_factors`).
+        """
         super().__init__(*args, **kwargs)
         for key, scale in self._mapping.items():
             if scale.shape.keys() != self.axes():
@@ -615,12 +631,12 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             self._intrinsic_ref = _intrinsic_ref
 
     @staticmethod
-    @wraps(BlueprintShapes.apply_to_scale)
-    def from_shapes(blueprint: BlueprintShapes, base: Scale, *args, **kwargs):
-        return blueprint.apply_to_scale(base, *args, **kwargs)
+    def from_shapes(
+        blueprint: BlueprintShapes, base: Scale, *, translation_shift_func: Optional[TranslationShiftFunction] = None
+    ):
+        return blueprint.apply_to_scale(base, translation_shift_func=translation_shift_func)
 
     @staticmethod
-    @wraps(BlueprintFactors.apply_to_scale)
     def from_factors(blueprint: BlueprintFactors, base: Scale, *args, **kwargs):
         return blueprint.apply_to_scale(base, *args, **kwargs)
 
@@ -735,6 +751,13 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                 scaled.append(axis)
 
         return tuple(scaled)
+
+    @cached_property
+    def keys_by_shape(self) -> Mapping[Shape, Tuple[ScaleKey, ...]]:
+        grouped = defaultdict(list)
+        for key, scale in self.items():
+            grouped[scale.shape].append(key)
+        return {shape: tuple(keys) for shape, keys in grouped.items()}
 
     def to_ome_zarr(
         self,

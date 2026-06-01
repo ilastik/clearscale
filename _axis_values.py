@@ -120,7 +120,7 @@ class _AxisValues(ABC, _AxisMapping[AxisKey, AxisMappedPrimitive], Generic[AxisK
 
     def is_default(self) -> bool:
         """Check if all values in this metadata are the default value."""
-        return self == self.__class__.fromkeys(self)
+        return all(v == self._default for v in self.values())
 
     def with_axes(self, axes: OrderedAxes) -> "Self":
         """Order like axes. Drop axes, or insert new axes with default value if necessary."""
@@ -139,7 +139,7 @@ class _AxisValues(ABC, _AxisMapping[AxisKey, AxisMappedPrimitive], Generic[AxisK
             )
         return self.__class__(reordered_items)
 
-    def with_axes_preserving_order(self, axes: Axes) -> "Self":
+    def without_axes_except(self, axes: Axes) -> "Self":
         """Keep only given axes (no reordering)."""
         kept_items = [(a, self[a]) for a in self if a in axes]
         if not kept_items:
@@ -149,12 +149,20 @@ class _AxisValues(ABC, _AxisMapping[AxisKey, AxisMappedPrimitive], Generic[AxisK
             )
         return self.__class__(kept_items)
 
-    def with_axes_dropping(self, axes: Axes) -> "Self":
+    def without_axes(self, axes: Axes) -> "Self":
         """Drop given axes."""
         kept_items = [(a, self[a]) for a in self if a not in axes]
         if not kept_items:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Removing {axes} would leave no axes.")
         return self.__class__(kept_items)
+
+    def without_default_values(self) -> "Self":
+        """Drop axes with default value"""
+        if self.is_default():
+            raise ValueError(
+                f"Cannot create empty {self.__class__.__name__}. Removing all defaults would leave no axes."
+            )
+        return self.without_axes(tuple(a for a in self if self[a] == self._default))
 
     def with_default(self, axes: Axes) -> "Self":
         """
@@ -514,6 +522,10 @@ class Shape(_AxisValues[AxisKey, int]):
     def with_ones(self, axes: Axes) -> "Self":
         """Reset the values for `axes` to 1."""
         return super().with_default(axes)
+
+    def without_singletons(self):
+        """Drop all axes where the shape is 1."""
+        return self.without_default_values()
 
     def matches(self, other: ShapeLike, *, only: Optional[Axes] = None) -> bool:
         """Permissive value matching.

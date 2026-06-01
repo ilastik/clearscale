@@ -1,5 +1,6 @@
 import enum
 import functools
+import numbers
 import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
@@ -457,6 +458,9 @@ class ScaleTransform(Transform):
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Dict) -> "ScaleTransform":
+        raw = ome_dict.get("scale")
+        if not raw or not all(isinstance(v, numbers.Real) for v in raw):
+            raise ValueError(f"Invalid scale transform metadata. Expected sequence of numbers, received: {raw!r}")
         source, target = cls._parse_source_and_target(ome_dict)
         return cls(
             _scale=tuple(ome_dict.get("scale") or []),
