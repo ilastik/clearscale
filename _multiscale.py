@@ -98,6 +98,9 @@ def half_pixel_shift(base: "Scale", target: "Scale") -> "Translation":
     return Translation(shift_items)
 
 
+_hps: TranslationShiftFunction = half_pixel_shift  # pseudo-registry for grepping
+
+
 @dataclass(frozen=True, slots=True)
 class Scale:
     shape: Shape
