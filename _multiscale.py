@@ -323,7 +323,9 @@ class _ScaledAxisValues(_ScaleMapping[str, AxisValuesType], Generic[AxisValuesTy
 
     @staticmethod
     def _resolve_duplicates(
-        raw_items: Iterable[Tuple[ScaleKey, _AxisValues]], on_duplicate: DuplicatePolicy, on_duplicate_prefer
+        raw_items: Iterable[Tuple[ScaleKey, _AxisValues]],
+        on_duplicate: DuplicatePolicy,
+        on_duplicate_prefer: Optional[ScaleKey],
     ) -> List[Tuple[ScaleKey, _AxisValues]]:
         """
         Ensure raw_items contains no duplicate values. Resolve duplicates according to on_duplicate:
@@ -373,6 +375,32 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         return cls([(key, scale.shape) for key, scale in multiscale.items()])
 
     @classmethod
+    def from_multiscale_rescaled(
+        cls,
+        multiscale: "Multiscale",
+        *,
+        target_shape: ShapeLike,
+        rounding: RoundingMethod,
+        source_key: Optional[ScaleKey] = None,
+        scaled_axes: Optional[Axes] = None,
+    ) -> "BlueprintShapes":
+        """
+        Build a blueprint rescaling shapes from `multiscale`
+        such that the shape at `source_key` matches `target_shape`.
+        If no `source_key`, `target_shape` becomes the blueprint's base shape.
+        All other shapes are rescaled from `target_shape` according to their relative factor to `source_key`
+        """
+        if source_key is None:
+            source_key = next(iter(multiscale.keys()))
+        source_shape = multiscale[source_key].shape
+
+        factors = BlueprintFactors.from_multiscale(multiscale, reference=source_shape)
+        if scaled_axes:
+            factors = factors.with_identity_except(scaled_axes)
+
+        return factors.to_shapes(reference=target_shape, rounding=rounding)
+
+    @classmethod
     def uniform_steps(
         cls,
         *,
@@ -381,10 +409,10 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         rounding: RoundingMethod,
         shape_limit: Optional[ShapeLike] = None,
         only: Optional[Axes] = None,
-        max_levels: Optional[int] = 42,
+        max_levels=42,
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
-        on_duplicate_prefer: ScaleKey = None,
+        on_duplicate_prefer: Optional[ScaleKey] = None,
     ) -> "BlueprintShapes":
         """Generate Blueprint where each scale is a `step` downsampling of the previous scale.
         Applies scaling uniformly to all axes until they become singleton."""
@@ -429,7 +457,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         max_levels: int = 42,
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
-        on_duplicate_prefer: ScaleKey = None,
+        on_duplicate_prefer: Optional[ScaleKey] = None,
     ):
         return cls.uniform_steps(
             step=2,
@@ -592,6 +620,9 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
     def with_identity(self, axes: Axes) -> "Self":
         return self._with_values([factor.with_identity(axes) for factor in self.values()])
 
+    def with_identity_except(self, axes: Axes) -> "Self":
+        return self._with_values([factor.with_identity_except(axes) for factor in self.values()])
+
 
 def _random_multiscale_name() -> str:
     return f"ms-{uuid.uuid4()}"
@@ -635,9 +666,14 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
 
     @staticmethod
     def from_shapes(
-        blueprint: BlueprintShapes, base: Scale, *, translation_shift_func: Optional[TranslationShiftFunction] = None
+        blueprint: BlueprintShapes,
+        *,
+        base: Optional[Scale] = None,
+        translation_shift_func: Optional[TranslationShiftFunction] = None,
     ):
-        return blueprint.apply_to_scale(base, translation_shift_func=translation_shift_func)
+        bp = BlueprintShapes(blueprint)
+        base = base or Scale(shape=bp.first_value())
+        return bp.apply_to_scale(base, translation_shift_func=translation_shift_func)
 
     @staticmethod
     def from_factors(blueprint: BlueprintFactors, base: Scale, *args, **kwargs):
