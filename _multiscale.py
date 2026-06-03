@@ -725,9 +725,11 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                     dataset_transforms = TransformSequence((dataset_transforms, global_transforms)).collapsed(
                         raise_uncollapsed=True
                     )
-                scale_spacing = dataset_transforms.scale.to_spacing(axis_keys)
+                scale_spacing = dataset_transforms.scale_transform.to_spacing(axis_keys)
                 scale_translation = (
-                    dataset_transforms.translation.to_translation(axis_keys) if dataset_transforms.translation else None
+                    dataset_transforms.translation_transform.to_translation(axis_keys)
+                    if dataset_transforms.translation_transform
+                    else None
                 )
             scales_items.append(
                 (
@@ -843,10 +845,10 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             len(legacy_tfs) <= 1
         ), f"Dev error: More than one multiscale-level transform in {self._transform_graph.transforms}"
         result["coordinateTransformations"] = legacy_tfs[0].to_ome_zarr(version, for_scene=False)
-        global_scale = legacy_tfs[0].scale.to_spacing()
+        global_scale = legacy_tfs[0].scale_transform.to_spacing()
         global_translation = Translation.identity(list(global_scale.keys()))
-        if legacy_tfs[0].translation:
-            global_translation = legacy_tfs[0].translation.to_translation()
+        if legacy_tfs[0].translation_transform:
+            global_translation = legacy_tfs[0].translation_transform.to_translation()
         # Multiscale.from_ome_zarr collapses the global transforms into each Scale so that
         # Scale.spacing/.translation are correct independent of their containing Multiscale.
         # That means we have to decompose them back out for perfect metadata round-trip.

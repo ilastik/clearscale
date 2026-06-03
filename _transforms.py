@@ -432,29 +432,29 @@ class IdentityTransform(Transform):
 
 @dataclass(frozen=True, slots=True)
 class ScaleTransform(Transform):
-    _scale: Tuple[float, ...]
+    scale: Tuple[float, ...]
     ome_zarr_path: Optional[str] = None
 
     @property
     def is_invertible(self) -> bool:
-        return all(v for v in self._scale)  # Not invertible with 0 values
+        return all(v for v in self.scale)  # Not invertible with 0 values
 
     def inverted(self) -> "ScaleTransform":
-        scale_inverted = tuple(1 / v for v in self._scale)
-        return replace(self, _scale=scale_inverted, ome_zarr_path=None)
+        scale_inverted = tuple(1 / v for v in self.scale)
+        return replace(self, scale=scale_inverted, ome_zarr_path=None)
 
     def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
         if not isinstance(earlier, ScaleTransform):
             return None
-        return replace(self, _scale=tuple(a * b for a, b in zip(self._scale, earlier._scale)), ome_zarr_path=None)
+        return replace(self, scale=tuple(a * b for a, b in zip(self.scale, earlier.scale)), ome_zarr_path=None)
 
     def _get_subtype_ome_zarr_properties(self, version: str) -> Dict:
-        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"scale": list(self._scale)}
+        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"scale": list(self.scale)}
         return {"type": "scale", **payload_dict}
 
     @classmethod
     def from_spacing(cls, spacing: Spacing):
-        return cls(_scale=tuple(spacing.values()))
+        return cls(scale=tuple(spacing.values()))
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Dict) -> "ScaleTransform":
@@ -463,17 +463,17 @@ class ScaleTransform(Transform):
             raise ValueError(f"Invalid scale transform metadata. Expected sequence of numbers, received: {raw!r}")
         source, target = cls._parse_source_and_target(ome_dict)
         return cls(
-            _scale=tuple(ome_dict.get("scale") or []),
+            scale=tuple(ome_dict.get("scale") or []),
             ome_zarr_path=ome_dict.get("path"),
             source=source,
             target=target,
         )
 
     def to_spacing(self, axes: Optional[Iterable[AxisKey]] = None) -> Spacing:
-        if not self._scale:
+        if not self.scale:
             raise ValueError("Cannot derive Spacing: Values not set.")
         final_axes = axes or self._axes()
-        return Spacing(zip(final_axes, self._scale))
+        return Spacing(zip(final_axes, self.scale))
 
     def _axes(self) -> Iterable[AxisKey]:
         """Must be kept in sync with TranslationTransform._axes"""
@@ -490,7 +490,7 @@ class ScaleTransform(Transform):
 
 @dataclass(frozen=True, slots=True)
 class TranslationTransform(Transform):
-    _translation: Tuple[float, ...]
+    translation: Tuple[float, ...]
     ome_zarr_path: Optional[str] = None
 
     @property
@@ -498,39 +498,39 @@ class TranslationTransform(Transform):
         return True
 
     def inverted(self) -> "TranslationTransform":
-        translation_inverted = tuple(-v for v in self._translation)
-        return replace(self, _translation=translation_inverted, ome_zarr_path=None)
+        translation_inverted = tuple(-v for v in self.translation)
+        return replace(self, translation=translation_inverted, ome_zarr_path=None)
 
     def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
         if not isinstance(earlier, TranslationTransform):
             return None
         return replace(
-            self, _translation=tuple(a + b for a, b in zip(self._translation, earlier._translation)), ome_zarr_path=None
+            self, translation=tuple(a + b for a, b in zip(self.translation, earlier.translation)), ome_zarr_path=None
         )
 
     def _get_subtype_ome_zarr_properties(self, version: str) -> Dict:
-        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"translation": list(self._translation)}
+        payload_dict = {"path": self.ome_zarr_path} if self.ome_zarr_path else {"translation": list(self.translation)}
         return {"type": "translation", **payload_dict}
 
     @classmethod
     def from_translation(cls, translation: Translation):
-        return cls(_translation=tuple(translation.values()))
+        return cls(translation=tuple(translation.values()))
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Dict) -> "TranslationTransform":
         source, target = cls._parse_source_and_target(ome_dict)
         return cls(
-            _translation=tuple(ome_dict.get("translation") or []),
+            translation=tuple(ome_dict.get("translation") or []),
             ome_zarr_path=ome_dict.get("path"),
             source=source,
             target=target,
         )
 
     def to_translation(self, axes: Optional[Iterable[AxisKey]] = None) -> Translation:
-        if not self._translation:
+        if not self.translation:
             raise ValueError("Cannot derive Translation: Values not set")
         final_axes = axes or self._axes()
-        return Translation(zip(final_axes, self._translation))
+        return Translation(zip(final_axes, self.translation))
 
     def _axes(self):
         """Must be kept in sync with ScaleTransform._axes"""

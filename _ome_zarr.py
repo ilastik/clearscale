@@ -42,11 +42,11 @@ class MultiscaleTransforms(TransformSequence):
         TransformSequence.__post_init__(self)
 
     @property
-    def scale(self) -> ScaleTransform:
+    def scale_transform(self) -> ScaleTransform:
         return self.transforms[0]  # noqa
 
     @property
-    def translation(self) -> Optional[TranslationTransform]:
+    def translation_transform(self) -> Optional[TranslationTransform]:
         return self.transforms[1] if len(self.transforms) == 2 else None
 
     @classmethod
@@ -94,7 +94,7 @@ class MultiscaleTransforms(TransformSequence):
         if scale is None and translation is None:
             return None
         elif scale is None:
-            scale = ScaleTransform(_scale=tuple(1.0 for _ in range(len(translation._translation))))
+            scale = ScaleTransform(scale=tuple(1.0 for _ in range(len(translation.translation))))
         return cls(transforms=(scale,) if translation is None else (scale, translation))
 
     def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
@@ -102,14 +102,14 @@ class MultiscaleTransforms(TransformSequence):
             return None
         if earlier.target is not None and self.source is not None and earlier.target != self.source:
             return None
-        scale_product = self.scale.composed_with(earlier.scale)
-        if earlier.translation is not None and self.translation is not None:
-            translation_sum = self.translation.composed_with(earlier.translation)
+        scale_product = self.scale_transform.composed_with(earlier.scale_transform)
+        if earlier.translation_transform is not None and self.translation_transform is not None:
+            translation_sum = self.translation_transform.composed_with(earlier.translation_transform)
             transforms = (scale_product, translation_sum)
-        elif earlier.translation is not None:
-            transforms = (scale_product, earlier.translation)
-        elif self.translation is not None:
-            transforms = (scale_product, self.translation)
+        elif earlier.translation_transform is not None:
+            transforms = (scale_product, earlier.translation_transform)
+        elif self.translation_transform is not None:
+            transforms = (scale_product, self.translation_transform)
         else:
             transforms = (scale_product,)
         return replace(self, source=earlier.source, transforms=transforms)
