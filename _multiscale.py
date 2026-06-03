@@ -27,7 +27,7 @@ from typing import (
 from lazyflow.utility.io_util.clearscale import (
     Shape,
     Factor,
-    Spacing,
+    PixelSize,
     Unit,
     Translation,
     PixelOffset,
@@ -85,14 +85,14 @@ class DuplicatePolicy(StrEnum):
 
 def half_pixel_shift(base: "Scale", target: "Scale") -> "Translation":
     """Apply half-pixel shift in each downsampled axis."""
-    if list(base.spacing.keys()) != list(target.spacing.keys()):
+    if list(base.pixel_size.keys()) != list(target.pixel_size.keys()):
         raise ValueError("Axis mismatch. Cannot compute half-pixel shift between unrelated Scales.")
     shift_items = []
-    for axis, target_spacing in target.spacing.items():
-        base_spacing = base.spacing[axis]
-        if target_spacing > base_spacing:
+    for axis, target_pixel_size in target.pixel_size.items():
+        base_pixel_size = base.pixel_size[axis]
+        if target_pixel_size > base_pixel_size:
             # Downsampled - apply half pixel shift
-            shift_items.append((axis, 0.5 * (target_spacing - base_spacing)))
+            shift_items.append((axis, 0.5 * (target_pixel_size - base_pixel_size)))
         else:
             shift_items.append((axis, 0.0))
     return Translation(shift_items)
@@ -104,16 +104,16 @@ _hps: TranslationShiftFunction = half_pixel_shift  # pseudo-registry for greppin
 @dataclass(frozen=True, slots=True)
 class Scale:
     shape: Shape
-    spacing: Optional[Spacing] = None
+    pixel_size: Optional[PixelSize] = None
     unit: Optional[Unit] = None
     translation: Optional[Translation] = None
 
     def __post_init__(self):
         object.__setattr__(self, "shape", Shape(self.shape))
-        if self.spacing is None:
-            object.__setattr__(self, "spacing", Spacing.fromkeys(self.shape))
+        if self.pixel_size is None:
+            object.__setattr__(self, "pixel_size", PixelSize.fromkeys(self.shape))
         else:
-            object.__setattr__(self, "spacing", Spacing(self.spacing))
+            object.__setattr__(self, "pixel_size", PixelSize(self.pixel_size))
         if self.unit is None:
             object.__setattr__(self, "unit", Unit.fromkeys(self.shape))
         else:
@@ -123,14 +123,14 @@ class Scale:
         else:
             object.__setattr__(self, "translation", Translation(self.translation))
         if (
-            self.shape.keys() != self.spacing.keys()
+            self.shape.keys() != self.pixel_size.keys()
             or self.shape.keys() != self.unit.keys()
             or self.shape.keys() != self.translation.keys()
         ):
             raise ValueError(
                 f"Tried to set up invalid scale: Axiskeys differ "
                 f"(shape={list(self.shape.keys())}, "
-                f"spacing={list(self.spacing.keys())}, "
+                f"pixel_size={list(self.pixel_size.keys())}, "
                 f"translation={list(self.translation.keys())}, "
                 f"unit={list(self.unit.keys())})"
             )
@@ -141,30 +141,30 @@ class Scale:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to: '{axes}'")
         return Scale(
             shape=self.shape.with_axes(axes),
-            spacing=self.spacing.with_axes(axes),
+            pixel_size=self.pixel_size.with_axes(axes),
             unit=self.unit.with_axes(axes),
             translation=self.translation.with_axes(axes),
         )
 
-    def has_pixel_size(self):
-        return not self.unit.is_default() or not self.spacing.is_default()
+    def has_physical_meta(self):
+        return not self.unit.is_default() or not self.pixel_size.is_default()
 
     def to_display_string(self, name=""):
         shape = ", ".join(f"{axis}: {size}" for axis, size in self.shape.items())
         name_and_shape = f'"{name}" ({shape})' if name else f"{shape}"
         pixel_size = ""
-        if self.has_pixel_size():
+        if self.has_physical_meta():
             axis_strings = []
             for axis in self.shape.keys():
                 if axis == "c":
                     continue
-                spacing = self.spacing[axis]
+                pixel_size = self.pixel_size[axis]
                 unit = ""
                 if self.unit[axis]:
                     unit = f" {self.unit[axis]}"
                 elif axis != "t":
                     unit = " px"
-                axis_strings.append(f"{axis}: {spacing:g}{unit}")
+                axis_strings.append(f"{axis}: {pixel_size:g}{unit}")
             pixel_size = " at pixel size: " + ", ".join(axis_strings)
         return f"{name_and_shape}{pixel_size}"
 
@@ -507,11 +507,11 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         scales = []
         for scale_key, target_shape in self.items():
             factor = base.shape.scaling_to(target_shape)
-            new_spacing = base.spacing.scaled_by(factor)
+            new_pixel_size = base.pixel_size.scaled_by(factor)
 
             if translation_shift_func is not None:
                 target_scale_pre_shift = Scale(
-                    shape=target_shape, spacing=new_spacing, unit=base.unit, translation=base.translation
+                    shape=target_shape, pixel_size=new_pixel_size, unit=base.unit, translation=base.translation
                 )
                 shift = self._compute_and_validate_shift(translation_shift_func, base, target_scale_pre_shift)
                 new_translation = base.translation + shift
@@ -519,7 +519,10 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
                 new_translation = base.translation
 
             scales.append(
-                (scale_key, Scale(shape=target_shape, spacing=new_spacing, unit=base.unit, translation=new_translation))
+                (
+                    scale_key,
+                    Scale(shape=target_shape, pixel_size=new_pixel_size, unit=base.unit, translation=new_translation),
+                )
             )
 
         return Multiscale(scales)
@@ -632,7 +635,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     _transform_graph: _TransformGraph
     """Transform graph that by default consists only of one isolated node: _intrinsic_ref."""
     _intrinsic_ref: CoordinateSystemRef[CoordinateSystem]
-    """The system in which the Scales' shape, spacing, translation etc. are correct."""
+    """The system in which the Scales' shape, pixel size, translation etc. are correct."""
 
     def __init__(
         self,
@@ -718,14 +721,14 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             if dataset_transforms is None:
                 # OME-Zarr up to v0.3 didn't have coordinateTransformations
                 scale_factor = base_shape.scaling_to(scale_shape)
-                scale_spacing = Spacing.identity(axis_keys).scaled_by(scale_factor)
+                scale_pixel_size = PixelSize.identity(axis_keys).scaled_by(scale_factor)
                 scale_translation = None
             else:
                 if global_transforms is not None:
                     dataset_transforms = TransformSequence((dataset_transforms, global_transforms)).collapsed(
                         raise_uncollapsed=True
                     )
-                scale_spacing = dataset_transforms.scale_transform.to_spacing(axis_keys)
+                scale_pixel_size = dataset_transforms.scale_transform.to_pixel_size(axis_keys)
                 scale_translation = (
                     dataset_transforms.translation_transform.to_translation(axis_keys)
                     if dataset_transforms.translation_transform
@@ -734,7 +737,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             scales_items.append(
                 (
                     scale_key,
-                    Scale(shape=scale_shape, spacing=scale_spacing, translation=scale_translation, unit=unit),
+                    Scale(shape=scale_shape, pixel_size=scale_pixel_size, translation=scale_translation, unit=unit),
                 )
             )
         return cls(scales_items, _transform_graph=graph, _intrinsic_ref=intrinsic_system_ref)
@@ -758,18 +761,18 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             resolution = scale_dict["resolution"]
             if len(resolution) != 3:
                 raise ValueError(f"Scale {scale_key!r} must have 'resolution' as [x, y, z]")
-            spacing = Spacing(zip(axis_keys, [1.0] + list(reversed(resolution))))
+            pixel_size = PixelSize(zip(axis_keys, [1.0] + list(reversed(resolution))))
 
             voxel_offset = scale_dict.get("voxel_offset", [0, 0, 0])
             if len(voxel_offset) != 3:
                 warnings.warn(f"Scale {scale_key!r} has invalid voxel_offset. Using [0, 0, 0].")
                 voxel_offset = [0, 0, 0]
             offset = PixelOffset(zip(axis_keys, [0] + list(reversed(voxel_offset))))
-            translation = offset.to_physical(spacing)
+            translation = offset.to_physical(pixel_size)
 
             unit = Unit(zip(axis_keys, ["", "nm", "nm", "nm"]))
 
-            scale = Scale(shape, spacing, unit, translation)
+            scale = Scale(shape, pixel_size, unit, translation)
             scales_items.append((scale_key, scale))
 
         return cls(scales_items)
@@ -778,17 +781,17 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         return self.first_value().shape.keys()
 
     def scaled_axes(self) -> Tuple[AxisKey, ...]:
-        """Axes where spacings differ across scales."""
+        """Axes where pixel_sizes differ across scales."""
         if len(self) < 2:
             return ()
 
-        spacings = list(scale.spacing for scale in self.values())
-        first_spacing = spacings[0]
+        pixel_sizes = list(scale.pixel_size for scale in self.values())
+        first_pixel_size = pixel_sizes[0]
         scaled = []
 
-        for axis in first_spacing.keys():
-            first_value = first_spacing[axis]
-            if any(spacing[axis] != first_value for spacing in spacings[1:]):
+        for axis in first_pixel_size.keys():
+            first_value = first_pixel_size[axis]
+            if any(pixel_size[axis] != first_value for pixel_size in pixel_sizes[1:]):
                 scaled.append(axis)
 
         return tuple(scaled)
@@ -819,7 +822,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             result.update(self._transform_graph.to_ome_zarr(version=version))
             for key, scale in self.items():
                 dataset = _ome_zarr.build_dataset_dict(
-                    version, key, scale.spacing, scale.translation, self._intrinsic_ref
+                    version, key, scale.pixel_size, scale.translation, self._intrinsic_ref
                 )
                 result["datasets"].append(dataset)
             return result
@@ -835,7 +838,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         if not legacy_tfs:
             # "Clean" legacy multiscale without global/multiscale-level transforms
             for key, scale in self.items():
-                dataset = _ome_zarr.build_dataset_dict(version, key, scale.spacing, scale.translation)
+                dataset = _ome_zarr.build_dataset_dict(version, key, scale.pixel_size, scale.translation)
                 result["datasets"].append(dataset)
             return result
 
@@ -845,15 +848,15 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             len(legacy_tfs) <= 1
         ), f"Dev error: More than one multiscale-level transform in {self._transform_graph.transforms}"
         result["coordinateTransformations"] = legacy_tfs[0].to_ome_zarr(version, for_scene=False)
-        global_scale = legacy_tfs[0].scale_transform.to_spacing()
+        global_scale = legacy_tfs[0].scale_transform.to_pixel_size()
         global_translation = Translation.identity(list(global_scale.keys()))
         if legacy_tfs[0].translation_transform:
             global_translation = legacy_tfs[0].translation_transform.to_translation()
         # Multiscale.from_ome_zarr collapses the global transforms into each Scale so that
-        # Scale.spacing/.translation are correct independent of their containing Multiscale.
+        # Scale.pixel_size/.translation are correct independent of their containing Multiscale.
         # That means we have to decompose them back out for perfect metadata round-trip.
         for key, scale in self.items():
-            dataset_scale = scale.spacing.scaled_by(Factor(global_scale).inverted())
+            dataset_scale = scale.pixel_size.scaled_by(Factor(global_scale).inverted())
             dataset_translation = scale.translation - global_translation
             dataset = _ome_zarr.build_dataset_dict(version, key, dataset_scale, dataset_translation)
             result["datasets"].append(dataset)

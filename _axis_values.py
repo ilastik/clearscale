@@ -248,7 +248,7 @@ class Factor(_AxisFloats):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
-            if value == 0:  # 0 is nonsense both for scaling factors and spacing
+            if value == 0:  # 0 is nonsense both for scaling factors and pixel size
                 raise ValueError(f"Scaling factor cannot be 0 (got 0 for axis '{axis}').")
 
     @classmethod
@@ -286,15 +286,15 @@ class Factor(_AxisFloats):
         """Reset the values for all axes except `axes` to 1.0."""
         return super().with_default_except(axes)
 
-    def to_physical(self, base: "Spacing") -> "Spacing":
+    def to_physical(self, base: "PixelSize") -> "PixelSize":
         """
-        Convert relative scaling factor to absolute physical spacing.
+        Convert relative scaling factor to absolute physical pixel size.
         Identical to base.scaled_by(self).
         """
-        return Spacing(base).scaled_by(self)
+        return PixelSize(base).scaled_by(self)
 
 
-class Spacing(_AxisFloats):
+class PixelSize(_AxisFloats):
     """
     Describes absolute scaling factors, i.e. physical pixel size.
     The values are in "units (e.g. nanometer) per pixel".
@@ -303,8 +303,8 @@ class Spacing(_AxisFloats):
     _default = 1.0
 
     @classmethod
-    def identity(cls, axes: OrderedAxes) -> "Spacing":
-        """Create a new identity Spacing (1.0 along all axes) with `axes`."""
+    def identity(cls, axes: OrderedAxes) -> "PixelSize":
+        """Create a new identity PixelSize (1.0 along all axes) with `axes`."""
         return super().fromkeys(axes)
 
     @classmethod
@@ -318,7 +318,7 @@ class Spacing(_AxisFloats):
         return cls(zip(axes, resolutions))
 
     def is_identity(self) -> bool:
-        """True if this Spacing is the unit spacing (1.0 along all axes)."""
+        """True if this PixelSize is the unit size (1.0 along all axes)."""
         return super().is_default()
 
     def with_identity(self, axes: Axes) -> "Self":
@@ -349,14 +349,14 @@ class Spacing(_AxisFloats):
                 tags.setResolution(tag.key, self[tag.key])
         return tags
 
-    def scaled_by(self, factor: Union[Factor, Mapping[AxisKey, float], numbers.Real]) -> "Spacing":
+    def scaled_by(self, factor: Union[Factor, Mapping[AxisKey, float], numbers.Real]) -> "PixelSize":
         """
-        Scale this Spacing by factor to obtain a scaled Spacing.
+        Scale this PixelSize by factor to obtain a scaled PixelSize.
         This is an axis-wise operation:
         - Missing axes in `factor` default to 1.0 (no change)
         - Passing a scalar (float/int) applies it uniformly to all axes
         - Extra axes in `factor` are rejected
-        Note if passing scalar: factor 2.0 means double spacing = half resolution.
+        Note if passing scalar: factor 2.0 means double pixel size = half resolution.
         """
         if isinstance(factor, numbers.Real):
             factor = Factor.uniform(self, factor)
@@ -367,12 +367,12 @@ class Spacing(_AxisFloats):
         invalid_axes = factor_axes - base_axes
         if invalid_axes:
             raise ValueError(
-                f"Attempted to scale axes with no base spacing: "
+                f"Attempted to scale axes with no base pixel size: "
                 f"{sorted(invalid_axes)} not present in {sorted(base_axes)}"
             )
         reordered = factor.with_axes(self)
         scaled_items = [(a, reordered[a] * self[a]) for a in self]
-        return Spacing(scaled_items)
+        return PixelSize(scaled_items)
 
 
 class Translation(_AxisFloats):
@@ -478,11 +478,11 @@ class PixelOffset(_AxisValues[AxisKey, int]):
         """
         return super().with_axes(axes)
 
-    def to_physical(self, spacing: Union[Spacing, Mapping[AxisKey, float]]) -> Translation:
+    def to_physical(self, pixel_size: Union[PixelSize, Mapping[AxisKey, float]]) -> Translation:
         """
         Multiply with `resolution` to obtain this PixelOffset as a Translation in physical units.
         """
-        items_in_physical_units = [(a, self[a] * spacing[a]) for a in self]
+        items_in_physical_units = [(a, self[a] * pixel_size[a]) for a in self]
         return Translation(items_in_physical_units)
 
 

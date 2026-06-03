@@ -3,7 +3,7 @@ import warnings
 from dataclasses import dataclass, replace
 from typing import Union, Literal, Dict, List, Any, Optional, Tuple
 
-from lazyflow.utility.io_util.clearscale import Translation, Spacing, Factor
+from lazyflow.utility.io_util.clearscale import Translation, PixelSize, Factor
 from lazyflow.utility.io_util.clearscale._transforms import (
     TransformSequence,
     ScaleTransform,
@@ -189,7 +189,7 @@ def multiscale_graph_from_legacy(
     bound_transform = None
     if global_transforms is not None:
         # Store the multiscale-level transforms as a transform to a non-existent mock system.
-        # This allows Multiscale.to_ome_zarr to divide/subtract them back out of Scale.spacing/.translation
+        # This allows Multiscale.to_ome_zarr to divide/subtract them back out of Scale.pixel_size/.translation
         # for perfect metadata round-trip.
         mock_ref = _UnresolvedRef(name=f"{name}-intermediate")
         bound_transform = global_transforms.bound(source=intrinsic_system_ref, target=mock_ref)
@@ -243,11 +243,11 @@ def _is_valid_relative_path(path: str) -> bool:
 def build_dataset_dict(
     version,
     key,
-    dataset_scale: Spacing,
+    dataset_scale: PixelSize,
     dataset_translation: Translation,
     intrinsic_ref: Optional[CoordinateSystemRef[CoordinateSystem]] = None,
 ) -> Dict[str, Any]:
-    scale = ScaleTransform.from_spacing(dataset_scale)
+    scale = ScaleTransform.from_pixel_size(dataset_scale)
     if not dataset_translation.is_identity():
         translation = TranslationTransform.from_translation(dataset_translation)
         final = TransformSequence((scale, translation)).bound(source=_UnresolvedRef(name=key), target=intrinsic_ref)

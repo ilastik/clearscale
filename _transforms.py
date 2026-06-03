@@ -26,7 +26,7 @@ from lazyflow.utility.io_util.clearscale._axis_values import (
     _AxisMapping,
     AxisKey,
     OrderedAxes,
-    Spacing,
+    PixelSize,
     Translation,
     Unit,
 )
@@ -453,8 +453,8 @@ class ScaleTransform(Transform):
         return {"type": "scale", **payload_dict}
 
     @classmethod
-    def from_spacing(cls, spacing: Spacing):
-        return cls(scale=tuple(spacing.values()))
+    def from_pixel_size(cls, pixel_size: PixelSize):
+        return cls(scale=tuple(pixel_size.values()))
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Dict) -> "ScaleTransform":
@@ -469,11 +469,11 @@ class ScaleTransform(Transform):
             target=target,
         )
 
-    def to_spacing(self, axes: Optional[Iterable[AxisKey]] = None) -> Spacing:
+    def to_pixel_size(self, axes: Optional[Iterable[AxisKey]] = None) -> PixelSize:
         if not self.scale:
-            raise ValueError("Cannot derive Spacing: Values not set.")
+            raise ValueError("Cannot derive PixelSize: Values not set.")
         final_axes = axes or self._axes()
-        return Spacing(zip(final_axes, self.scale))
+        return PixelSize(zip(final_axes, self.scale))
 
     def _axes(self) -> Iterable[AxisKey]:
         """Must be kept in sync with TranslationTransform._axes"""
