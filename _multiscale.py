@@ -617,8 +617,9 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         shapes = [ref.scaled_by(scale_factor, rounding=rounding) for scale_factor in self.values()]
         return BlueprintShapes(zip(self.keys(), shapes))
 
-    def apply_to_scale(self):
-        return NotImplementedError()
+    def apply_to_scale(self, scale: Scale, *, rounding: RoundingMethod) -> "Multiscale":
+        shapes = self.to_shapes(scale.shape, rounding=rounding)
+        return shapes.apply_to_scale(scale)
 
     def with_identity(self, axes: Axes) -> "Self":
         return self._with_values([factor.with_identity(axes) for factor in self.values()])
@@ -679,8 +680,8 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         return bp.apply_to_scale(base, translation_shift_func=translation_shift_func)
 
     @staticmethod
-    def from_factors(blueprint: BlueprintFactors, base: Scale, *args, **kwargs):
-        return blueprint.apply_to_scale(base, *args, **kwargs)
+    def from_factors(blueprint: BlueprintFactors, base: Scale, *, rounding: RoundingMethod):
+        return blueprint.apply_to_scale(base, rounding=rounding)
 
     @classmethod
     def from_ome_zarr(
