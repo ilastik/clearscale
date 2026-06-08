@@ -1,3 +1,5 @@
+"""Private helpers that support Multiscale and Scene to/from_ome_zarr methods"""
+
 import re
 import warnings
 from dataclasses import dataclass, replace

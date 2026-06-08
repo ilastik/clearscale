@@ -64,6 +64,11 @@ base_scale: the reference scale being transformed from
 target_scale: the new scale being created (with 0 translation)
 Returns: target_scale's translation
 """
+GetShapeFunction = Callable[[str], Tuple[int, ...]]
+"""
+path: Relative path to a zarr array.
+Returns: The `.shape` of the array at that path.
+"""
 
 if TYPE_CHECKING:
     try:
@@ -687,7 +692,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     def from_ome_zarr(
         cls,
         multiscale_dict: _ome_zarr.OME_ZARR_MULTISCALE,
-        get_shape: Callable[[str], Tuple[int, ...]],
+        get_shape: GetShapeFunction,
     ):
         # TODO: for really perfect round-tripping, get_shape needs to become get_array, and to_ome_zarr needs write_array
         #  Otherwise, arrayCoordinateSystem metadata in the array zarr.json can be lost.
