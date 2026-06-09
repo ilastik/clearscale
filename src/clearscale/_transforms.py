@@ -22,7 +22,7 @@ from typing import (
     Generic,
 )
 
-from lazyflow.utility.io_util.clearscale._axis_values import (
+from clearscale._axis_values import (
     _AxisMapping,
     AxisKey,
     OrderedAxes,

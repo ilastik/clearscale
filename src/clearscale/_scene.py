@@ -3,8 +3,8 @@ from dataclasses import dataclass, replace
 from typing import Mapping, Dict, Union, Tuple, Literal
 from typing import Optional, List
 
-from lazyflow.utility.io_util.clearscale._multiscale import Multiscale
-from ._transforms import (
+from clearscale._multiscale import Multiscale
+from clearscale._transforms import (
     RelativePath,
     CoordinateSystemName,
     CoordinateSystemRef,

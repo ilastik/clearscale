@@ -24,17 +24,13 @@ from typing import (
     Hashable,
 )
 
-from lazyflow.utility.io_util.clearscale import (
+from clearscale._axis_values import (
     Shape,
     Factor,
     PixelSize,
     Unit,
     Translation,
     PixelOffset,
-    _ome_zarr,
-    _precomputed,
-)
-from lazyflow.utility.io_util.clearscale._axis_values import (
     ShapeLike,
     Axes,
     RoundingMethod,
@@ -42,7 +38,7 @@ from lazyflow.utility.io_util.clearscale._axis_values import (
     _AxisValues,
     AxisKey,
 )
-from lazyflow.utility.io_util.clearscale._transforms import (
+from clearscale._transforms import (
     CoordinateSystemName,
     CoordinateSystem,
     _TransformGraph,
@@ -52,6 +48,7 @@ from lazyflow.utility.io_util.clearscale._transforms import (
     PRE_TRANSFORMS_VERSIONS,
     TransformSequence,
 )
+from clearscale.services import _ome_zarr, _precomputed
 
 ScaleKey = TypeVar("ScaleKey", bound=str)
 ValueType = TypeVar("ValueType", Shape, Factor, "Scale")

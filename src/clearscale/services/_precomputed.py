@@ -1,5 +1,6 @@
 from typing import Dict, Literal, Union, List
 
+
 SCALES_DICT = Dict[
     Literal["key", "size", "resolution", "voxel_offset"],
     Union[str, List[int], List[float]],

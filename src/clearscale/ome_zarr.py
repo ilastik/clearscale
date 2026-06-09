@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, Union, Tuple
 
-from lazyflow.utility.io_util.clearscale._multiscale import GetShapeFunction
+from clearscale._multiscale import GetShapeFunction
 
 
 def make_all_singleton_shapes(ndim: int) -> GetShapeFunction:
@@ -48,4 +48,4 @@ def make_fake_shapes(multiscale_spec: Dict[str, Any]) -> GetShapeFunction:
     return get_fake_shape
 
 
-__all__ = ["make_fake_shapes"]
+__all__ = ["make_all_singleton_shapes", "make_fake_shapes"]

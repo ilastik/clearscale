@@ -5,8 +5,8 @@ import warnings
 from dataclasses import dataclass, replace
 from typing import Union, Literal, Dict, List, Any, Optional, Tuple
 
-from lazyflow.utility.io_util.clearscale import Translation, PixelSize, Factor
-from lazyflow.utility.io_util.clearscale._transforms import (
+from clearscale._axis_values import Translation, PixelSize, Factor
+from clearscale._transforms import (
     TransformSequence,
     ScaleTransform,
     TranslationTransform,
