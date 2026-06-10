@@ -223,7 +223,7 @@ def validate_multiscale(multiscale: "Multiscale"):
         if not _is_valid_relative_path(str(scale_key)):
             raise ValueError(f"Scale key '{scale_key}' is not a valid relative filesystem path")
 
-    axes = multiscale.axes()
+    axes = list(multiscale.axes())
     standard_axes_set = set("tczyx")
 
     if all(ax in standard_axes_set for ax in axes):
