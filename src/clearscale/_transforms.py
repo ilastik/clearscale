@@ -212,9 +212,9 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
         unit = unit or {}
         long_names = long_names or {}
         discrete = discrete or {}
-        if not axis_types:
+        if axis_types is None:
             axis_types = {}
-        if axis_types == "infer":
+        elif axis_types == "infer":
             axis_types = {
                 "t": "time",
                 "time": "time",
@@ -228,7 +228,7 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
                 "y": "space",
                 "x": "space",
             }
-        elif not any(ax in self.axes for ax in axis_types):
+        elif axis_types and not any(ax in self.axes() for ax in axis_types):
             warnings.warn(f"Unexpected axis types provided: Did not find any axis of: {list(axis_types.keys())}")
         axis_dicts = []
         for ax, sem in self.items():
@@ -284,8 +284,10 @@ class Transform(ABC):
         ome_zarr_transform_dict = self._get_subtype_ome_zarr_properties(version)
         if version in PRE_TRANSFORMS_VERSIONS:
             return ome_zarr_transform_dict
-        if for_scene and not self.is_fully_bound:
-            raise ValueError("OME-Zarr Scene transforms must be `.bound(source, target)`")
+        if not self.is_fully_bound:
+            if for_scene:
+                raise ValueError("OME-Zarr Scene transforms must be `.bound(source, target)`")
+            return ome_zarr_transform_dict
         paths_by_node = paths_by_node or {}
         input_dict = {}
         output_dict = {}
@@ -577,7 +579,9 @@ class TransformSequence(Transform):
         if version in PRE_TRANSFORMS_VERSIONS:
             return [t.to_ome_zarr(version, for_scene=False) for t in self.transforms]
         else:
-            return super().to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node)
+            return super(TransformSequence, self).to_ome_zarr(
+                version, for_scene=for_scene, paths_by_node=paths_by_node
+            )
 
     def __post_init__(self):
         if not self.transforms:
