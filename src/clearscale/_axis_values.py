@@ -221,8 +221,12 @@ class _AxisFloats(_AxisValues[AxisKey, float], ABC):
 class Factor(_AxisFloats):
     """
     Describes relative scaling factors from some shape to another.
-    The values are in units of "scaled pixels per raw pixel".
-    This makes them divisors for the original shape.
+    The values are in units of "raw pixels per scaled pixel".
+    This makes them divisors for the original shape:
+    ```
+    scaled_shape = Shape(x=10).scaled_by(Factor(x=2.0), rounding="floor")
+    assert scaled_shape == Shape(x=5)
+    ```
     """
 
     _default = 1.0
