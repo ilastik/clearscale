@@ -252,8 +252,8 @@ class Factor(_AxisFloats):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
-            if value == 0:  # 0 is nonsense both for scaling factors and pixel size
-                raise ValueError(f"Scaling factor cannot be 0 (got 0 for axis '{axis}').")
+            if value <= 0:
+                raise ValueError(f"Scaling factor cannot be 0 or negative (got {value} for axis '{axis}').")
 
     @classmethod
     def uniform(cls, axes: OrderedAxes, factor: numbers.Real) -> "Factor":
@@ -320,6 +320,12 @@ class PixelSize(_AxisFloats):
             axes.append(tag.key)
             resolutions.append(tag.resolution if tag.resolution != vigra_default_resolution else cls._default)
         return cls(zip(axes, resolutions))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for axis, value in self._mapping.items():
+            if value <= 0:
+                raise ValueError(f"Pixel size cannot be 0 or negative (got {value} for axis '{axis}').")
 
     def is_identity(self) -> bool:
         """True if this PixelSize is the unit size (1.0 along all axes)."""
