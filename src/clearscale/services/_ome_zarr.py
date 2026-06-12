@@ -55,7 +55,7 @@ class MultiscaleTransforms(TransformSequence):
     def from_list(cls, ome_transformations: Optional[List[Dict]]) -> Optional["MultiscaleTransforms"]:
         """
         Possibilities for ome_transformations:
-        RFC-5 multiscale[datasets][n][coordinateTransformations]:
+        0.6.dev3 multiscale[datasets][n][coordinateTransformations]:
         - List of one ScaleTransform
         - List of one IdentityTransform
         - List of one TransformSequence containing one ScaleTransform and one TranslationTransform
@@ -120,7 +120,7 @@ class MultiscaleTransforms(TransformSequence):
 def validate_multiscales_dict(raw: Dict):
     """Light top-level checks. coordinateTransformations are validated later."""
     version = raw.get("version")
-    if version not in ("0.1", "0.2", "0.3", "0.4", "0.5", "rfc-5"):
+    if version not in ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6.dev3"):
         v = raw.get("version")
         warnings.warn(f"Attempting to parse unknown OME-Zarr version '{v}'. This might break...")
 

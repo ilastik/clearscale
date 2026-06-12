@@ -115,7 +115,7 @@ class Scene:
         #  Hence the tuple return: The second value is a mapping of old Multiscales to modified Multiscales.
         raise NotImplementedError()
 
-    def to_ome_zarr(self, version: str = "rfc-5", paths: Optional[PathsByMultiscale] = None) -> Dict:
+    def to_ome_zarr(self, version: str = "0.6.dev3", paths: Optional[PathsByMultiscale] = None) -> Dict:
         coordinate_system_dicts = []
         for ref in self._internal_graph.all_system_refs:
             coordinate_system_dicts.append(ref.owner.to_ome_zarr(name=ref.name, version=version))

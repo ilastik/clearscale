@@ -41,7 +41,7 @@ if TYPE_CHECKING:
             _Self = TypeVar("_Self")
             Self = _Self
 
-RelativePath = str  # RFC-5: scene["coordinateTransformations"][]["input"]["path"]
+RelativePath = str  # 0.6.dev3: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]
 NodesByPath = Mapping[RelativePath, "TransformGraphNode"]
 PathsByNode = Mapping["TransformGraphNode", RelativePath]
@@ -201,7 +201,7 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
         self,
         *,
         name: CoordinateSystemName,
-        version="rfc-5",
+        version="0.6.dev3",
         axis_types: Union[None, Literal["infer"], Mapping[str, Literal["space", "time", "channel"]]] = None,
         unit: Unit = None,
         long_names: Mapping[AxisKey, str] = None,
@@ -744,12 +744,12 @@ class _TransformGraph:
         return graph
 
     def to_ome_zarr(
-        self, version="rfc-5", paths_by_node: Optional[PathsByNode] = None
+        self, version="0.6.dev3", paths_by_node: Optional[PathsByNode] = None
     ) -> Dict[Literal["coordinateTransformations", "coordinateSystems"], List[Dict]]:
-        if version != "rfc-5":
+        if version != "0.6.dev3":
             warnings.warn(
                 f"Unsupported OME-Zarr version {version!r}. "
-                f"This method only targets RFC-5 as of 03/2026. Metadata may be invalid."
+                f"This method only targets 0.6.dev3 as of 03/2026. Metadata may be invalid."
             )
         systems = [ref.owner.to_ome_zarr(name=ref.name, version=version) for ref in self.all_system_refs]
         transforms = [t.to_ome_zarr(version, for_scene=True, paths_by_node=paths_by_node) for t in self.transforms]

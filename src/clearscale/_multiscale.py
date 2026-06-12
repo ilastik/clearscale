@@ -809,12 +809,12 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     def to_ome_zarr(
         self,
         *,
-        version: Literal["0.4", "0.5", "rfc-5"],
+        version: Literal["0.4", "0.5", "0.6.dev3"],
         name: Optional[str] = None,
         axis_types: Union[None, Literal["infer"], Mapping[str, Literal["space", "time", "channel"]]] = None,
     ) -> Dict[str, Any]:
-        if version not in ("0.4", "0.5", "rfc-5"):
-            raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and rfc-5.")
+        if version not in ("0.4", "0.5", "0.6.dev3"):
+            raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.dev3.")
         _ome_zarr.validate_multiscale(self)
         result = {"version": version, "datasets": []}
 
