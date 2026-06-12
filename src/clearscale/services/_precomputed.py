@@ -1,6 +1,5 @@
 from typing import Dict, Literal, Union, List
 
-
 SCALES_DICT = Dict[
     Literal["key", "size", "resolution", "voxel_offset"],
     Union[str, List[int], List[float]],
@@ -11,15 +10,15 @@ INFO_DICT = Dict[
 ]
 
 
-def validate_info_dict(info_dict):
+def validate_info_dict(info_dict: INFO_DICT) -> None:
     if "scales" not in info_dict:
         raise ValueError("Precomputed info JSON must contain 'scales' field")
 
     scales_list = info_dict["scales"]
-    required_keys = ("key", "size", "resolution")
+    if not isinstance(scales_list, list) or not scales_list:
+        raise ValueError("Precomputed info JSON 'scales' must be a non-empty list")
 
-    if not scales_list:
-        raise ValueError("Precomputed info JSON 'scales' must be non-empty")
+    required_keys = ("key", "size", "resolution")
 
     for s in scales_list:
         if any(k not in s for k in required_keys):
