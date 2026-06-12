@@ -19,20 +19,27 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Image Processing",
     "Typing :: Typed",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=8",
+test = [
+    "pytest",
 ]
+dev = [
+    "black",
+    "pre-commit",
+    "pytest",
+]
+
+[tool.black]
+line-length = 120
+target-version = ["py311"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
-[tool.setuptools.package-data]
-clearscale = ["py.typed"]

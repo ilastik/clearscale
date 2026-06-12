@@ -579,9 +579,7 @@ class TransformSequence(Transform):
         if version in PRE_TRANSFORMS_VERSIONS:
             return [t.to_ome_zarr(version, for_scene=False) for t in self.transforms]
         else:
-            return super(TransformSequence, self).to_ome_zarr(
-                version, for_scene=for_scene, paths_by_node=paths_by_node
-            )
+            return super(TransformSequence, self).to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node)
 
     def __post_init__(self):
         if not self.transforms:
