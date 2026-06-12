@@ -1,67 +1,119 @@
 # clearscale
 
-`clearscale` is a small pure-Python package for keeping multi-scale image metadata explicit. It models ordered,
-immutable axis metadata, scale levels, multiscale blueprints, OME-Zarr metadata, Precomputed metadata, and
-coordinate transforms.
+`clearscale` is a small pure-Python package for clear multi-scale image metadata manipulation.
+
+Fits in any Python environment. Works with existing code. Handles all OME-Zarr versions.
+
+```python
+from clearscale import Shape, PixelSize, Unit, Scale, BlueprintShapes, Multiscale
+
+# 1. Annotate
+shape      = Shape(zip("tzyx", mydata.shape))  # mydata: your image numpy/zarr
+pixel_size = PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
+unit       = Unit(t="s", z="micron", y="micron", x="micron")
+
+# 2. Define scaling paradigm
+scaling_blueprint = BlueprintShapes.downscale_powers_of_2_xyz(
+    base_shape=shape,
+    rounding="ceil",
+    shape_limit=Shape(z=8, y=128, x=128),
+)
+
+# 3. Expand metadata
+base = Scale(shape, pixel_size, unit)
+ms = Multiscale.from_shapes(scaling_blueprint, base=base)
+
+# 4. Export
+zarr_group.attrs["ome"]["multiscales"] = [ms.to_ome_zarr(version="0.6.dev3")]
+```
+
+## Features
+
+* Zero dependencies, backwards compatible to py3.11+ (will do py3.10 if needed -> open an issue)
+* Reads Neuroglancer Precomputed and OME-Zarr metadata (all versions)
+* Writes OME-Zarr versions 0.4, 0.5 and 0.6.dev3
+* Saves you learning about the metadata format(s)
+* Helps you write expressive code
+* Metadata manipulation lives alongside data manipulation
+* Blueprints are as flexible as your image processing needs
 
 ## Install
 
+PyPI and conda-forge tbd... for now:
+
 ```bash
-python -m pip install -e .
+git clone https://github.com/btbest/clearscale.git
+pip install -e clearscale
 ```
 
-## Quick Examples
+## Examples
+
+### Downsample a numpy array and save it as OME-Zarr
 
 ```python
-from clearscale import (
-    BlueprintFactors,
-    BlueprintShapes,
-    DuplicatePolicy,
-    Factor,
-    Multiscale,
-    PixelOffset,
-    PixelSize,
-    Scale,
-    Shape,
-    Translation,
-    Unit,
+# This example assumes numpy, scikit-image and zarr-python 3.* are installed
+import numpy as np
+import zarr
+from skimage.transform import pyramid_gaussian
+
+from clearscale import BlueprintShapes, PixelSize, Scale, Shape, Unit
+
+# 1. Generate a pyramid
+image = np.random.random((128, 1024, 1024)).astype(np.float32)
+pyramid = [level.astype(np.float32) for level in pyramid_gaussian(image, downscale=2)]
+
+# 2. Write arrays to zarr on disk and record scaled shapes
+group = zarr.open_group("example.ome.zarr", mode="w")
+scaled_shapes = []
+for i, level in enumerate(pyramid):
+    scale_key = f"s{i}"
+    group.create_array(scale_key, data=level)
+    scaled_shapes.append((scale_key, level.shape))
+
+# 3. Describe the full-resolution image
+base = Scale(
+    shape=Shape(zip("zyx", image.shape)),
+    pixel_size=PixelSize(z=25, y=240, x=240),
+    unit=Unit(z="micron", y="nanometer", x="nanometer"),
 )
 
-# Shape: integer axis sizes (order matters!)
-shape = Shape(y=1024, x=2048)
+# 4. Use the recorded scale shapes as a blueprint to expand a Multiscale
+blueprint = BlueprintShapes(scaled_shapes)
+multiscale = blueprint.apply_to_scale(base)
 
-# Factor: relative scale divisors.
-factor = Factor.uniform(shape.keys(), 2)
-half_shape = shape.scaled_by(factor, rounding="ceil")
-
-# PixelSize and Unit: physical spacing metadata.
-pixel_size = PixelSize(y=0.5, x=0.5)
-unit = Unit(y="um", x="um")
-
-# PixelOffset and Translation: crops and their physical representation.
-offset = PixelOffset(y=10, x=20)
-translation = offset.to_physical(pixel_size)
-manual_translation = Translation(y=5.0, x=10.0)
-
-# Scale: one image level with shape and physical metadata.
-base = Scale(shape=shape, pixel_size=pixel_size, unit=unit, translation=translation)
-
-# BlueprintShapes: name target shapes for a pyramid.
-shape_blueprint = BlueprintShapes.uniform_steps(
-    base_shape=shape,
-    step=2,
-    rounding="ceil",
-    only="yx",
-    max_levels=3,
-    on_duplicate=DuplicatePolicy.KEEP_FIRST,
-)
-
-# BlueprintFactors: derive or apply relative scaling factors.
-factor_blueprint = BlueprintFactors.from_shapes(shape_blueprint, reference=shape)
-
-# Multiscale: expand a base scale from a blueprint.
-multiscale = Multiscale.from_shapes(shape_blueprint, base=base)
+# 5. Save OME-Zarr metadata
+group.attrs["multiscales"] = [
+    multiscale.to_ome_zarr(version="0.5", axis_types="infer")
+]
 ```
 
-`Multiscale.from_ome_zarr(...)` accepts OME-Zarr multiscale metadata and a `get_shape(path)` callable.
-`Multiscale.from_precomputed(...)` accepts a Neuroglancer Precomputed `info` dictionary.
+### Download a single scale of a public OME-Zarr as a valid local OME-Zarr
+
+```python
+from pathlib import Path
+import zarr  # This example assumes zarr-python 3.* is installed
+from clearscale import Multiscale
+
+
+URL = "https://s3.embl.de/i2k-2020/platy-raw.ome.zarr"
+SCALE_KEY = "s6"
+LOCAL_PATH = Path(f"demo-output/platy-raw-{SCALE_KEY}.ome.zarr")
+
+# 1. Extract the raw metadata
+remote_group = zarr.open_group(URL)
+ome_multiscale = remote_group.attrs["multiscales"][0]
+
+# 2. Create the local target and download the data
+source_array = remote_group[SCALE_KEY]
+local_group = zarr.open_group(str(LOCAL_PATH), mode="w", zarr_version=2)
+print(f"Downloading {SCALE_KEY} data...")
+local_array = local_group.create_array(SCALE_KEY, data=source_array, overwrite=True)
+
+# 3. Extract the correct scale metadata and upgrade it to valid independent metadata
+source_multiscale = Multiscale.from_ome_zarr(ome_multiscale, get_shape=lambda path: remote_group[path].shape)
+extracted_scale = source_multiscale[SCALE_KEY]
+target_multiscale = Multiscale({SCALE_KEY: extracted_scale})
+
+# 4. Write the new metadata to the downloaded store
+local_group.attrs["multiscales"] = [target_multiscale.to_ome_zarr(version="0.4")]
+```
