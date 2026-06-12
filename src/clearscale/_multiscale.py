@@ -1,4 +1,3 @@
-import uuid
 import warnings
 from abc import ABC
 from collections import OrderedDict, defaultdict
@@ -630,8 +629,9 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         return self._with_values([factor.with_identity_except(axes) for factor in self.values()])
 
 
-def _random_multiscale_name() -> str:
-    return f"ms-{uuid.uuid4()}"
+def _random_multiscale_name(seed: int | str | None = None) -> str:
+    from clearscale.services.animal_names import generate_random_animal_name
+    return generate_random_animal_name(seed)
 
 
 class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
