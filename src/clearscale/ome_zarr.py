@@ -14,10 +14,10 @@ def make_all_singleton_shapes(ndim: int) -> GetShapeFunction:
     return lambda _: (1,) * ndim
 
 
-def make_fake_shapes(multiscale_spec: Dict[str, Any]) -> GetShapeFunction:
+def make_proportional_shapes(multiscale_spec: Dict[str, Any]) -> GetShapeFunction:
     """
     Construct OME-Zarr Multiscale without accessing actual array shapes:
-    `Multiscale.from_ome_zarr(ome_ms_dict, get_shape=make_fake_shapes(ome_ms_dict)`
+    `Multiscale.from_ome_zarr(ome_ms_dict, get_shape=make_proportional_shapes(ome_ms_dict))`
 
     Returns a fake get_shape(path) callable that makes an all-singletons shape for the smallest scale,
     and proportionally larger shapes for the others.
@@ -35,11 +35,10 @@ def make_fake_shapes(multiscale_spec: Dict[str, Any]) -> GetShapeFunction:
         return None
 
     smallest_ds = next(reversed(datasets.values()))  # OME-Zarr datasets must be largest-to-smallest
-    smallest_scale = scale_vector(smallest_ds)
+    smallest_scale: Tuple[float, ...] = scale_vector(smallest_ds) or (1.0, ) * ndim
 
     def get_fake_shape(path: str) -> Tuple[int, ...]:
-        ds = datasets[path]
-        cur_scale = scale_vector(ds)
+        cur_scale: Tuple[float, ...] = scale_vector(datasets[path]) or (1.0, ) * ndim
         try:
             return tuple(max(1, int(base / c)) for base, c in zip(cur_scale, smallest_scale))
         except TypeError:
@@ -48,4 +47,4 @@ def make_fake_shapes(multiscale_spec: Dict[str, Any]) -> GetShapeFunction:
     return get_fake_shape
 
 
-__all__ = ["make_all_singleton_shapes", "make_fake_shapes"]
+__all__ = ["make_all_singleton_shapes", "make_proportional_shapes"]
