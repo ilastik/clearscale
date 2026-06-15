@@ -1,45 +1,32 @@
 [build-system]
-requires = ["setuptools>=69", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "clearscale"
 version = "0.1.0"
-description = "Type-safe multiscale image metadata for clearer code"
+description = "Multiscale abstractions for clearly coded metadata provenance"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 keywords = ["image-metadata", "multiscale", "ome-zarr", "ngff", "ome-ngff", "ngff-zarr", "precomputed"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Image Processing",
-    "Typing :: Typed",
 ]
 
 [project.optional-dependencies]
-test = [
-    "pytest",
-]
-dev = [
-    "black",
-    "pre-commit",
-    "pytest",
-]
+test = ["pytest"]
+dev = ["black", "pre-commit", "pytest"]
 
 [tool.black]
 line-length = 120
 target-version = ["py311"]
-
-[tool.setuptools]
-package-dir = { "" = "src" }
-
-[tool.setuptools.packages.find]
-where = ["src"]
