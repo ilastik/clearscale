@@ -18,6 +18,9 @@ from clearscale._transforms import (
     Transform,
 )
 
+SUPPORTED_OME_ZARR_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6.dev3")
+SUPPORTED_OME_ZARR_VERSIONS_WRITE = ("0.4", "0.5", "0.6.dev3")
+
 ####
 # Reading
 ####
@@ -133,7 +136,7 @@ class MultiscaleTransforms(TransformSequence):
 def validate_multiscales_dict(raw: Dict):
     """Light top-level checks. coordinateTransformations are validated later."""
     version = raw.get("version")
-    if version and version not in ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6.dev3"):
+    if version and version not in SUPPORTED_OME_ZARR_VERSIONS_READ:
         warnings.warn(f"Attempting to parse unknown OME-Zarr version '{version}'. This might break...")
 
     if "datasets" not in raw or not raw["datasets"]:

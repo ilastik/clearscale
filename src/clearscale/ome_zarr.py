@@ -3,6 +3,7 @@
 from typing import Any, Dict, Union, Tuple
 
 from clearscale._multiscale import GetShapeFunction
+from clearscale._services.ome_zarr import SUPPORTED_OME_ZARR_VERSIONS_READ, SUPPORTED_OME_ZARR_VERSIONS_WRITE
 
 
 def make_all_singleton_shapes(ndim: int) -> GetShapeFunction:
@@ -35,10 +36,10 @@ def make_proportional_shapes(multiscale_spec: Dict[str, Any]) -> GetShapeFunctio
         return None
 
     smallest_ds = next(reversed(datasets.values()))  # OME-Zarr datasets must be largest-to-smallest
-    smallest_scale: Tuple[float, ...] = scale_vector(smallest_ds) or (1.0, ) * ndim
+    smallest_scale: Tuple[float, ...] = scale_vector(smallest_ds) or (1.0,) * ndim
 
     def get_fake_shape(path: str) -> Tuple[int, ...]:
-        cur_scale: Tuple[float, ...] = scale_vector(datasets[path]) or (1.0, ) * ndim
+        cur_scale: Tuple[float, ...] = scale_vector(datasets[path]) or (1.0,) * ndim
         try:
             return tuple(max(1, int(base / c)) for base, c in zip(cur_scale, smallest_scale))
         except TypeError:
@@ -47,4 +48,9 @@ def make_proportional_shapes(multiscale_spec: Dict[str, Any]) -> GetShapeFunctio
     return get_fake_shape
 
 
-__all__ = ["make_all_singleton_shapes", "make_proportional_shapes"]
+__all__ = [
+    "make_all_singleton_shapes",
+    "make_proportional_shapes",
+    "SUPPORTED_OME_ZARR_VERSIONS_READ",
+    "SUPPORTED_OME_ZARR_VERSIONS_WRITE",
+]

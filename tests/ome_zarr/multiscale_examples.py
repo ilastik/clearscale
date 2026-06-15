@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
+from clearscale.ome_zarr import SUPPORTED_OME_ZARR_VERSIONS_READ
 
 
 @dataclass(frozen=True, slots=True)
@@ -9,6 +10,9 @@ class MultiscaleMetadataExample:
     id: str
     metadata: dict[str, Any]
     ndim: int
+
+    def __post_init__(self):
+        assert self.id in SUPPORTED_OME_ZARR_VERSIONS_READ, "Examples should use version of the metadata as ID"
 
     @property
     def expected_paths(self) -> tuple[str, ...]:

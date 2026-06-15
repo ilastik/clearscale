@@ -1,13 +1,21 @@
 import pytest
 
 from clearscale import Multiscale
-from clearscale.ome_zarr import make_all_singleton_shapes
+from clearscale.ome_zarr import make_all_singleton_shapes, SUPPORTED_OME_ZARR_VERSIONS_READ
 
 from tests.ome_zarr.multiscale_examples import (
     MultiscaleMetadataExample,
     minimal_multiscale_examples_params,
     maximal_multiscale_examples_params,
 )
+
+
+def test_all_versions_covered():
+    example_params = minimal_multiscale_examples_params()
+    versions = [params.id for params in example_params]
+    assert set(versions) == set(
+        SUPPORTED_OME_ZARR_VERSIONS_READ
+    ), "Add at least a minimal test example when adding support for new OME-Zarr versions"
 
 
 @pytest.mark.parametrize("example", minimal_multiscale_examples_params())
