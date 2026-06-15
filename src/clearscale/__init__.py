@@ -1,4 +1,4 @@
-"""Type-safe multiscale image metadata for clearer code"""
+"""Multiscale abstractions for clearly coded metadata provenance"""
 
 from clearscale._axis_values import Factor, PixelOffset, PixelSize, Shape, Translation, Unit
 from clearscale._multiscale import (
