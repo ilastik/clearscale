@@ -5,11 +5,18 @@ build-backend = "hatchling.build"
 [project]
 name = "clearscale"
 version = "0.1.0"
+authors = [
+    {name = "Benedikt T. Best", email = "benedikt.best@embl.de"}
+]
+maintainers = [
+    {name = "Benedikt T. Best", email = "benedikt.best@embl.de"},
+    {name = "ilastik team", email = "team@ilastik.org"},
+]
 description = "Multiscale abstractions for clearly coded metadata provenance"
 readme = "README.md"
 requires-python = ">=3.11"
-license = "GPL-3.0-or-later"
-license-files = ["LICENSE"]
+license = "MIT OR Apache-2.0"
+license-files = ["LICENSE", "LICENSE-MIT", "LICENSE-APACHE"]
 keywords = ["image-metadata", "multiscale", "ome-zarr", "ngff", "ome-ngff", "ngff-zarr", "precomputed"]
 classifiers = [
     "Development Status :: 3 - Alpha",

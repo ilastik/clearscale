@@ -117,3 +117,8 @@ target_multiscale = Multiscale({SCALE_KEY: extracted_scale})
 # 4. Write the new metadata to the downloaded store
 local_group.attrs["multiscales"] = [target_multiscale.to_ome_zarr(version="0.4")]
 ```
+
+## License
+
+Licensed under either the [MIT license](LICENSE-MIT) or the
+[Apache License, Version 2.0](LICENSE-APACHE), at your option.
