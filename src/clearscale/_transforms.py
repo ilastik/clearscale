@@ -372,6 +372,8 @@ class Transform(ABC):
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Dict) -> "Transform":
+        if not isinstance(ome_dict, dict):
+            raise ValueError(f"Invalid transform metadata. Expected mapping, received: {ome_dict!r}")
         t_type = ome_dict.get("type")
         if t_type == "identity":
             source, target = cls._parse_source_and_target(ome_dict)
@@ -381,8 +383,11 @@ class Transform(ABC):
         elif t_type == "translation":
             return TranslationTransform.from_ome_zarr(ome_dict)
         elif t_type == "sequence":
+            source, target = cls._parse_source_and_target(ome_dict)
             return TransformSequence(
-                transforms=tuple(Transform.from_ome_zarr(td) for td in ome_dict["transformations"])
+                transforms=tuple(Transform.from_ome_zarr(td) for td in ome_dict["transformations"]),
+                source=source,
+                target=target,
             )
         else:
             raise ValueError(f"Unknown transform type: {t_type!r}")
@@ -392,6 +397,11 @@ class Transform(ABC):
         endpoints = {"input": None, "output": None}
         for side in endpoints.keys():
             ref = ome_dict.get(side, {})
+            if isinstance(ref, str) and ref:
+                endpoints[side] = _UnresolvedRef(name=ref)
+                continue
+            if not isinstance(ref, dict):
+                raise ValueError(f"Invalid transform endpoint metadata. Received: {ome_dict!r}")
             path = ref.get("path")
             name = ref.get("name")
             if path or name:
@@ -706,7 +716,11 @@ class _TransformGraph:
         return cls([], isolated_system_refs=frozenset([sys_ref]))
 
     @classmethod
-    def from_ome_zarr(cls, transform_dicts: List[Dict], system_dicts: List[Dict]):
+    def from_ome_zarr(cls, transform_dicts: Optional[List[Dict]], system_dicts: Optional[List[Dict]]):
+        if isinstance(transform_dicts, dict):
+            transform_dicts = [transform_dicts]
+        transform_dicts = transform_dicts or []
+        system_dicts = system_dicts or []
         named_systems: Set[CoordinateSystemRef[CoordinateSystem]] = set()
         seen_names = set()
         for system_dict in system_dicts:

@@ -23,12 +23,24 @@ from clearscale._transforms import (
 ####
 
 
+OME_ZARR_TRANSFORM = Dict[str, Any]
+OME_ZARR_TRANSFORMS = Union[OME_ZARR_TRANSFORM, List[OME_ZARR_TRANSFORM]]
 OME_ZARR_DATASET = Dict[Literal["path", "coordinateTransformations"], Any]  # single dataset (= scale)
 OME_ZARR_MULTISCALE = Dict[  # single multiscales entry of a json-validated OME-Zarr zattrs (any version)
     # The spec allows for multiple multiscales, but in practice we only ever see one.
     Literal["axes", "datasets", "version", "coordinateTransformations", "name", "coordinateSystems"],
     Union[List[Dict], List[OME_ZARR_DATASET], str],
 ]
+
+
+def _as_transform_list(ome_transformations: Optional[OME_ZARR_TRANSFORMS]) -> List[OME_ZARR_TRANSFORM]:
+    if not ome_transformations:
+        return []
+    if isinstance(ome_transformations, dict):
+        return [ome_transformations]
+    if isinstance(ome_transformations, list):
+        return ome_transformations
+    return []
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +64,7 @@ class MultiscaleTransforms(TransformSequence):
         return self.transforms[1] if len(self.transforms) == 2 else None
 
     @classmethod
-    def from_list(cls, ome_transformations: Optional[List[Dict]]) -> Optional["MultiscaleTransforms"]:
+    def from_list(cls, ome_transformations: Optional[OME_ZARR_TRANSFORMS]) -> Optional["MultiscaleTransforms"]:
         """
         Possibilities for ome_transformations:
         0.6.dev3 multiscale[datasets][n][coordinateTransformations]:
@@ -68,7 +80,8 @@ class MultiscaleTransforms(TransformSequence):
           - List of one ScaleTransform
           - List of one ScaleTransform and one TranslationTransform
         """
-        if not ome_transformations or not hasattr(ome_transformations, "__len__"):
+        ome_transformations = _as_transform_list(ome_transformations)
+        if not ome_transformations:
             return None
         scale = None
         translation = None
@@ -120,9 +133,8 @@ class MultiscaleTransforms(TransformSequence):
 def validate_multiscales_dict(raw: Dict):
     """Light top-level checks. coordinateTransformations are validated later."""
     version = raw.get("version")
-    if version not in ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6.dev3"):
-        v = raw.get("version")
-        warnings.warn(f"Attempting to parse unknown OME-Zarr version '{v}'. This might break...")
+    if version and version not in ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6.dev3"):
+        warnings.warn(f"Attempting to parse unknown OME-Zarr version '{version}'. This might break...")
 
     if "datasets" not in raw or not raw["datasets"]:
         raise ValueError(f"Invalid OME-Zarr datasets metadata: no datasets. Received:\n{raw}")
@@ -136,10 +148,16 @@ def validate_multiscales_dict(raw: Dict):
 
 
 def intrinsic_system_name_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> Optional[str]:
-    transforms: Optional[List[Dict]] = multiscale["datasets"][0].get("coordinateTransformations")
+    transforms = _as_transform_list(multiscale["datasets"][0].get("coordinateTransformations"))
     if not transforms:
         return None
-    return transforms[0].get("output")
+
+    ref = transforms[0].get("output")
+    if isinstance(ref, str):
+        return ref or None
+    if isinstance(ref, dict):
+        return ref.get("name")
+    return None
 
 
 def multiscale_graph_from_transforms(
