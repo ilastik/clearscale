@@ -47,7 +47,7 @@ from clearscale._transforms import (
     PRE_TRANSFORMS_VERSIONS,
     TransformSequence,
 )
-from clearscale.services import _ome_zarr, _precomputed
+from clearscale._services import ome_zarr, precomputed
 
 ScaleKey = TypeVar("ScaleKey", bound=str)
 ValueType = TypeVar("ValueType", Shape, Factor, "Scale")
@@ -630,7 +630,8 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
 
 
 def _random_multiscale_name(seed: int | str | None = None) -> str:
-    from clearscale.services.animal_names import generate_random_animal_name
+    from clearscale._services.animal_names import generate_random_animal_name
+
     return generate_random_animal_name(seed)
 
 
@@ -688,25 +689,25 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     @classmethod
     def from_ome_zarr(
         cls,
-        multiscale_dict: _ome_zarr.OME_ZARR_MULTISCALE,
+        multiscale_dict: ome_zarr.OME_ZARR_MULTISCALE,
         get_shape: GetShapeFunction,
     ):
         # TODO: for really perfect round-tripping, get_shape needs to become get_array, and to_ome_zarr needs write_array
         #  Otherwise, arrayCoordinateSystem metadata in the array zarr.json can be lost.
-        _ome_zarr.validate_multiscales_dict(multiscale_dict)
-        intrinsic_system_name = _ome_zarr.intrinsic_system_name_from_multiscale(multiscale_dict)
+        ome_zarr.validate_multiscales_dict(multiscale_dict)
+        intrinsic_system_name = ome_zarr.intrinsic_system_name_from_multiscale(multiscale_dict)
         if intrinsic_system_name:
-            graph, intrinsic_system_ref = _ome_zarr.multiscale_graph_from_transforms(
+            graph, intrinsic_system_ref = ome_zarr.multiscale_graph_from_transforms(
                 multiscale_dict, name=intrinsic_system_name
             )
             global_transforms = None
         else:
             intrinsic_system_name = _random_multiscale_name()
             multiscale_tf_list = multiscale_dict.get("coordinateTransformations")
-            global_transforms = _ome_zarr.MultiscaleTransforms.from_list(multiscale_tf_list)
+            global_transforms = ome_zarr.MultiscaleTransforms.from_list(multiscale_tf_list)
             if multiscale_tf_list and global_transforms is None:
                 warnings.warn("Pixel size metadata at multiscale-level was invalid.")
-            graph, intrinsic_system_ref, global_transforms = _ome_zarr.multiscale_graph_from_legacy(
+            graph, intrinsic_system_ref, global_transforms = ome_zarr.multiscale_graph_from_legacy(
                 multiscale_dict, name=intrinsic_system_name, global_transforms=global_transforms
             )
         axis_keys = list(intrinsic_system_ref.owner.axes())
@@ -720,7 +721,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             if base_shape is None:
                 base_shape = scale_shape
             transformations = dataset.get("coordinateTransformations")
-            dataset_transforms = _ome_zarr.MultiscaleTransforms.from_list(transformations)
+            dataset_transforms = ome_zarr.MultiscaleTransforms.from_list(transformations)
             if dataset_transforms is None:
                 # OME-Zarr up to v0.3 didn't have coordinateTransformations
                 scale_factor = base_shape.scaling_to(scale_shape)
@@ -746,8 +747,8 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         return cls(scales_items, _transform_graph=graph, _intrinsic_ref=intrinsic_system_ref)
 
     @classmethod
-    def from_precomputed(cls, info_dict: _precomputed.INFO_DICT):
-        _precomputed.validate_info_dict(info_dict)
+    def from_precomputed(cls, info_dict: precomputed.INFO_DICT):
+        precomputed.validate_info_dict(info_dict)
         scales_list = info_dict["scales"]
         num_channels = info_dict.get("num_channels", 1)
         axis_keys = ["c", "z", "y", "x"]  # Precomputed is always czyx (x varies fastest)
@@ -815,7 +816,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     ) -> Dict[str, Any]:
         if version not in ("0.4", "0.5", "0.6.dev3"):
             raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.dev3.")
-        _ome_zarr.validate_multiscale(self)
+        ome_zarr.validate_multiscale(self)
         result = {"version": version, "datasets": []}
 
         if name:
@@ -824,7 +825,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         if version not in PRE_TRANSFORMS_VERSIONS:
             result.update(self._transform_graph.to_ome_zarr(version=version))
             for key, scale in self.items():
-                dataset = _ome_zarr.build_dataset_dict(
+                dataset = ome_zarr.build_dataset_dict(
                     version, key, scale.pixel_size, scale.translation, self._intrinsic_ref
                 )
                 result["datasets"].append(dataset)
@@ -837,11 +838,11 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
 
         legacy_tfs = []
         if self._transform_graph:
-            legacy_tfs = [t for t in self._transform_graph.transforms if isinstance(t, _ome_zarr.MultiscaleTransforms)]
+            legacy_tfs = [t for t in self._transform_graph.transforms if isinstance(t, ome_zarr.MultiscaleTransforms)]
         if not legacy_tfs:
             # "Clean" legacy multiscale without global/multiscale-level transforms
             for key, scale in self.items():
-                dataset = _ome_zarr.build_dataset_dict(version, key, scale.pixel_size, scale.translation)
+                dataset = ome_zarr.build_dataset_dict(version, key, scale.pixel_size, scale.translation)
                 result["datasets"].append(dataset)
             return result
 
@@ -861,7 +862,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         for key, scale in self.items():
             dataset_scale = scale.pixel_size.scaled_by(Factor(global_scale).inverted())
             dataset_translation = scale.translation - global_translation
-            dataset = _ome_zarr.build_dataset_dict(version, key, dataset_scale, dataset_translation)
+            dataset = ome_zarr.build_dataset_dict(version, key, dataset_scale, dataset_translation)
             result["datasets"].append(dataset)
         return result
 

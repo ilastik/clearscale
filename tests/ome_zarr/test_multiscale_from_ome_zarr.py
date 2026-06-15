@@ -3,7 +3,7 @@ import pytest
 from clearscale import Multiscale
 from clearscale.ome_zarr import make_all_singleton_shapes
 
-from tests.formats.ome_zarr.multiscale_examples import (
+from tests.ome_zarr.multiscale_examples import (
     MultiscaleMetadataExample,
     minimal_multiscale_examples_params,
     maximal_multiscale_examples_params,
