@@ -74,11 +74,15 @@ class Scene:
         # Invert for quicker lookup. Keeps only the last path if multiple for the same Multiscale.
         # Presumably they're all equally valid. Pointing to copies I guess?
         paths_by_multiscale: Optional[Dict[Multiscale, RelativePath]] = {v: k for k, v in multiscales.items()}
+        transforms = []
         remaining_unresolved = []
-        for t in self._internal_graph.unresolved_transforms:
+        for t in self._internal_graph.transforms:
             maybe_resolved_t = t.with_resolved(multiscales)
+            transforms.append(maybe_resolved_t)
             if not maybe_resolved_t.is_fully_resolved:
                 remaining_unresolved.append(maybe_resolved_t)
+            if maybe_resolved_t is t:
+                continue
             for ref in (maybe_resolved_t.source, maybe_resolved_t.target):
                 assert ref is not None, f"Should never have unbound refs in scene transforms {t!r}"
                 if not isinstance(ref.owner, Multiscale) or ref.owner in updated_external:
@@ -89,6 +93,7 @@ class Scene:
                 updated_external[ref.owner] = paths_by_multiscale[ref.owner]
         graph = replace(
             self._internal_graph,
+            transforms=tuple(transforms),
             unresolved_transforms=tuple(remaining_unresolved),
         )
         return replace(
