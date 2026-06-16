@@ -68,7 +68,12 @@ scaled_shapes = []
 for i, level in enumerate(pyramid):
     scale_key = f"s{i}"
     group.create_array(scale_key, data=level)
-    scaled_shapes.append((scale_key, level.shape))
+    scaled_shapes.append(
+        (
+            scale_key,
+            Shape(zip("zyx", level.shape))
+        )
+    )
 
 # 3. Describe the full-resolution image
 base = Scale(
