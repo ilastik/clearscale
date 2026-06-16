@@ -1,3 +1,4 @@
+import copy
 from dataclasses import dataclass
 from typing import Any
 
@@ -219,7 +220,7 @@ OME_ZARR_MAX_MS_0_6_DEV3 = {
     "omero": OMERO_EXAMPLE,
 }
 
-MINIMAL_MULTISCALE_EXAMPLES = (
+_MINIMAL_MULTISCALE_EXAMPLES = (
     MultiscaleMetadataExample("0.1", OME_ZARR_MIN_MS_0_1, ndim=5),
     MultiscaleMetadataExample("0.2", OME_ZARR_MIN_MS_0_2, ndim=5),
     MultiscaleMetadataExample("0.3", OME_ZARR_MIN_MS_0_3, ndim=2),
@@ -228,7 +229,7 @@ MINIMAL_MULTISCALE_EXAMPLES = (
     MultiscaleMetadataExample("0.6.dev3", OME_ZARR_MIN_MS_0_6_DEV3, ndim=2),
 )
 
-MAXIMAL_MULTISCALE_EXAMPLES = (
+_MAXIMAL_MULTISCALE_EXAMPLES = (
     MultiscaleMetadataExample("0.1", OME_ZARR_MAX_MS_0_1, ndim=5),
     MultiscaleMetadataExample("0.2", OME_ZARR_MAX_MS_0_2, ndim=5),
     MultiscaleMetadataExample("0.3", OME_ZARR_MAX_MS_0_3, ndim=5),
@@ -238,9 +239,28 @@ MAXIMAL_MULTISCALE_EXAMPLES = (
 )
 
 
+def _copied_example(example: MultiscaleMetadataExample) -> MultiscaleMetadataExample:
+    return MultiscaleMetadataExample(example.id, copy.deepcopy(example.metadata), ndim=example.ndim)
+
+
+def minimal_multiscale_examples():
+    return [_copied_example(example) for example in _MINIMAL_MULTISCALE_EXAMPLES]
+
+
+def maximal_multiscale_examples():
+    return [_copied_example(example) for example in _MAXIMAL_MULTISCALE_EXAMPLES]
+
+
+def maximal_multiscale_example(version: str) -> MultiscaleMetadataExample:
+    for example in _MAXIMAL_MULTISCALE_EXAMPLES:
+        if example.id == version:
+            return _copied_example(example)
+    raise ValueError(f"No maximal multiscale example for OME-Zarr version {version!r}")
+
+
 def minimal_multiscale_examples_params():
-    return [pytest.param(example, id=example.id) for example in MINIMAL_MULTISCALE_EXAMPLES]
+    return [pytest.param(example, id=example.id) for example in minimal_multiscale_examples()]
 
 
 def maximal_multiscale_examples_params():
-    return [pytest.param(example, id=example.id) for example in MAXIMAL_MULTISCALE_EXAMPLES]
+    return [pytest.param(example, id=example.id) for example in maximal_multiscale_examples()]

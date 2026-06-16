@@ -9,6 +9,7 @@ from tests.ome_zarr.multiscale_examples import (
     minimal_multiscale_examples_params,
     maximal_multiscale_examples_params,
     MultiscaleMetadataExample,
+    maximal_multiscale_example,
 )
 
 known_keys_that_should_roundtrip_but_todo = ("type", "labels", "omero", "metadata")
@@ -36,6 +37,11 @@ def without_known_feature_gaps(metadata: dict[str, Any]) -> dict[str, Any]:
     for key in known_keys_that_should_roundtrip_but_todo:
         del round_trippable_metadata[key]
     return round_trippable_metadata
+
+
+@pytest.fixture
+def maximal_ome_zarr_0_6_dev3() -> MultiscaleMetadataExample:
+    return maximal_multiscale_example("0.6.dev3")
 
 
 @pytest.mark.parametrize("example", minimal_multiscale_examples_params())
@@ -70,3 +76,16 @@ def test_multiscale_roundtrips_maximal_ome_zarr(example: MultiscaleMetadataExamp
         assert output_json == with_approximate_floats(expected_output)
     else:
         assert output_json == expected_output
+
+
+def test_multiscale_roundtrip_preserves_coordinate_system_order(
+    maximal_ome_zarr_0_6_dev3: MultiscaleMetadataExample,
+):
+    metadata = maximal_ome_zarr_0_6_dev3.metadata
+    metadata["coordinateSystems"] = list(reversed(metadata["coordinateSystems"]))
+
+    multiscale = Multiscale.from_ome_zarr(metadata, get_shape=make_all_singleton_shapes(maximal_ome_zarr_0_6_dev3.ndim))
+    output_json = multiscale.to_ome_zarr(version="0.6.dev3")
+
+    expected_output = with_written_version(without_known_feature_gaps(metadata), "0.6.dev3")
+    assert output_json == with_approximate_floats(expected_output)

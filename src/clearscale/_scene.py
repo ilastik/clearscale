@@ -16,7 +16,6 @@ from clearscale._transforms import (
 
 MultiscalesByPath = Mapping[RelativePath, Multiscale]
 PathsByMultiscale = Mapping[Multiscale, RelativePath]
-CoordinateSystemsByName = Mapping[CoordinateSystemName, CoordinateSystem]
 UserFacingCoordinateSystemKey = Union[
     CoordinateSystemName,
     Multiscale,
@@ -67,26 +66,21 @@ class Scene:
     def with_resolved(
         self,
         multiscales: Optional[MultiscalesByPath] = None,
-        coordinate_systems: Optional[CoordinateSystemsByName] = None,  # not sure if really needed
     ) -> "Scene":
         multiscales = multiscales if multiscales else {}
-        coordinate_systems = coordinate_systems if coordinate_systems else {}
-        if not multiscales and not coordinate_systems:
+        if not multiscales:
             return self
         updated_external: Dict[Multiscale, Optional[RelativePath]] = dict(self._external_multiscales)
         # Invert for quicker lookup. Keeps only the last path if multiple for the same Multiscale.
         # Presumably they're all equally valid. Pointing to copies I guess?
         paths_by_multiscale: Optional[Dict[Multiscale, RelativePath]] = {v: k for k, v in multiscales.items()}
-        coordinate_system_refs = set(sys.as_ref(name) for name, sys in coordinate_systems.items())
         remaining_unresolved = []
-        remaining_isolated = set(self._internal_graph.isolated_system_refs)
         for t in self._internal_graph.unresolved_transforms:
-            maybe_resolved_t = t.with_resolved(multiscales, named_refs=coordinate_system_refs)
+            maybe_resolved_t = t.with_resolved(multiscales)
             if not maybe_resolved_t.is_fully_resolved:
                 remaining_unresolved.append(maybe_resolved_t)
             for ref in (maybe_resolved_t.source, maybe_resolved_t.target):
                 assert ref is not None, f"Should never have unbound refs in scene transforms {t!r}"
-                remaining_isolated.discard(ref)
                 if not isinstance(ref.owner, Multiscale) or ref.owner in updated_external:
                     continue
                 assert (
@@ -96,7 +90,6 @@ class Scene:
         graph = replace(
             self._internal_graph,
             unresolved_transforms=tuple(remaining_unresolved),
-            isolated_system_refs=frozenset(remaining_isolated),
         )
         return replace(
             self,

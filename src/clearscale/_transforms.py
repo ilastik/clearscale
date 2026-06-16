@@ -5,6 +5,7 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from dataclasses import dataclass, field, replace, fields
+from itertools import chain
 from typing import (
     Optional,
     Tuple,
@@ -16,8 +17,6 @@ from typing import (
     Union,
     Literal,
     Any,
-    FrozenSet,
-    Set,
     List,
     Generic,
 )
@@ -251,6 +250,14 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
         return Unit([(a, sem._ome_zarr_unit or "") for a, sem in self.items()])  # noqa
 
 
+CoordinateSystemRefs = Tuple[CoordinateSystemRef[CoordinateSystem], ...]
+
+
+def _ordered_unique_refs(refs: Iterable[CoordinateSystemRef]) -> Tuple[CoordinateSystemRef, ...]:
+    """Deduplicate graph refs while preserving declared/first-seen metadata order."""
+    return tuple(dict.fromkeys(refs))
+
+
 @dataclass(frozen=True, slots=True)
 class Transform(ABC):
     """
@@ -328,7 +335,7 @@ class Transform(ABC):
         return replace(self, source=source, target=target)
 
     def with_resolved(
-        self, path_nodes: Optional[NodesByPath], *, named_refs: Optional[Set[CoordinateSystemRef]]
+        self, path_nodes: Optional[NodesByPath], *, named_refs: Optional[Iterable[CoordinateSystemRef]]
     ) -> "Self":
         """
         Identify _UnresolvedRef endpoints on this Transform and resolve them by matching them to the
@@ -342,7 +349,7 @@ class Transform(ABC):
         if self.is_fully_resolved or (not path_nodes and not named_refs):
             return self
         path_nodes = path_nodes or {}
-        named_refs = named_refs or {}
+        named_refs = tuple(named_refs or ())
         new_source = self._resolve_ref(self.source, path_nodes, named_refs)
         new_target = self._resolve_ref(self.target, path_nodes, named_refs)
         if new_source is self.source and new_target is self.target:
@@ -351,7 +358,7 @@ class Transform(ABC):
 
     @staticmethod
     def _resolve_ref(
-        ref: CoordinateSystemRef, path_nodes: NodesByPath, named_refs: Set[CoordinateSystemRef]
+        ref: CoordinateSystemRef, path_nodes: NodesByPath, named_refs: Iterable[CoordinateSystemRef]
     ) -> CoordinateSystemRef:
         if not isinstance(ref, _UnresolvedRef):
             return ref
@@ -670,50 +677,43 @@ class _TransformGraph:
 
     transforms: Iterable[Transform]  # This could be ~15k entries in prod
     """Transforms define the graph. Their `.source` and `.target` are the graph nodes."""
-    isolated_system_refs: Optional[FrozenSet[CoordinateSystemRef[CoordinateSystem]]] = None
-    """Accommodates disjunct nodes.
-    The most common use case for this is the placeholder graph inside newly generated
-    Multiscales, which consists of only one CoordinateSystem and no Transforms
-    (_TransformGraph.single_isolated_system).
-    This also enables handling semi-valid OME-Zarr metadata that defines coordinate systems
-    with no transforms referencing them."""
-    unresolved_transforms: Optional[Iterable[Transform]] = None
+    system_refs: CoordinateSystemRefs = ()
+    """Keeps references to explicitly declared coordinate systems on `transforms` in this graph.
+    This is strictly for retaining the order in which they were declared or added,
+    and for enabling the plain Multiscale with no transforms (only a single coordinate system).
+    Must otherwise be a subset of the .source/.target nodes on `transforms`."""
+    unresolved_transforms: Tuple[Transform, ...] = ()
     """Keeps references to _UnresolvedRefs on `transforms` in this graph for Scene's convenience.
     Implemented as a parameter rather than a cached_property because it is more efficient
     for Scene.from_ome_zarr to build it as it iterates the metadata.
-    Should always be a subset of `transforms`."""
+    Must always be a subset of `transforms`."""
 
     def __bool__(self):
-        return bool(self.transforms) or bool(self.isolated_system_refs)
+        return bool(self.transforms) or bool(self.system_refs)
 
     @functools.cached_property
-    def all_system_refs(self) -> FrozenSet[CoordinateSystemRef[CoordinateSystem]]:
-        if self.isolated_system_refs is not None:
-            return self.connected_system_refs | self.isolated_system_refs
-        else:
-            return self.connected_system_refs
+    def all_system_refs(self) -> CoordinateSystemRefs:
+        return _ordered_unique_refs(chain(self.system_refs, self.connected_system_refs))
 
     @functools.cached_property
-    def connected_system_refs(self) -> FrozenSet[CoordinateSystemRef[CoordinateSystem]]:
-        return frozenset(ref for ref in self.node_refs if isinstance(ref.owner, CoordinateSystem))
+    def connected_system_refs(self) -> CoordinateSystemRefs:
+        return tuple(ref for ref in self.node_refs if isinstance(ref.owner, CoordinateSystem))
 
     @functools.cached_property
-    def node_refs(self) -> FrozenSet[CoordinateSystemRef]:
-        refs = set()
-        for t in self.transforms:
-            refs.add(t.source)
-            refs.add(t.target)
-        return frozenset(refs)
+    def node_refs(self) -> Tuple[CoordinateSystemRef, ...]:
+        return _ordered_unique_refs(ref for t in self.transforms for ref in (t.source, t.target))
 
     def __post_init__(self):
         bad = [t for t in self.transforms if t.source is None or t.target is None]
         if bad:
             raise ValueError(f"Graph transforms must have bound endpoints: {bad}")
         object.__setattr__(self, "transforms", tuple(self.transforms))
+        object.__setattr__(self, "system_refs", _ordered_unique_refs(self.system_refs))
+        object.__setattr__(self, "unresolved_transforms", tuple(self.unresolved_transforms))
 
     @classmethod
     def single_isolated_system(cls, sys_ref: CoordinateSystemRef[CoordinateSystem]):
-        return cls([], isolated_system_refs=frozenset([sys_ref]))
+        return cls([], system_refs=(sys_ref,))
 
     @classmethod
     def from_ome_zarr(cls, transform_dicts: Optional[List[Dict]], system_dicts: Optional[List[Dict]]):
@@ -721,7 +721,7 @@ class _TransformGraph:
             transform_dicts = [transform_dicts]
         transform_dicts = transform_dicts or []
         system_dicts = system_dicts or []
-        named_systems: Set[CoordinateSystemRef[CoordinateSystem]] = set()
+        named_systems: List[CoordinateSystemRef[CoordinateSystem]] = []
         seen_names = set()
         for system_dict in system_dicts:
             system = CoordinateSystem.from_ome_zarr(system_dict)
@@ -732,11 +732,10 @@ class _TransformGraph:
                 raise ValueError(
                     f'Invalid metadata: Multiple coordinate systems named "{name}". Received: {system_dict}'
                 )
-            named_systems.add(system.as_ref(name))
+            named_systems.append(system.as_ref(name))
             seen_names.add(name)
         unresolved_transforms: List[Transform] = []
         all_transforms: List[Transform] = []
-        isolated_systems = set(named_systems)
         for transform_dict in transform_dicts:
             t: Transform = Transform.from_ome_zarr(transform_dict).with_resolved(None, named_refs=named_systems)
             if not t.is_fully_bound:
@@ -744,14 +743,12 @@ class _TransformGraph:
                     f'Transform input and output must have "path", "name" or both. Received: {transform_dict}'
                 )
             all_transforms.append(t)
-            isolated_systems.discard(t.source)
-            isolated_systems.discard(t.target)
             if not t.is_fully_resolved:
                 unresolved_transforms.append(t)
         graph = _TransformGraph(
             all_transforms,
-            unresolved_transforms=frozenset(unresolved_transforms),
-            isolated_system_refs=frozenset(isolated_systems),
+            system_refs=tuple(named_systems),
+            unresolved_transforms=tuple(unresolved_transforms),
         )
         return graph
 

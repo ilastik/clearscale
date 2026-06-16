@@ -210,6 +210,9 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ScaleKey, Valu
     def items(self):
         return self._mapping.items()
 
+    def __hash__(self):
+        return hash(tuple(self._mapping.items()))
+
     def __eq__(self, other):
         if isinstance(other, _ScaleMapping):
             return self._mapping == other._mapping
@@ -664,12 +667,19 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             if _transform_graph:
                 raise AssertionError("Must specify _intrinsic_ref when _transform_graph is given.")
             self._transform_graph = self._make_single_system_graph()
-            self._intrinsic_ref = next(iter(self._transform_graph.isolated_system_refs))
+            self._intrinsic_ref = next(iter(self._transform_graph.system_refs))
         else:
             if _intrinsic_ref not in _transform_graph.all_system_refs:
                 raise AssertionError("_intrinsic_ref must be inside _transform_graph")
             self._transform_graph = _transform_graph or self._make_single_system_graph(_intrinsic_ref)
             self._intrinsic_ref = _intrinsic_ref
+
+    def __eq__(self, other):
+        # Like CoordinateSystem, a Multiscale identifies a specific image, not just an equal-looking scale table.
+        return self is other
+
+    def __hash__(self):
+        return id(self)
 
     @staticmethod
     def from_shapes(
