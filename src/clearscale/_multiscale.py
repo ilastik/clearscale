@@ -852,10 +852,11 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             len(legacy_tfs) <= 1
         ), f"Dev error: More than one multiscale-level transform in {self._transform_graph.transforms}"
         result["coordinateTransformations"] = legacy_tfs[0].to_ome_zarr(version, for_scene=False)
-        global_scale = legacy_tfs[0].scale_transform.to_pixel_size()
-        global_translation = Translation.identity(list(global_scale.keys()))
+        axes = list(self.axes())
+        global_scale = legacy_tfs[0].scale_transform.to_pixel_size(axes)
+        global_translation = Translation.identity(axes)
         if legacy_tfs[0].translation_transform:
-            global_translation = legacy_tfs[0].translation_transform.to_translation()
+            global_translation = legacy_tfs[0].translation_transform.to_translation(axes)
         # Multiscale.from_ome_zarr collapses the global transforms into each Scale so that
         # Scale.pixel_size/.translation are correct independent of their containing Multiscale.
         # That means we have to decompose them back out for perfect metadata round-trip.
