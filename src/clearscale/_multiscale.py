@@ -700,10 +700,9 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     def from_ome_zarr(
         cls,
         multiscale_dict: ome_zarr.OME_ZARR_MULTISCALE,
+        *,
         get_shape: GetShapeFunction,
     ):
-        # TODO: for really perfect round-tripping, get_shape needs to become get_array, and to_ome_zarr needs write_array
-        #  Otherwise, arrayCoordinateSystem metadata in the array zarr.json can be lost.
         ome_zarr.validate_multiscales_dict(multiscale_dict)
         intrinsic_system_name = ome_zarr.intrinsic_system_name_from_multiscale(multiscale_dict)
         if intrinsic_system_name:
