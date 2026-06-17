@@ -2,15 +2,19 @@
 
 from typing import Any, Dict, Union, Tuple
 
-from clearscale._multiscale import GetShapeFunction
-from clearscale._services.ome_zarr import SUPPORTED_OME_ZARR_VERSIONS_READ, SUPPORTED_OME_ZARR_VERSIONS_WRITE
+from clearscale._services.ome_zarr import (
+    GetShapeFunction,
+    ShapeSource,
+    SUPPORTED_OME_ZARR_VERSIONS_READ,
+    SUPPORTED_OME_ZARR_VERSIONS_WRITE,
+)
 
 
 def make_all_singleton_shapes(ndim: int) -> GetShapeFunction:
     """
     Construct OME-Zarr Multiscale without accessing actual array shapes,
     when all datasets you expect have the same number of axes:
-    `Multiscale.from_ome_zarr(ome_ms_dict, get_shape=make_all_singleton_shapes(ndim=3))`
+    `Multiscale.from_ome_zarr(ome_ms_dict, shape_source=make_all_singleton_shapes(ndim=3))`
     """
     return lambda _: (1,) * ndim
 
@@ -18,9 +22,9 @@ def make_all_singleton_shapes(ndim: int) -> GetShapeFunction:
 def make_proportional_shapes(multiscale_spec: Dict[str, Any]) -> GetShapeFunction:
     """
     Construct OME-Zarr Multiscale without accessing actual array shapes:
-    `Multiscale.from_ome_zarr(ome_ms_dict, get_shape=make_proportional_shapes(ome_ms_dict))`
+    `Multiscale.from_ome_zarr(ome_ms_dict, shape_source=make_proportional_shapes(ome_ms_dict))`
 
-    Returns a fake get_shape(path) callable that makes an all-singletons shape for the smallest scale,
+    Returns a fake shape_source callable that makes an all-singletons shape for the smallest scale,
     and proportionally larger shapes for the others.
     """
     # Try to read metadata extremely permissively just to get *anything* that could work as a shape
@@ -49,6 +53,8 @@ def make_proportional_shapes(multiscale_spec: Dict[str, Any]) -> GetShapeFunctio
 
 
 __all__ = [
+    "GetShapeFunction",
+    "ShapeSource",
     "make_all_singleton_shapes",
     "make_proportional_shapes",
     "SUPPORTED_OME_ZARR_VERSIONS_READ",

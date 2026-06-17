@@ -2,10 +2,11 @@
 
 import re
 import warnings
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Union, Literal, Dict, List, Any, Optional, Tuple
+from typing import Union, Literal, Dict, List, Any, Optional, Tuple, Protocol
 
-from clearscale._axis_values import Translation, PixelSize, Factor
+from clearscale._axis_values import ShapeLike, Translation, PixelSize
 from clearscale._transforms import (
     TransformSequence,
     ScaleTransform,
@@ -34,6 +35,52 @@ OME_ZARR_MULTISCALE = Dict[  # single multiscales entry of a json-validated OME-
     Literal["axes", "datasets", "version", "coordinateTransformations", "name", "coordinateSystems"],
     Union[List[Dict], List[OME_ZARR_DATASET], str],
 ]
+GetShapeFunction = Callable[[str], Tuple[int, ...]]
+"""
+path: Relative path to a zarr array.
+Returns: The `.shape` of the array at that path.
+"""
+
+
+class HasShape(Protocol):
+    @property
+    def shape(self) -> Sequence[int]: ...
+
+
+ShapeValue = Union[Sequence[int], ShapeLike, HasShape]
+
+
+class ShapeSourceMap(Protocol):
+    def __getitem__(self, path: str) -> ShapeValue: ...
+
+
+ShapeSource = Union[Callable[[str], ShapeValue], ShapeSourceMap]
+"""
+Lets clearscale know how to obtain a zarr's array shape in this Python environment.
+"""
+
+
+def normalize_shape_source_to_callable(shape_source: ShapeSource) -> GetShapeFunction:
+    if isinstance(shape_source, (str, bytes)):
+        raise TypeError(
+            f"Cannot obtain array shape from plain path. Received: {shape_source!r}."
+            "Provide the object you will use to read zarr data, e.g. from "
+            "zarr.open_group or ts.open({...}).result(), "
+            "or a custom `GetShapeFunction(relative_path_str) -> shape_tuple(int)`."
+        )
+    if callable(shape_source):
+        return lambda path: _normalize_shape_value_to_tuple(shape_source(path))
+    return lambda path: _normalize_shape_value_to_tuple(shape_source[path])
+
+
+def _normalize_shape_value_to_tuple(value: ShapeValue) -> Tuple[int, ...]:
+    raw_shape = getattr(value, "shape", value)
+    if isinstance(raw_shape, Mapping):
+        raw_shape = raw_shape.values()
+    try:
+        return tuple(int(size) for size in raw_shape)
+    except (TypeError, ValueError):
+        raise TypeError(f"Expected shape or array-like with .shape. Received: {value!r}")
 
 
 def _as_transform_list(ome_transformations: Optional[OME_ZARR_TRANSFORMS]) -> List[OME_ZARR_TRANSFORM]:

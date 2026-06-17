@@ -60,11 +60,6 @@ base_scale: the reference scale being transformed from
 target_scale: the new scale being created (with 0 translation)
 Returns: target_scale's translation
 """
-GetShapeFunction = Callable[[str], Tuple[int, ...]]
-"""
-path: Relative path to a zarr array.
-Returns: The `.shape` of the array at that path.
-"""
 
 if TYPE_CHECKING:
     try:
@@ -701,9 +696,10 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         cls,
         multiscale_dict: ome_zarr.OME_ZARR_MULTISCALE,
         *,
-        get_shape: GetShapeFunction,
+        shape_source: ome_zarr.ShapeSource,
     ):
         ome_zarr.validate_multiscales_dict(multiscale_dict)
+        get_shape = ome_zarr.normalize_shape_source_to_callable(shape_source)
         intrinsic_system_name = ome_zarr.intrinsic_system_name_from_multiscale(multiscale_dict)
         if intrinsic_system_name:
             graph, intrinsic_system_ref = ome_zarr.multiscale_graph_from_transforms(

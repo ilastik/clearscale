@@ -115,7 +115,7 @@ print(f"Downloading {SCALE_KEY} data...")
 local_array = local_group.create_array(SCALE_KEY, data=source_array, overwrite=True)
 
 # 3. Extract the correct scale metadata and upgrade it to valid independent metadata
-source_multiscale = Multiscale.from_ome_zarr(ome_multiscale, get_shape=lambda path: remote_group[path].shape)
+source_multiscale = Multiscale.from_ome_zarr(ome_multiscale, shape_source=remote_group)
 extracted_scale = source_multiscale[SCALE_KEY]
 target_multiscale = Multiscale({SCALE_KEY: extracted_scale})
 

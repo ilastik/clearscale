@@ -49,7 +49,7 @@ def maximal_ome_zarr_0_6_dev3() -> MultiscaleMetadataExample:
 def test_multiscale_roundtrips_minimal_ome_zarr(example: MultiscaleMetadataExample):
     if example.id not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
         pytest.skip(f"Writing version {example.id} not supported")
-    multiscale = Multiscale.from_ome_zarr(example.metadata, get_shape=make_all_singleton_shapes(example.ndim))
+    multiscale = Multiscale.from_ome_zarr(example.metadata, shape_source=make_all_singleton_shapes(example.ndim))
     output_json = multiscale.to_ome_zarr(version=example.id)
 
     expected_output = with_written_version(example.metadata, example.id)
@@ -60,7 +60,7 @@ def test_multiscale_roundtrips_minimal_ome_zarr(example: MultiscaleMetadataExamp
 def test_multiscale_roundtrips_maximal_ome_zarr(example: MultiscaleMetadataExample):
     if example.id not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
         pytest.skip(f"Writing version {example.id} not supported")
-    multiscale = Multiscale.from_ome_zarr(example.metadata, get_shape=make_all_singleton_shapes(example.ndim))
+    multiscale = Multiscale.from_ome_zarr(example.metadata, shape_source=make_all_singleton_shapes(example.ndim))
     output_json = multiscale.to_ome_zarr(version=example.id)
 
     for key in known_keys_that_should_roundtrip_but_todo:
@@ -85,7 +85,9 @@ def test_multiscale_roundtrip_preserves_coordinate_system_order(
     metadata = maximal_ome_zarr_0_6_dev3.metadata
     metadata["coordinateSystems"] = list(reversed(metadata["coordinateSystems"]))
 
-    multiscale = Multiscale.from_ome_zarr(metadata, get_shape=make_all_singleton_shapes(maximal_ome_zarr_0_6_dev3.ndim))
+    multiscale = Multiscale.from_ome_zarr(
+        metadata, shape_source=make_all_singleton_shapes(maximal_ome_zarr_0_6_dev3.ndim)
+    )
     output_json = multiscale.to_ome_zarr(version="0.6.dev3")
 
     expected_output = with_written_version(without_known_feature_gaps(metadata), "0.6.dev3")
