@@ -186,15 +186,19 @@ def validate_multiscales_dict(raw: Dict):
     if version and version not in SUPPORTED_OME_ZARR_VERSIONS_READ:
         warnings.warn(f"Attempting to parse unknown OME-Zarr version '{version}'. This might break...")
 
-    if "datasets" not in raw or not raw["datasets"]:
-        raise ValueError(f"Invalid OME-Zarr datasets metadata: no datasets. Received:\n{raw}")
+    if "datasets" not in raw or not raw["datasets"] or not isinstance(raw["datasets"], list):
+        raise ValueError(f"Invalid OME-Zarr metadata: no datasets in: {raw!r}")
+
+    for ds in raw["datasets"]:
+        if "path" not in ds or not ds["path"] or not isinstance(ds["path"], str):
+            raise ValueError(f"Invalid OME-Zarr metadata: dataset missing path {ds!r} in: {raw!r}")
 
     if (
         version is not None
         and version not in ("0.1", "0.2", "0.3")
         and any("coordinateTransformations" not in d or not d["coordinateTransformations"] for d in raw["datasets"])
     ):
-        raise ValueError(f"Invalid OME-Zarr datasets metadata: datasets without transformations. Received:\n{raw}")
+        raise ValueError(f"Invalid OME-Zarr metadata: datasets with invalid transformations in: {raw}")
 
 
 def intrinsic_system_name_from_multiscale(multiscale: OME_ZARR_MULTISCALE) -> Optional[str]:

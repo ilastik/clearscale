@@ -1,7 +1,7 @@
 import pytest
 
 from clearscale import Multiscale, Shape
-from clearscale.ome_zarr import make_all_singleton_shapes, SUPPORTED_OME_ZARR_VERSIONS_READ
+from clearscale.ome_zarr import make_all_singleton_shapes, make_proportional_shapes, SUPPORTED_OME_ZARR_VERSIONS_READ
 
 from tests.ome_zarr.multiscale_examples import (
     MultiscaleMetadataExample,
@@ -30,6 +30,21 @@ def test_from_ome_zarr_parses_maximal_multiscale_examples(example: MultiscaleMet
     multiscale = Multiscale.from_ome_zarr(example.metadata, shape_source=make_all_singleton_shapes(example.ndim))
 
     assert tuple(multiscale.keys()) == example.expected_paths
+
+
+@pytest.mark.parametrize(
+    "broken_example, expected_error",
+    [
+        ({"bioformats2raw.layout": 3}, "no datasets"),
+        ({"datasets": 3}, "no datasets"),
+        ({"datasets": [{"noop": 0}]}, "dataset missing path"),
+        ({"datasets": [{"path": 0}]}, "dataset missing path"),
+        ({"version": "0.4", "datasets": [{"path": "0", "coordinateTransformations": 0}]}, "invalid transformations"),
+    ],
+)
+def test_from_ome_zarr_raises_invalid(broken_example, expected_error):
+    with pytest.raises(ValueError, match=expected_error):
+        _ = Multiscale.from_ome_zarr(broken_example, shape_source=make_proportional_shapes(broken_example))
 
 
 def test_from_ome_zarr_accepts_shape_mapping():
