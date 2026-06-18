@@ -27,6 +27,57 @@ def test_downscale_2_example():
     # 4. Export
     zarr_group.attrs["ome"]["multiscales"] = [ms.to_ome_zarr(version="0.6.dev3")]
 
+    written = ms.to_ome_zarr(version="0.6.dev3")
+    assert len(written["coordinateSystems"]) == 1
+    written_system_name = written["coordinateSystems"][0]["name"]  # Capture the randomly generated name
+
+    expected = {
+        "coordinateSystems": [
+            {"axes": [{"name": "t"}, {"name": "z"}, {"name": "y"}, {"name": "x"}], "name": written_system_name}
+        ],
+        "datasets": [
+            {
+                "coordinateTransformations": {
+                    "input": "s0",
+                    "output": written_system_name,
+                    "scale": [5.0, 260.0, 0.53, 0.53],
+                    "type": "scale",
+                },
+                "path": "s0",
+            },
+            {
+                "coordinateTransformations": {
+                    "input": "s1",
+                    "output": written_system_name,
+                    "scale": [5.0, 520.0, 1.06, 1.06],
+                    "type": "scale",
+                },
+                "path": "s1",
+            },
+            {
+                "coordinateTransformations": {
+                    "input": "s2",
+                    "output": written_system_name,
+                    "scale": [5.0, 1002.8571428571429, 2.12, 2.12],
+                    "type": "scale",
+                },
+                "path": "s2",
+            },
+            {
+                "coordinateTransformations": {
+                    "input": "s3",
+                    "output": written_system_name,
+                    "scale": [5.0, 2005.7142857142858, 4.24, 4.24],
+                    "type": "scale",
+                },
+                "path": "s3",
+            },
+        ],
+        "version": "0.6.dev3",
+    }
+
+    assert written == expected
+
 
 def test_skimage_pyramid_gaussian_example():
     # 1. Generate a pyramid
@@ -69,6 +120,15 @@ def test_skimage_pyramid_gaussian_example():
 
     # 5. Save OME-Zarr metadata
     group.attrs["multiscales"] = [multiscale.to_ome_zarr(version="0.5", axis_types="infer")]
+
+    written = multiscale.to_ome_zarr(version="0.5", axis_types="infer")
+    assert written["axes"] == [
+        {"name": "z", "type": "space", "unit": "micron"},
+        {"name": "y", "type": "space", "unit": "nanometer"},
+        {"name": "x", "type": "space", "unit": "nanometer"},
+    ]
+    assert tuple(multiscale.keys()) == ("s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10")
+    assert written["datasets"][1]["coordinateTransformations"] == [{"scale": [50.0, 480.0, 480.0], "type": "scale"}]
 
 
 def test_extract_single_scale_example():
@@ -118,3 +178,13 @@ def test_extract_single_scale_example():
 
     # 4. Write the new metadata to the downloaded store
     local_group.attrs["multiscales"] = [target_multiscale.to_ome_zarr(version="0.4")]
+
+    assert target_multiscale.to_ome_zarr(version="0.4") == {
+        "axes": [
+            {"name": "z", "unit": "micrometer"},
+            {"name": "y", "unit": "micrometer"},
+            {"name": "x", "unit": "micrometer"},
+        ],
+        "datasets": [{"coordinateTransformations": [{"scale": [0.8, 0.64, 0.64], "type": "scale"}], "path": "s6"}],
+        "version": "0.4",
+    }
