@@ -102,17 +102,6 @@ class Scene:
             _external_multiscales=updated_external,
         )
 
-    def extract_unresolved_transforms_by_name_matching(
-        self, multiscales: Optional[MultiscalesByPath] = None
-    ) -> Tuple["Scene", Dict[Multiscale, Multiscale]]:
-        # TODO: Similar to with_resolved. Try to resolve unresolved transforms and isolated systems
-        #  from this scene, from all of its external_multiscales, and from all provided multiscales.
-        #  Separate function because this explicitly breaks round-trip:
-        #  If any new systems or transforms resolve, they are merged into this Scene and "removed"
-        #  from the respective Multiscale. Multiscales are immutable, so "removal" means making a new one.
-        #  Hence the tuple return: The second value is a mapping of old Multiscales to modified Multiscales.
-        raise NotImplementedError()
-
     def to_ome_zarr(self, version: str = "0.6.dev3", paths: Optional[PathsByMultiscale] = None) -> Dict:
         coordinate_system_dicts = []
         for ref in self._internal_graph.all_system_refs:
