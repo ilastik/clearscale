@@ -3,7 +3,7 @@ from abc import ABC
 from collections import OrderedDict, defaultdict
 from collections.abc import Mapping as ABCMapping
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from functools import cached_property
 from typing import (
     Optional,
@@ -77,7 +77,7 @@ if TYPE_CHECKING:
             Self = _Self
 
 
-class DuplicatePolicy(StrEnum):
+class DuplicatePolicy(str, Enum):
     ERROR = "error"
     KEEP_ALL = "keep_all"
     KEEP_FIRST = "keep_first"

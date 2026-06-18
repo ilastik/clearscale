@@ -29,7 +29,7 @@ zarr_group.attrs["ome"]["multiscales"] = [ms.to_ome_zarr(version="0.6.dev3")]
 
 ## Features
 
-* Zero dependencies, backwards compatible to py3.11+ (will do py3.10 if needed -> open an issue)
+* Zero dependencies, backwards compatible to py3.10+
 * Reads Neuroglancer Precomputed and OME-Zarr metadata (all versions)
 * Writes OME-Zarr versions 0.4, 0.5 and 0.6.dev3
 * Saves you learning about the metadata format(s)

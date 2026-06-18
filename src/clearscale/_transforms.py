@@ -49,7 +49,7 @@ AnyTransformGraphNode = TypeVar("AnyTransformGraphNode", bound="TransformGraphNo
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
 
 
-class CoordinateContinuity(enum.StrEnum):
+class CoordinateContinuity(str, enum.Enum):
     Categorical = enum.auto()
     Discrete = enum.auto()
     Continuous = enum.auto()
