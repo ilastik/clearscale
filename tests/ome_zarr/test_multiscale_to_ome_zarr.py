@@ -44,6 +44,7 @@ def maximal_ome_zarr_0_6_dev3() -> MultiscaleMetadataExample:
     return maximal_multiscale_example("0.6.dev3")
 
 
+@pytest.mark.filterwarnings("ignore:.*not in OME-Zarr canonical order.*:UserWarning")
 @pytest.mark.parametrize("example", minimal_multiscale_examples_params())
 def test_multiscale_roundtrips_minimal_ome_zarr(example: MultiscaleMetadataExample):
     if example.id not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
