@@ -94,16 +94,8 @@ class Scene:
                     ref.owner in paths_by_multiscale
                 ), f"If this multiscale wasn't already known and wasn't just provided, then where did it come from? {ref!r}."
                 updated_external[ref.owner] = paths_by_multiscale[ref.owner]
-        graph = replace(
-            self._internal_graph,
-            transforms=tuple(transforms),
-            unresolved_transforms=tuple(remaining_unresolved),
-        )
-        return replace(
-            self,
-            _internal_graph=graph,
-            _external_multiscales=updated_external,
-        )
+        graph = replace(self._internal_graph, transforms=tuple(transforms))
+        return replace(self, _internal_graph=graph, _external_multiscales=updated_external)
 
     def to_ome_zarr(self, *, version: str = "0.6.dev3", paths: Optional[PathsByMultiscale] = None) -> Dict:
         coordinate_system_dicts = []

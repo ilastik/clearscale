@@ -687,11 +687,6 @@ class _TransformGraph:
     This is strictly for retaining the order in which they were declared or added,
     and for enabling the plain Multiscale with no transforms (only a single coordinate system).
     Must otherwise be a subset of the .source/.target nodes on `transforms`."""
-    unresolved_transforms: Tuple[Transform, ...] = ()
-    """Keeps references to _UnresolvedRefs on `transforms` in this graph for Scene's convenience.
-    Implemented as a parameter rather than a cached_property because it is more efficient
-    for Scene.from_ome_zarr to build it as it iterates the metadata.
-    Must always be a subset of `transforms`."""
 
     def __bool__(self):
         return bool(self.transforms) or bool(self.system_refs)
@@ -708,13 +703,18 @@ class _TransformGraph:
     def node_refs(self) -> Tuple[CoordinateSystemRef, ...]:
         return _ordered_unique_refs(ref for t in self.transforms for ref in (t.source, t.target))
 
+    @functools.cached_property
+    def unresolved_transforms(self) -> Tuple[Transform, ...]:
+        return (
+            t for t in self.transforms if isinstance(t.source, _UnresolvedRef) or isinstance(t.target, _UnresolvedRef)
+        )
+
     def __post_init__(self):
         bad = [t for t in self.transforms if t.source is None or t.target is None]
         if bad:
             raise ValueError(f"Graph transforms must have bound endpoints: {bad}")
         object.__setattr__(self, "transforms", tuple(self.transforms))
         object.__setattr__(self, "system_refs", _ordered_unique_refs(self.system_refs))
-        object.__setattr__(self, "unresolved_transforms", tuple(self.unresolved_transforms))
 
     @classmethod
     def single_isolated_system(cls, sys_ref: CoordinateSystemRef[CoordinateSystem]):
@@ -737,22 +737,15 @@ class _TransformGraph:
                 )
             named_systems.append(system.as_ref(name))
             seen_names.add(name)
-        unresolved_transforms: List[Transform] = []
-        all_transforms: List[Transform] = []
+        transforms: List[Transform] = []
         for transform_dict in transform_dicts:
             t: Transform = Transform.from_ome_zarr(transform_dict).with_resolved(None, named_refs=named_systems)
             if not t.is_fully_bound:
                 raise ValueError(
                     f'Transform input and output must have "path", "name" or both. Received: {transform_dict}'
                 )
-            all_transforms.append(t)
-            if not t.is_fully_resolved:
-                unresolved_transforms.append(t)
-        graph = _TransformGraph(
-            all_transforms,
-            system_refs=tuple(named_systems),
-            unresolved_transforms=tuple(unresolved_transforms),
-        )
+            transforms.append(t)
+        graph = _TransformGraph(transforms, system_refs=tuple(named_systems))
         return graph
 
     def to_ome_zarr(
