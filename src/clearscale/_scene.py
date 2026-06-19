@@ -1,6 +1,7 @@
 import functools
+from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, replace
-from typing import Mapping, Dict, Union, Tuple, Literal
+from typing import Any, Dict, Mapping, Union, Tuple, Literal
 from typing import Optional, List
 
 from clearscale._multiscale import Multiscale
@@ -9,7 +10,6 @@ from clearscale._transforms import (
     CoordinateSystemName,
     CoordinateSystemRef,
     _UnresolvedRef,
-    CoordinateSystem,
     Transform,
     _TransformGraph,
 )
@@ -33,16 +33,20 @@ class Scene:
     def is_fully_resolved(self) -> bool:
         return len(self._internal_graph.unresolved_transforms) == 0
 
-    @property
-    def unresolved_paths(self) -> List[RelativePath]:
-        refs = set()
+    @functools.cached_property
+    def unresolved_paths(self) -> set[RelativePath]:
+        paths = []
+        seen_paths = set()
         for t in self._internal_graph.unresolved_transforms:
-            refs.add(t.source)
-            refs.add(t.target)
-        paths = {ref.path for ref in refs}
-        paths.discard(None)
-        paths.discard("")
-        return list(paths)
+            for endpoint in (t.source, t.target):
+                if not isinstance(endpoint, _UnresolvedRef):
+                    continue
+                p = endpoint.path
+                if not p or not isinstance(p, str) or p in seen_paths:
+                    continue
+                paths.append(p)
+                seen_paths.add(p)
+        return paths
 
     @functools.cached_property
     def _full_graph(self):
@@ -53,7 +57,7 @@ class Scene:
         return _TransformGraph(all_transforms)
 
     @classmethod
-    def from_ome_zarr(cls, scene_attrs: Dict):
+    def from_ome_zarr(cls, scene_attrs: Dict[str, Any]):
         # TODO: accept an optional callable get_multiscale_meta;
         #  where the default provided implementation simply chooses
         #  the first entry in the multiscales-array at the path.
@@ -67,8 +71,7 @@ class Scene:
         self,
         multiscales: Optional[MultiscalesByPath] = None,
     ) -> "Scene":
-        multiscales = multiscales if multiscales else {}
-        if not multiscales:
+        if not multiscales or not isinstance(multiscales, MappingABC):
             return self
         updated_external: Dict[Multiscale, Optional[RelativePath]] = dict(self._external_multiscales)
         # Invert for quicker lookup. Keeps only the last path if multiple for the same Multiscale.
@@ -102,7 +105,7 @@ class Scene:
             _external_multiscales=updated_external,
         )
 
-    def to_ome_zarr(self, version: str = "0.6.dev3", paths: Optional[PathsByMultiscale] = None) -> Dict:
+    def to_ome_zarr(self, *, version: str = "0.6.dev3", paths: Optional[PathsByMultiscale] = None) -> Dict:
         coordinate_system_dicts = []
         for ref in self._internal_graph.all_system_refs:
             coordinate_system_dicts.append(ref.owner.to_ome_zarr(name=ref.name, version=version))

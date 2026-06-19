@@ -882,7 +882,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         return _TransformGraph.single_isolated_system(sys_ref)
 
     def as_ref(self, name: CoordinateSystemName) -> CoordinateSystemRef["Multiscale"]:
-        return CoordinateSystemRef(name=name, owner=self)
+        return CoordinateSystemRef(name=str(name), owner=self)
 
     def _get_interface_transform(self):
         """Allows a scene to traverse into this subgraph"""

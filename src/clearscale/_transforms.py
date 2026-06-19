@@ -64,7 +64,9 @@ class AxisSemantics:
 
     @classmethod
     def from_ome_zarr(cls, axis_dict: Dict) -> "AxisSemantics":
-        coordinates = CoordinateContinuity.Discrete if axis_dict.get("discrete") else None
+        discrete = axis_dict.get("discrete")
+        discrete_meaning = {None: None, False: CoordinateContinuity.Continuous, True: CoordinateContinuity.Discrete}
+        coordinates = discrete_meaning.get(discrete)
         return cls(
             coordinate_domain=coordinates,
             _ome_zarr_type=axis_dict.get("type"),
@@ -84,8 +86,11 @@ class AxisSemantics:
             axis_dict["unit"] = self._ome_zarr_unit
         if self._ome_zarr_long_name:
             axis_dict["longName"] = self._ome_zarr_long_name
-        if self.coordinate_domain == CoordinateContinuity.Discrete:
-            axis_dict["discrete"] = True
+        if self.coordinate_domain is not None:
+            if self.coordinate_domain is CoordinateContinuity.Continuous:
+                axis_dict["discrete"] = False
+            else:
+                axis_dict["discrete"] = True
         return axis_dict
 
 
@@ -172,7 +177,7 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
         return self.keys()
 
     def as_ref(self, name: CoordinateSystemName) -> CoordinateSystemRef["CoordinateSystem"]:
-        return CoordinateSystemRef(name, self)
+        return CoordinateSystemRef(str(name), self)
 
     @classmethod
     def without_semantics(cls, axes: OrderedAxes) -> "CoordinateSystem":
@@ -717,8 +722,6 @@ class _TransformGraph:
 
     @classmethod
     def from_ome_zarr(cls, transform_dicts: Optional[List[Dict]], system_dicts: Optional[List[Dict]]):
-        if isinstance(transform_dicts, dict):
-            transform_dicts = [transform_dicts]
         transform_dicts = transform_dicts or []
         system_dicts = system_dicts or []
         named_systems: List[CoordinateSystemRef[CoordinateSystem]] = []
