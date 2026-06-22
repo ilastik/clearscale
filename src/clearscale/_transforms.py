@@ -464,6 +464,8 @@ class ScaleTransform(Transform):
         return all(v for v in self.scale)  # Not invertible with 0 values
 
     def inverted(self) -> "ScaleTransform":
+        if not self.is_invertible:
+            raise ValueError("ScaleTransform is not invertible: contains zero scale value(s).")
         scale_inverted = tuple(1 / v for v in self.scale)
         return replace(self, scale=scale_inverted, ome_zarr_path=None)
 

@@ -50,10 +50,13 @@ def make_proportional_shapes(multiscale_spec: Dict[str, Any]) -> GetShapeFunctio
 
     def get_fake_shape(path: str) -> Tuple[int, ...]:
         cur_scale: Tuple[float, ...] = scale_vector(ds_by_path[path]) or (1.0,) * ndim
-        try:
-            return tuple(max(1, int(base / c)) for base, c in zip(cur_scale, smallest_scale))
-        except TypeError:
-            return (1,) * ndim
+        shape = []
+        for base, c in zip(cur_scale, smallest_scale):
+            try:
+                shape.append(max(1, int(base / c)))
+            except (TypeError, ValueError, ZeroDivisionError):
+                shape.append(1)
+        return tuple(shape)
 
     return get_fake_shape
 

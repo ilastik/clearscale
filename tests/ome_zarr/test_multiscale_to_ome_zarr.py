@@ -92,3 +92,17 @@ def test_multiscale_roundtrip_preserves_coordinate_system_order(
 
     expected_output = with_written_version(without_known_feature_gaps(metadata), "0.6.dev3")
     assert output_json == with_approximate_floats(expected_output)
+
+
+def test_multiscale_writes_zero_pixel_size_values():
+    metadata = {
+        "axes": [{"name": "c"}, {"name": "y"}, {"name": "x"}],
+        "datasets": [
+            {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]},
+        ],
+    }
+    multiscale = Multiscale.from_ome_zarr(metadata, shape_source={"s0": (3, 100, 200)})
+
+    output_json = multiscale.to_ome_zarr(version="0.5")
+
+    assert output_json["datasets"][0]["coordinateTransformations"] == [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]

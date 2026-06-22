@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Multiscale, Shape
+from clearscale import Multiscale, PixelSize, Shape
 from clearscale.ome_zarr import make_all_singleton_shapes, make_proportional_shapes, SUPPORTED_OME_ZARR_VERSIONS_READ
 
 from tests.ome_zarr.multiscale_examples import (
@@ -60,6 +60,35 @@ def test_from_ome_zarr_accepts_shape_mapping():
 
     assert multiscale["s0"].shape == Shape(y=100, x=200)
     assert multiscale["s1"].shape == Shape(y=50, x=100)
+
+
+def test_from_ome_zarr_accepts_zero_scale_values():
+    metadata = {
+        "axes": [{"name": "c"}, {"name": "y"}, {"name": "x"}],
+        "datasets": [
+            {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]},
+        ],
+    }
+
+    multiscale = Multiscale.from_ome_zarr(metadata, shape_source={"s0": (3, 100, 200)})
+
+    assert multiscale["s0"].pixel_size == PixelSize(c=0.0, y=1.0, x=1.0)
+
+
+def test_from_ome_zarr_accepts_zero_scale_values_with_proportional_shape_source():
+    metadata = {
+        "axes": [{"name": "c"}, {"name": "y"}, {"name": "x"}],
+        "datasets": [
+            {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]},
+            {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [0.0, 2.0, 2.0]}]},
+        ],
+    }
+
+    multiscale = Multiscale.from_ome_zarr(metadata, shape_source=make_proportional_shapes(metadata))
+
+    assert tuple(multiscale.keys()) == ("s0", "s1")
+    assert multiscale["s0"].pixel_size == PixelSize(c=0.0, y=1.0, x=1.0)
+    assert multiscale["s1"].pixel_size == PixelSize(c=0.0, y=2.0, x=2.0)
 
 
 def test_from_ome_zarr_accepts_array_mapping():

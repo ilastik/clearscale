@@ -371,8 +371,10 @@ class PixelSize(_AxisFloats):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
-            if value <= 0:
-                raise ValueError(f"Pixel size cannot be 0 or negative (got {value} for axis '{axis}').")
+            if value < 0:
+                # Accept 0 to preserve degenerate scale metadata.
+                # Operations that divide by PixelSize need to validate and reject, or use 1.0.
+                raise ValueError(f"Pixel size cannot be negative (got {value} for axis '{axis}').")
 
     def is_identity(self) -> bool:
         """True if this PixelSize is the unit size (1.0 along all axes)."""
@@ -443,7 +445,10 @@ class PixelSize(_AxisFloats):
             return self.scaled_by(other.inverted())
         if isinstance(other, PixelSize):
             _require_identical_axes(self, other)
-            return Factor((a, self[a] / other[a]) for a in self)
+            # Treat degenerate 0.0 pixel size as 1.0
+            return Factor(
+                (a, (1.0 if self[a] == 0 else self[a]) / (1.0 if other[a] == 0.0 else other[a])) for a in self
+            )
         return NotImplemented
 
 
@@ -499,7 +504,8 @@ class Translation(_AxisFloats):
         """
         _require_axes_present(pixel_size, self, container_name="pixel_size", required_name="Translation")
         rounding = _normalize_rounding(rounding)
-        return PixelOffset((a, rounding(self[a] / pixel_size[a])) for a in self)
+        # Treat degenerate 0.0 pixel size as 1.0
+        return PixelOffset((a, rounding(self[a] if pixel_size[a] == 0 else self[a] / pixel_size[a])) for a in self)
 
 
 class Unit(_AxisValues[AxisKey, str]):
