@@ -30,24 +30,14 @@ def test_factor_and_pixel_size_multiply_using_pixel_size_scaling_rules():
     assert_axis_values(pixel_size * factor, PixelSize, [("y", 2.0), ("x", 8.0)])
 
 
-def test_pixel_size_accepts_zero_as_metadata_value():
-    pixel_size = PixelSize([("c", 0.0), ("y", 1.0), ("x", 1.0)])
-
-    assert_axis_values(pixel_size, PixelSize, [("c", 0.0), ("y", 1.0), ("x", 1.0)])
+def test_pixel_size_rejects_zero_values():
+    with pytest.raises(ValueError, match="Pixel size cannot be 0 or negative"):
+        PixelSize(c=0.0)
 
 
 def test_pixel_size_rejects_negative_values():
-    with pytest.raises(ValueError, match="Pixel size cannot be negative"):
+    with pytest.raises(ValueError, match="Pixel size cannot be 0 or negative"):
         PixelSize(c=-1.0)
-
-
-def test_zero_pixel_size_scales_as_metadata_value():
-    pixel_size = PixelSize([("c", 0.0), ("y", 2.0)])
-    factor = Factor([("c", 3.0), ("y", 4.0)])
-
-    result = pixel_size.scaled_by(factor)
-
-    assert_axis_values(result, PixelSize, [("c", 0.0), ("y", 8.0)])
 
 
 def test_pixel_size_divides_by_factor_using_inverted_scaling_rules():
@@ -88,20 +78,6 @@ def test_pixel_size_divides_pixel_size_to_factor():
     result = target_pixel_size / base_pixel_size
 
     assert_axis_values(result, Factor, [("y", 2.0), ("x", 2.0)])
-
-
-@pytest.mark.parametrize(
-    ("target_pixel_size", "base_pixel_size"),
-    [
-        (PixelSize(c=0.0), PixelSize(c=1.0)),
-        (PixelSize(c=1.0), PixelSize(c=0.0)),
-        (PixelSize(c=0.0), PixelSize(c=0.0)),
-    ],
-)
-def test_pixel_size_divides_zeros_as_ones(target_pixel_size, base_pixel_size):
-    result = target_pixel_size / base_pixel_size
-
-    assert_axis_values(result, Factor, [("c", 1.0)])
 
 
 def test_translation_adds_and_subtracts_translation_axis_wise():
@@ -169,14 +145,6 @@ def test_translation_to_pixel_offset_rounds_and_ignores_extra_pixel_size_axes(ro
     result = translation.to_pixel_offset(pixel_size, rounding=rounding)
 
     assert_axis_values(result, PixelOffset, expected)
-
-
-def test_translation_to_pixel_offset_treats_zero_pixel_size_as_one():
-    translation = Translation(c=1.3, y=3.0)
-    pixel_size = PixelSize(c=0.0, y=1.5)
-
-    result = translation.to_pixel_offset(pixel_size, rounding="round")
-    assert_axis_values(result, PixelOffset, [("c", 1), ("y", 2)])
 
 
 def test_translation_to_pixel_offset_requires_translation_axes():

@@ -94,7 +94,7 @@ def test_multiscale_roundtrip_preserves_coordinate_system_order(
     assert output_json == with_approximate_floats(expected_output)
 
 
-def test_multiscale_writes_zero_pixel_size_values():
+def test_multiscale_roundtrips_zero_scale_values_from_ome_zarr():
     metadata = {
         "axes": [{"name": "c"}, {"name": "y"}, {"name": "x"}],
         "datasets": [
@@ -106,3 +106,18 @@ def test_multiscale_writes_zero_pixel_size_values():
     output_json = multiscale.to_ome_zarr(version="0.5")
 
     assert output_json["datasets"][0]["coordinateTransformations"] == [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]
+
+
+def test_new_multiscale_writes_normalized_zero_scale_values():
+    metadata = {
+        "axes": [{"name": "c"}, {"name": "y"}, {"name": "x"}],
+        "datasets": [
+            {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]},
+        ],
+    }
+    parsed = Multiscale.from_ome_zarr(metadata, shape_source={"s0": (3, 100, 200)})
+    normalized = Multiscale({"s0": parsed["s0"]})
+
+    output_json = normalized.to_ome_zarr(version="0.5")
+
+    assert output_json["datasets"][0]["coordinateTransformations"] == [{"type": "scale", "scale": [1.0, 1.0, 1.0]}]

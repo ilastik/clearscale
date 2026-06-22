@@ -4,9 +4,9 @@ import re
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Union, Literal, Dict, List, Any, Optional, Tuple, Protocol
+from typing import Union, Literal, Dict, List, Any, Optional, Tuple, Protocol, Iterable
 
-from clearscale._axis_values import ShapeLike, Translation, PixelSize
+from clearscale._axis_values import ShapeLike, Translation, PixelSize, AxisKey
 from clearscale._transforms import (
     TransformSequence,
     ScaleTransform,
@@ -91,6 +91,23 @@ def _as_transform_list(ome_transformations: Optional[OME_ZARR_TRANSFORMS]) -> Li
     if isinstance(ome_transformations, list):
         return ome_transformations
     return []
+
+
+def zero_scale_axes(scale_transform: ScaleTransform, axes: Sequence[AxisKey]) -> Tuple[AxisKey, ...]:
+    return tuple(axis for axis, value in zip(axes, scale_transform.scale) if value == 0)
+
+
+def pixel_size_from_scale_transform(scale_transform: ScaleTransform, axes: Sequence[AxisKey]) -> PixelSize:
+    normalized_scale = (PixelSize._default if value == 0 else value for value in scale_transform.scale)
+    return PixelSize(zip(axes, normalized_scale))
+
+
+def scale_transform_from_pixel_size(
+    pixel_size: PixelSize, serialized_zero_scale_axes: Iterable[AxisKey] = ()
+) -> ScaleTransform:
+    zero_axes = set(serialized_zero_scale_axes)
+    scale = tuple(0.0 if axis in zero_axes else pixel_size[axis] for axis in pixel_size)
+    return ScaleTransform(scale=scale)
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,8 +337,9 @@ def build_dataset_dict(
     dataset_scale: PixelSize,
     dataset_translation: Translation,
     intrinsic_ref: Optional[CoordinateSystemRef[CoordinateSystem]] = None,
+    serialized_zero_scale_axes: Iterable[AxisKey] = (),
 ) -> Dict[str, Any]:
-    scale = ScaleTransform.from_pixel_size(dataset_scale)
+    scale = scale_transform_from_pixel_size(dataset_scale, serialized_zero_scale_axes)
     if not dataset_translation.is_identity():
         translation = TranslationTransform.from_translation(dataset_translation)
         final = TransformSequence((scale, translation)).bound(source=_UnresolvedRef(name=key), target=intrinsic_ref)
