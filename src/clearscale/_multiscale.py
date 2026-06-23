@@ -638,15 +638,15 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
     """Transform graph that by default consists only of one isolated node: _intrinsic_ref."""
     _intrinsic_ref: CoordinateSystemRef[CoordinateSystem]
     """The system in which the Scales' shape, pixel size, translation etc. are correct."""
-    _ome_zarr_zero_scale_axes_by_key: Mapping[str, Tuple[AxisKey, ...]]
-    """Dataset scale axes that were serialized as 0.0 and should round-trip for this parsed Multiscale."""
+    _zero_scale_axes_by_key: Mapping[str, Tuple[AxisKey, ...]]
+    """Dataset scale axes that were read as 0.0 from loaded meta; kept for as-read round-trip."""
 
     def __init__(
         self,
         *args,
         _transform_graph: Optional[_TransformGraph] = None,
         _intrinsic_ref: Optional[CoordinateSystemRef[CoordinateSystem]] = None,
-        _ome_zarr_zero_scale_axes_by_key: Optional[Mapping[str, Tuple[AxisKey, ...]]] = None,
+        _zero_scale_axes_by_key: Optional[Mapping[str, Tuple[AxisKey, ...]]] = None,
         **kwargs,
     ):
         """
@@ -672,15 +672,15 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             self._transform_graph = _transform_graph or self._make_single_system_graph(_intrinsic_ref)
             self._intrinsic_ref = _intrinsic_ref
         zero_scale_axes_by_key = {}
-        if _ome_zarr_zero_scale_axes_by_key:
+        if _zero_scale_axes_by_key:
             available_axes = set(self.axes())
-            for key, axes in _ome_zarr_zero_scale_axes_by_key.items():
+            for key, axes in _zero_scale_axes_by_key.items():
                 if key not in self:
                     continue
                 kept_axes = tuple(axis for axis in axes if axis in available_axes)
                 if kept_axes:
                     zero_scale_axes_by_key[key] = kept_axes
-        self._ome_zarr_zero_scale_axes_by_key = zero_scale_axes_by_key
+        self._zero_scale_axes_by_key = zero_scale_axes_by_key
 
     def __eq__(self, other):
         # Like CoordinateSystem, a Multiscale identifies a specific image, not just an equal-looking scale table.
@@ -772,7 +772,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             scales_items,
             _transform_graph=graph,
             _intrinsic_ref=intrinsic_system_ref,
-            _ome_zarr_zero_scale_axes_by_key=zero_scale_axes_by_key,
+            _zero_scale_axes_by_key=zero_scale_axes_by_key,
         )
 
     @classmethod
@@ -783,6 +783,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         axis_keys = ["c", "z", "y", "x"]  # Precomputed is always czyx (x varies fastest)
 
         scales_items = []
+        zero_scale_axes_by_key = {}
         for scale_dict in scales_list:
             scale_key = scale_dict["key"]
 
@@ -794,7 +795,10 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             resolution = scale_dict["resolution"]
             if len(resolution) != 3:
                 raise ValueError(f"Scale {scale_key!r} must have 'resolution' as [x, y, z]")
-            pixel_size = PixelSize(zip(axis_keys, [1.0] + list(reversed(resolution))))
+            zero_axes = precomputed.zero_resolution_axes(resolution, "zyx")
+            if zero_axes:
+                zero_scale_axes_by_key[scale_key] = zero_axes
+            pixel_size = precomputed.pixel_size_from_resolution(resolution, axis_keys)
 
             voxel_offset = scale_dict.get("voxel_offset", [0, 0, 0])
             if len(voxel_offset) != 3:
@@ -808,7 +812,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
             scale = Scale(shape, pixel_size, unit, translation)
             scales_items.append((scale_key, scale))
 
-        return cls(scales_items)
+        return cls(scales_items, _zero_scale_axes_by_key=zero_scale_axes_by_key)
 
     def axes(self) -> Iterable[AxisKey]:
         return self.first_value().shape.keys()
@@ -860,7 +864,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                     scale.pixel_size,
                     scale.translation,
                     self._intrinsic_ref,
-                    self._ome_zarr_zero_scale_axes_by_key.get(key, ()),
+                    self._zero_scale_axes_by_key.get(key, ()),
                 )
                 result["datasets"].append(dataset)
             return result
@@ -881,7 +885,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                     key,
                     scale.pixel_size,
                     scale.translation,
-                    serialized_zero_scale_axes=self._ome_zarr_zero_scale_axes_by_key.get(key, ()),
+                    serialized_zero_scale_axes=self._zero_scale_axes_by_key.get(key, ()),
                 )
                 result["datasets"].append(dataset)
             return result
@@ -908,7 +912,7 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
                 key,
                 dataset_scale,
                 dataset_translation,
-                serialized_zero_scale_axes=self._ome_zarr_zero_scale_axes_by_key.get(key, ()),
+                serialized_zero_scale_axes=self._zero_scale_axes_by_key.get(key, ()),
             )
             result["datasets"].append(dataset)
         return result

@@ -1,4 +1,3 @@
-import pytest
 from clearscale import Multiscale
 
 WEILER14 = {
