@@ -123,10 +123,12 @@ class CoordinateSystemRef(Generic[AnyTransformGraphNode]):
     """The Multiscale or CoordinateSystem that produced this, for identity. None only in _UnresolvedRef"""
 
     def __eq__(self, other):
-        return isinstance(other, self.__class__) and self.name == other.name and self.owner is other.owner
+        if type(self) is not type(other):
+            return NotImplemented
+        return self.name == other.name and self.owner is other.owner
 
     def __hash__(self):
-        return hash((self.__class__, self.name, id(self.owner)))
+        return hash((type(self), self.name, id(self.owner)))
 
     def to_ome_zarr(self, for_scene: bool, path: Optional[RelativePath] = None) -> Union[CoordinateSystemName, Dict]:
         if not for_scene:
