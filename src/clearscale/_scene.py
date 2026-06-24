@@ -61,7 +61,7 @@ class Scene:
     def _full_graph(self):
         all_transforms = list(self._internal_graph.transforms)
         for ms in self._multiscale_paths.values():
-            all_transforms.extend(ms._get_interface_transform())  # noqa: package-private, not class-private
+            all_transforms.append(ms._get_interface_transform())  # noqa: package-private, not class-private
             all_transforms.extend(ms._transform_graph.transforms)  # noqa: package-private, not class-private
         return _TransformGraph(all_transforms)
 
