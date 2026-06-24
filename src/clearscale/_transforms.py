@@ -340,47 +340,57 @@ class Transform(ABC):
         # binding required to use the Transform in a TransformGraph
         return replace(self, source=source, target=target)
 
-    def with_resolved(
-        self, path_nodes: Optional[NodesByPath], *, named_refs: Optional[Iterable[CoordinateSystemRef]] = None
-    ) -> "Self":
-        """
-        Identify _UnresolvedRef endpoints on this Transform and resolve them by matching them to the
-        provided endpoints preferably by their `path` (to path_nodes), or by their `name` (to named_refs).
-
-        Resolving name-only references takes a lot of care: coordinate system names are not unique,
-        and there is no robust way to determine if a system with the expected name is actually the specific
-        system the transform referenced.
-        Using this with named_refs (or wrapping such usage) should be avoided, or force explicit intention.
-        """
-        if self.is_fully_resolved or (not path_nodes and not named_refs):
+    def with_resolved(self, path_nodes: Optional[NodesByPath]) -> "Self":
+        """Resolve path-addressed _UnresolvedRef endpoints against the provided graph nodes."""
+        if self.is_fully_resolved or not path_nodes:
             return self
-        path_nodes = path_nodes or {}
-        named_refs = tuple(named_refs or ())
-        new_source = self._resolve_ref(self.source, path_nodes, named_refs)
-        new_target = self._resolve_ref(self.target, path_nodes, named_refs)
+        new_source = self._resolve_ref_by_path(self.source, path_nodes)
+        new_target = self._resolve_ref_by_path(self.target, path_nodes)
+        if new_source is self.source and new_target is self.target:
+            return self
+        return replace(self, source=new_source, target=new_target)
+
+    def with_resolved_by_name(self, named_refs: Iterable[CoordinateSystemRef]) -> "Self":
+        """Resolve name-only _UnresolvedRef endpoints against refs from the same metadata batch.
+
+        This is only for OME-Zarr parsing when coordinateSystems and coordinateTransformations
+        were declared together in one metadata object. Coordinate-system names are not globally
+        unique, so Scene resolution must use `with_resolved` with path-addressed Multiscales instead.
+        """
+        named_refs = tuple(named_refs)
+        if self.is_fully_resolved or not named_refs:
+            return self
+        new_source = self._resolve_ref_by_name(self.source, named_refs)
+        new_target = self._resolve_ref_by_name(self.target, named_refs)
         if new_source is self.source and new_target is self.target:
             return self
         return replace(self, source=new_source, target=new_target)
 
     @staticmethod
-    def _resolve_ref(
-        ref: CoordinateSystemRef, path_nodes: NodesByPath, named_refs: Iterable[CoordinateSystemRef]
-    ) -> CoordinateSystemRef:
-        if not isinstance(ref, _UnresolvedRef):
+    def _resolve_ref_by_path(
+        ref: Optional[CoordinateSystemRef], path_nodes: NodesByPath
+    ) -> Optional[CoordinateSystemRef]:
+        if not isinstance(ref, _UnresolvedRef) or not ref.path:
             return ref
-        if ref.path:
-            new_node = path_nodes.get(ref.path)
-            if new_node is not None:
-                return new_node.as_ref(ref.name)
-        if ref.name:
-            name_matches = [other for other in named_refs if other.name == ref.name]
-            if len(name_matches) > 1:
-                raise ValueError(
-                    f"Cannot resolve transform: Received multiple coordinate systems named '{ref.name}': "
-                    ", ".join([r.name for r in named_refs])
-                )
-            elif name_matches:
-                return name_matches[0]
+        new_node = path_nodes.get(ref.path)
+        if new_node is not None:
+            return new_node.as_ref(ref.name)
+        return ref
+
+    @staticmethod
+    def _resolve_ref_by_name(
+        ref: Optional[CoordinateSystemRef], named_refs: Iterable[CoordinateSystemRef]
+    ) -> Optional[CoordinateSystemRef]:
+        if not isinstance(ref, _UnresolvedRef) or not ref.name or ref.path:
+            return ref
+        name_matches = [other for other in named_refs if other.name == ref.name]
+        if len(name_matches) > 1:
+            raise ValueError(
+                f"Cannot resolve transform: Received multiple coordinate systems named '{ref.name}': "
+                ", ".join([r.name for r in named_refs])
+            )
+        elif name_matches:
+            return name_matches[0]
         return ref
 
     @classmethod
@@ -745,7 +755,7 @@ class _TransformGraph:
             seen_names.add(name)
         transforms: List[Transform] = []
         for transform_dict in transform_dicts:
-            t: Transform = Transform.from_ome_zarr(transform_dict).with_resolved(None, named_refs=named_systems)
+            t: Transform = Transform.from_ome_zarr(transform_dict).with_resolved_by_name(named_systems)
             if not t.is_fully_bound:
                 raise ValueError(
                     f'Transform input and output must have "path", "name" or both. Received: {transform_dict}'
