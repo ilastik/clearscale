@@ -683,11 +683,10 @@ class Multiscale(_ScaleMapping[str, Scale], TransformGraphNode):
         self._zero_scale_axes_by_key = zero_scale_axes_by_key
 
     def __eq__(self, other):
-        # Like CoordinateSystem, a Multiscale identifies a specific image, not just an equal-looking scale table.
-        return self is other
+        return _ScaleMapping.__eq__(self, other)
 
     def __hash__(self):
-        return id(self)
+        return _ScaleMapping.__hash__(self)
 
     @staticmethod
     def from_shapes(

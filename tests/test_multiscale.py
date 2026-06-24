@@ -9,13 +9,12 @@ def test_blueprint_hash_matches_value_equality():
     assert hash(left) == hash(right)
 
 
-def test_multiscale_equality_and_hash_are_identity_based():
+def test_multiscale_equality_and_hash_are_value_based():
     left = Multiscale({"s0": Scale(Shape(y=2, x=3))})
     right = Multiscale({"s0": Scale(Shape(y=2, x=3))})
 
-    assert left == left
-    assert left != right
-    assert {left, right} == {left, right}
+    assert left == right
+    assert {left, right} == {left}, "Value hash should lead to collapse in sets"
 
 
 def test_multiscale_refs_are_hashable():

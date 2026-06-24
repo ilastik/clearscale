@@ -15,7 +15,6 @@ from clearscale._transforms import (
 )
 
 MultiscalesByPath = Mapping[RelativePath, Multiscale]
-PathsByMultiscale = Mapping[Multiscale, RelativePath]
 UserFacingCoordinateSystemKey = Union[
     CoordinateSystemName,
     Multiscale,
@@ -27,7 +26,17 @@ UserFacingCoordinateSystemKey = Union[
 @dataclass(frozen=True)
 class Scene:
     _internal_graph: _TransformGraph
-    _external_multiscales: Mapping[Multiscale, Optional[RelativePath]]  # remembers paths for to_ome_zarr
+    _multiscale_paths: MultiscalesByPath
+    """Helper property to round-trip paths: Scene.from_ome_zarr().with_resolved().to_ome_zarr()."""
+
+    def __post_init__(self):
+        if not isinstance(self._multiscale_paths, MappingABC):
+            raise TypeError(
+                f"_multiscale_paths must be a mapping like {{path: Multiscale}}. "
+                f"Received: {self._multiscale_paths!r}"
+            )
+        paths = dict(self._multiscale_paths)
+        object.__setattr__(self, "_multiscale_paths", paths)
 
     @property
     def is_fully_resolved(self) -> bool:
@@ -51,7 +60,7 @@ class Scene:
     @functools.cached_property
     def _full_graph(self):
         all_transforms = list(self._internal_graph.transforms)
-        for ms in self._external_multiscales:
+        for ms in self._multiscale_paths.values():
             all_transforms.extend(ms._get_interface_transform())  # noqa: package-private, not class-private
             all_transforms.extend(ms._transform_graph.transforms)  # noqa: package-private, not class-private
         return _TransformGraph(all_transforms)
@@ -65,55 +74,42 @@ class Scene:
         transform_dicts = scene_attrs.get("coordinateTransformations", [])
         system_dicts = scene_attrs.get("coordinateSystems", [])
         graph = _TransformGraph.from_ome_zarr(transform_dicts, system_dicts)
-        return cls(graph, _external_multiscales={})
+        return cls(graph, _multiscale_paths={})
 
     def with_resolved(
         self,
-        multiscales: Optional[MultiscalesByPath] = None,
+        multiscales_by_path: Optional[MultiscalesByPath] = None,
     ) -> "Scene":
-        if not multiscales or not isinstance(multiscales, MappingABC):
+        if not multiscales_by_path or not isinstance(multiscales_by_path, MappingABC):
             return self
-        updated_external: Dict[Multiscale, Optional[RelativePath]] = dict(self._external_multiscales)
-        # Invert for quicker lookup. Keeps only the last path if multiple for the same Multiscale.
-        # Presumably they're all equally valid. Pointing to copies I guess?
-        paths_by_multiscale: Optional[Dict[Multiscale, RelativePath]] = {v: k for k, v in multiscales.items()}
         transforms = []
-        remaining_unresolved = []
+        resolved_paths = {}
         for t in self._internal_graph.transforms:
-            maybe_resolved_t = t.with_resolved(multiscales)
+            maybe_resolved_t = t.with_resolved(multiscales_by_path)
             transforms.append(maybe_resolved_t)
-            if not maybe_resolved_t.is_fully_resolved:
-                remaining_unresolved.append(maybe_resolved_t)
-            if maybe_resolved_t is t:
-                continue
-            for ref in (maybe_resolved_t.source, maybe_resolved_t.target):
-                assert ref is not None, f"Should never have unbound refs in scene transforms {t!r}"
-                if not isinstance(ref.owner, Multiscale) or ref.owner in updated_external:
-                    continue
-                assert (
-                    ref.owner in paths_by_multiscale
-                ), f"If this multiscale wasn't already known and wasn't just provided, then where did it come from? {ref!r}."
-                updated_external[ref.owner] = paths_by_multiscale[ref.owner]
+            resolved_paths.update(self._resolved_multiscale_paths(t, maybe_resolved_t, multiscales_by_path))
+        paths = dict(self._multiscale_paths)
+        paths.update(resolved_paths)
         graph = replace(self._internal_graph, transforms=tuple(transforms))
-        return replace(self, _internal_graph=graph, _external_multiscales=updated_external)
+        return replace(self, _internal_graph=graph, _multiscale_paths=paths)
 
-    def to_ome_zarr(self, *, version: str = "0.6.dev3", paths: Optional[PathsByMultiscale] = None) -> Dict:
+    def to_ome_zarr(
+        self, *, version: str = "0.6.dev3", multiscales_by_path: Optional[MultiscalesByPath] = None
+    ) -> Dict:
         coordinate_system_dicts = []
-        for ref in self._internal_graph.all_system_refs:
+        for ref in self._internal_graph.system_refs:
             coordinate_system_dicts.append(ref.owner.to_ome_zarr(name=ref.name, version=version))
 
-        all_paths_by_multiscale = {}
-        for ms, path in self._external_multiscales.items():
-            if path:
-                all_paths_by_multiscale[ms] = path
-        paths = paths if paths else {}
-        for ms, path in paths.items():
-            if path:
-                all_paths_by_multiscale[ms] = path
-
+        all_paths = dict(self._multiscale_paths)
+        if multiscales_by_path is not None:
+            if not isinstance(multiscales_by_path, MappingABC):
+                raise TypeError(
+                    f"multiscales_by_path must be a mapping like {{path: Multiscale}}. Received: {multiscales_by_path!r}"
+                )
+            cleaned = {k: v for k, v in multiscales_by_path.items() if k not in (None, "")}
+            all_paths.update(cleaned)
         coordinate_transformations_dicts = [
-            t.to_ome_zarr(version, for_scene=True, paths_by_node=all_paths_by_multiscale)
-            for t in self._internal_graph.transforms
+            t.to_ome_zarr(version, for_scene=True, nodes_by_path=all_paths) for t in self._internal_graph.transforms
         ]
 
         result: Dict = {"coordinateTransformations": coordinate_transformations_dicts}
@@ -136,6 +132,8 @@ class Scene:
         self, key: UserFacingCoordinateSystemKey, include_children: bool
     ) -> Optional[CoordinateSystemRef]:
         if isinstance(key, dict):  # Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]]
+            if key["path"] in self._multiscale_paths:
+                return self._multiscale_paths[key["path"]].as_ref(key["name"])
             return _UnresolvedRef(name=key["name"], path=key["path"])
 
         if isinstance(key, tuple):  # Tuple[Multiscale, CoordinateSystemName]
@@ -167,3 +165,18 @@ class Scene:
             return name_matches[0] if name_matches else None
 
         raise TypeError(f"Unsupported key type for coordinate system lookup: {key}")
+
+    @staticmethod
+    def _resolved_multiscale_paths(
+        before: Transform, after: Transform, multiscales_by_path: MultiscalesByPath
+    ) -> Dict[RelativePath, Multiscale]:
+        resolved_paths = {}
+        for old_ref, new_ref in ((before.source, after.source), (before.target, after.target)):
+            if new_ref is old_ref or not isinstance(old_ref, _UnresolvedRef) or not old_ref.path:
+                continue
+            multiscale = multiscales_by_path.get(old_ref.path)
+            if multiscale is None:
+                continue
+            if isinstance(new_ref.owner, Multiscale) and new_ref.owner is multiscale:
+                resolved_paths[old_ref.path] = multiscale
+        return resolved_paths

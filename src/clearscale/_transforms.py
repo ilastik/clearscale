@@ -43,7 +43,6 @@ if TYPE_CHECKING:
 RelativePath = str  # 0.6.dev3: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]
 NodesByPath = Mapping[RelativePath, "TransformGraphNode"]
-PathsByNode = Mapping["TransformGraphNode", RelativePath]
 AnyTransformGraphNode = TypeVar("AnyTransformGraphNode", bound="TransformGraphNode")
 
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
@@ -125,6 +124,9 @@ class CoordinateSystemRef(Generic[AnyTransformGraphNode]):
 
     def __eq__(self, other):
         return isinstance(other, self.__class__) and self.name == other.name and self.owner is other.owner
+
+    def __hash__(self):
+        return hash((self.__class__, self.name, id(self.owner)))
 
     def to_ome_zarr(self, for_scene: bool, path: Optional[RelativePath] = None) -> Union[CoordinateSystemName, Dict]:
         if not for_scene:
@@ -292,7 +294,7 @@ class Transform(ABC):
         The common properties (input/output) are handled in the base class."""
         pass
 
-    def to_ome_zarr(self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None) -> Dict:
+    def to_ome_zarr(self, version: str, *, for_scene: bool, nodes_by_path: Optional[NodesByPath] = None) -> Dict:
         ome_zarr_transform_dict = self._get_subtype_ome_zarr_properties(version)
         if version in PRE_TRANSFORMS_VERSIONS:
             return ome_zarr_transform_dict
@@ -300,15 +302,14 @@ class Transform(ABC):
             if for_scene:
                 raise ValueError("OME-Zarr Scene transforms must be `.bound(source, target)`")
             return ome_zarr_transform_dict
-        paths_by_node = paths_by_node or {}
         input_dict = {}
         output_dict = {}
-        for ms, path in paths_by_node.items():
-            if ms is None:
+        for path, node in (nodes_by_path or {}).items():
+            if node is None:
                 continue
-            if self.source.owner is ms:
+            if self.source.owner is node:
                 input_dict = self.source.to_ome_zarr(for_scene, path)
-            if self.target.owner is ms:
+            if self.target.owner is node:
                 output_dict = self.target.to_ome_zarr(for_scene, path)
             if input_dict and output_dict:
                 break
@@ -340,7 +341,7 @@ class Transform(ABC):
         return replace(self, source=source, target=target)
 
     def with_resolved(
-        self, path_nodes: Optional[NodesByPath], *, named_refs: Optional[Iterable[CoordinateSystemRef]]
+        self, path_nodes: Optional[NodesByPath], *, named_refs: Optional[Iterable[CoordinateSystemRef]] = None
     ) -> "Self":
         """
         Identify _UnresolvedRef endpoints on this Transform and resolve them by matching them to the
@@ -598,12 +599,12 @@ class TransformSequence(Transform):
         }
 
     def to_ome_zarr(
-        self, version: str, *, for_scene: bool, paths_by_node: Optional[PathsByNode] = None
+        self, version: str, *, for_scene: bool, nodes_by_path: Optional[NodesByPath] = None
     ) -> Union[Dict, List]:
         if version in PRE_TRANSFORMS_VERSIONS:
             return [t.to_ome_zarr(version, for_scene=False) for t in self.transforms]
         else:
-            return super(TransformSequence, self).to_ome_zarr(version, for_scene=for_scene, paths_by_node=paths_by_node)
+            return super(TransformSequence, self).to_ome_zarr(version, for_scene=for_scene, nodes_by_path=nodes_by_path)
 
     def __post_init__(self):
         if not self.transforms:
@@ -695,19 +696,22 @@ class _TransformGraph:
 
     @functools.cached_property
     def all_system_refs(self) -> CoordinateSystemRefs:
+        """All CoordinateSystem instances this graph knows"""
         return _ordered_unique_refs(chain(self.system_refs, self.connected_system_refs))
 
     @functools.cached_property
     def connected_system_refs(self) -> CoordinateSystemRefs:
+        """Only CoordinateSystem instances that can be reached by graph traversal"""
         return tuple(ref for ref in self.node_refs if isinstance(ref.owner, CoordinateSystem))
 
     @functools.cached_property
     def node_refs(self) -> Tuple[CoordinateSystemRef, ...]:
+        """All nodes (CoordinateSystems and Multiscales) that can be reached by graph traversal"""
         return _ordered_unique_refs(ref for t in self.transforms for ref in (t.source, t.target))
 
     @functools.cached_property
     def unresolved_transforms(self) -> Tuple[Transform, ...]:
-        return (
+        return tuple(
             t for t in self.transforms if isinstance(t.source, _UnresolvedRef) or isinstance(t.target, _UnresolvedRef)
         )
 
@@ -751,7 +755,7 @@ class _TransformGraph:
         return graph
 
     def to_ome_zarr(
-        self, version="0.6.dev3", paths_by_node: Optional[PathsByNode] = None
+        self, version="0.6.dev3", nodes_by_path: Optional[NodesByPath] = None
     ) -> Dict[Literal["coordinateTransformations", "coordinateSystems"], List[Dict]]:
         if version != "0.6.dev3":
             warnings.warn(
@@ -759,7 +763,7 @@ class _TransformGraph:
                 f"This method only targets 0.6.dev3 as of 03/2026. Metadata may be invalid."
             )
         systems = [ref.owner.to_ome_zarr(name=ref.name, version=version) for ref in self.all_system_refs]
-        transforms = [t.to_ome_zarr(version, for_scene=True, paths_by_node=paths_by_node) for t in self.transforms]
+        transforms = [t.to_ome_zarr(version, for_scene=True, nodes_by_path=nodes_by_path) for t in self.transforms]
         d: Dict[Literal["coordinateTransformations", "coordinateSystems"], List[Dict]] = {}
         if systems:
             d["coordinateSystems"] = systems
