@@ -407,7 +407,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         base_shape: Shape,
         rounding: RoundingMethod,
         shape_limit: Optional[ShapeLike] = None,
-        only: Optional[Axes] = None,
+        scaled_axes: Optional[Axes] = None,
         max_levels=42,
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
@@ -419,27 +419,27 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         if step == 1:
             return cls({name_pattern.format(0): base_shape})
 
-        if only is None:
-            only = base_shape.keys()
-        only = [a for a in only if a in base_shape]
-        if not only:
+        if scaled_axes is None:
+            scaled_axes = base_shape.keys()
+        scaled_axes = [a for a in scaled_axes if a in base_shape]
+        if not scaled_axes:
             return cls({name_pattern.format(0): base_shape})
 
         if not shape_limit:
-            shape_limit = base_shape.with_ones(only)
+            shape_limit = base_shape.with_ones(scaled_axes)
 
-        cls._validate_shape_limit(base_shape, only, shape_limit, max_levels, step)
+        cls._validate_shape_limit(base_shape, scaled_axes, shape_limit, max_levels, step)
         shape_limit = Shape(shape_limit).without_axes_except(base_shape)
 
         scales_items = []
         for i in range(0, max_levels):
             scale_key = name_pattern.format(i)
             scale_factor = step**i
-            scaling = Factor.uniform(base_shape, scale_factor).with_identity_except(only)
+            scaling = Factor.uniform(base_shape, scale_factor).with_identity_except(scaled_axes)
             scaled_shape = base_shape.scaled_by(scaling, rounding=rounding)
             scales_items.append((scale_key, scaled_shape))
-            if (step > 1 and all(scaled_shape[axis] <= shape_limit[axis] for axis in only)) or (
-                step < 1 and all(scaled_shape[axis] >= shape_limit[axis] for axis in only)
+            if (step > 1 and all(scaled_shape[axis] <= shape_limit[axis] for axis in scaled_axes)) or (
+                step < 1 and all(scaled_shape[axis] >= shape_limit[axis] for axis in scaled_axes)
             ):
                 break
         scales_items = cls._resolve_duplicates(scales_items, on_duplicate, on_duplicate_prefer)
@@ -460,7 +460,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
     ):
         return cls.uniform_steps(
             step=2,
-            only="xyz",
+            scaled_axes="xyz",
             base_shape=base_shape,
             rounding=rounding,
             shape_limit=shape_limit,
@@ -536,7 +536,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
 
     @staticmethod
     def _validate_shape_limit(
-        base_shape: Shape, only: Axes, shape_limit: ShapeLike, max_levels, step: Union[int, float]
+        base_shape: Shape, scaled_axes: Axes, shape_limit: ShapeLike, max_levels, step: Union[int, float]
     ):
         applicable_limit_axes = [a for a in shape_limit if a in base_shape]
         if not applicable_limit_axes:
@@ -544,12 +544,12 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
                 f"Cannot scale to limit if none of the axes in shape_limit "
                 f"({list(shape_limit.keys())}) are in base_shape ({list(base_shape.keys())})."
             )
-        if step < 1 and set(only) != set(applicable_limit_axes) and not max_levels:
+        if step < 1 and set(scaled_axes) != set(applicable_limit_axes) and not max_levels:
             raise ValueError(
-                f"When upscaling, either max_levels must be set, or shape_limit must limit all axes in `only`. "
-                f"Received: {only=}, {max_levels=}, {shape_limit=}"
+                f"When upscaling, either max_levels must be set, or shape_limit must limit all axes in `scaled_axes`. "
+                f"Received: {scaled_axes=}, {max_levels=}, {shape_limit=}"
             )
-        for axis in only:
+        for axis in scaled_axes:
             if axis not in applicable_limit_axes:
                 continue
             if step > 1 and shape_limit[axis] > base_shape[axis]:
