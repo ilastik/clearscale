@@ -489,7 +489,9 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
 
         return tuple(scaled)
 
-    def to_factors(self, reference: Shape) -> "BlueprintFactors":
+    def to_factors(self, reference: Optional[Shape] = None) -> "BlueprintFactors":
+        if reference is None:
+            reference = self.first_value()
         factors = [Shape(reference).scaling_to(scale_shape) for scale_shape in self.values()]
         return BlueprintFactors(zip(self.keys(), factors))
 
