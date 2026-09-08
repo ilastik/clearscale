@@ -688,13 +688,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     but is redacted from self._transform_graph and instead stored on every scale as `self[].pixel_size['t']`."""
     has_shapes: bool
     """If False, this indicates the Multiscale was generated with fake (all-singleton) shapes."""
-    ome: ome_zarr.OmeMultiscaleProperties
+    ome: ome_zarr.MultiscaleProperties
     """Additional props specific to OME-Zarr, customizable by user (mutable!)."""
 
     def __init__(
         self,
         *args,
-        ome: Optional[ome_zarr.OmeMultiscaleProperties] = None,
+        ome: Optional[ome_zarr.MultiscaleProperties] = None,
         _transform_graph: Optional[TransformGraph] = None,
         _intrinsic_ref: Optional[NodeRef[CoordinateSystem]] = None,
         _zero_scale_axes_by_key: Optional[Mapping[str, Tuple[AxisKey, ...]]] = None,
@@ -737,7 +737,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         self._zero_scale_axes_by_key = zero_scale_axes_by_key
         self._legacy_convention_global_t_scale = _legacy_convention_global_t_scale
         self.has_shapes = has_shapes
-        self.ome = ome if isinstance(ome, ome_zarr.OmeMultiscaleProperties) else ome_zarr.OmeMultiscaleProperties()
+        self.ome = ome if isinstance(ome, ome_zarr.MultiscaleProperties) else ome_zarr.MultiscaleProperties()
 
     def __eq__(self, other):
         return _ScaleMapping.__eq__(self, other)
@@ -854,7 +854,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _zero_scale_axes_by_key=zero_scale_axes_by_key,
             _legacy_convention_global_t_scale=global_t_scale,
             has_shapes=shape_source != "singletons",
-            ome=ome_zarr.OmeMultiscaleProperties.from_ome_zarr(multiscale_dict),
+            ome=ome_zarr.MultiscaleProperties.from_ome_zarr(multiscale_dict),
         )
 
     @classmethod

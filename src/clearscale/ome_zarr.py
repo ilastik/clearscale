@@ -6,6 +6,7 @@ from clearscale._services.ome_zarr import (
     ShapeSource,
     SUPPORTED_OME_ZARR_VERSIONS_READ,
     SUPPORTED_OME_ZARR_VERSIONS_WRITE,
+    MultiscaleProperties,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "make_all_singleton_shapes",
     "SUPPORTED_OME_ZARR_VERSIONS_READ",
     "SUPPORTED_OME_ZARR_VERSIONS_WRITE",
+    "MultiscaleProperties",
 ]

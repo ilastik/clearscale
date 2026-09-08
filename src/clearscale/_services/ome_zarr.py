@@ -66,7 +66,7 @@ Returns: The `.shape` of the array at that path.
 
 
 @dataclass(slots=True)
-class OmeMultiscaleProperties:
+class MultiscaleProperties:
     """Additional properties of multiscale metadata that OME-Zarr loosely specifies.
     The standard describes what 'should' be written in them, but nothing about how the values
     should be interpreted. In practice, they are arbitrary fields for display purposes only.
@@ -81,7 +81,7 @@ class OmeMultiscaleProperties:
     'kwargs', and 'description' (refer to OME-Zarr specification)"""
 
     @classmethod
-    def from_ome_zarr(cls, multiscale_dict: OME_ZARR_MULTISCALE) -> "OmeMultiscaleProperties":
+    def from_ome_zarr(cls, multiscale_dict: OME_ZARR_MULTISCALE) -> "MultiscaleProperties":
         typ = multiscale_dict.get("type", "")
         if not isinstance(typ, str):
             typ = ""
