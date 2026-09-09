@@ -8,6 +8,7 @@ from clearscale._services.ome_zarr import (
     SUPPORTED_OME_ZARR_VERSIONS_WRITE,
     MultiscaleProperties,
 )
+from clearscale._transforms import OmeZarrAxis as Axis, OmeZarrAxes as Axes
 
 __all__ = [
     "GetShapeFunction",
@@ -16,4 +17,6 @@ __all__ = [
     "SUPPORTED_OME_ZARR_VERSIONS_READ",
     "SUPPORTED_OME_ZARR_VERSIONS_WRITE",
     "MultiscaleProperties",
+    "Axis",
+    "Axes",
 ]

@@ -2,7 +2,7 @@ import warnings
 from abc import ABC
 from collections import OrderedDict, defaultdict
 from collections.abc import Mapping as ABCMapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from functools import cached_property
 from typing import (
@@ -42,6 +42,7 @@ from clearscale._axis_values import (
     OrderedAxes,
     AxisKey,
     AxisKeyT,
+    _require_identical_axes,
 )
 from clearscale._errors import NoSuchCoordinateSystemError
 from clearscale._spatial_relations import SpatialRelation
@@ -54,7 +55,6 @@ from clearscale._transforms import (
     TransformGraphNode,
     PRE_TRANSFORMS_VERSIONS,
     Transform,
-    _UnresolvedRef,
     relation_chain_target_axes,
     relations_to_transform,
     ScaleTransform,
@@ -62,6 +62,8 @@ from clearscale._transforms import (
     ProjectAxisTransform,
     TranslationTransform,
     MapAxisTransform,
+    OmeZarrAxes,
+    OmeZarrAxis,
 )
 from clearscale._services import ome_zarr, precomputed
 
@@ -93,6 +95,7 @@ class Scale:
     pixel_size: PixelSize
     unit: Unit
     translation: Translation
+    ome_zarr_axes: OmeZarrAxes
 
     def __init__(
         self,
@@ -100,33 +103,57 @@ class Scale:
         pixel_size: Optional[Union[PixelSize, Mapping[AxisKeyT, float]]] = None,
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         translation: Optional[Union[Translation, Mapping[AxisKeyT, float]]] = None,
+        ome_zarr_axes: Optional[Union[Literal["infer"], OmeZarrAxes, Mapping[AxisKeyT, OmeZarrAxis]]] = None,
     ):
         shape = Shape(shape)
         pixel_size = PixelSize.fromkeys(shape) if pixel_size is None else PixelSize(pixel_size)
-        unit = Unit.fromkeys(shape) if unit is None else Unit(unit)
         translation = Translation.fromkeys(shape) if translation is None else Translation(translation)
-        if shape.keys() != pixel_size.keys() or shape.keys() != unit.keys() or shape.keys() != translation.keys():
+
+        # Preserve unit and ome_zarr_axes instances if valid, so Multiscale can dedup
+        parsed_unit = unit if isinstance(unit, Unit) or unit is None else Unit(unit)
+        parsed_axes: Union[OmeZarrAxes, None] = None
+        if not isinstance(ome_zarr_axes, str):
+            parsed_axes = (
+                ome_zarr_axes
+                if isinstance(ome_zarr_axes, OmeZarrAxes) or ome_zarr_axes is None
+                else OmeZarrAxes(ome_zarr_axes)
+            )
+        elif ome_zarr_axes != "infer":
+            raise ValueError(
+                f"ome_zarr_axes must be either 'infer', None, or {{axis_key : ome_zarr.Axis}}, not {ome_zarr_axes!r}"
+            )
+
+        do_infer = ome_zarr_axes == "infer"
+        unit, ome_zarr_axes = self._reconcile_unit_and_axes(shape.keys(), parsed_unit, parsed_axes)
+        if do_infer:
+            ome_zarr_axes = ome_zarr_axes.with_types_inferred()
+
+        if not (shape.keys() == pixel_size.keys() == unit.keys() == translation.keys() == ome_zarr_axes.keys()):
             raise ValueError(
                 f"Tried to set up invalid scale: Axiskeys differ "
-                f"(shape={list(shape.keys())}, "
-                f"pixel_size={list(pixel_size.keys())}, "
-                f"translation={list(translation.keys())}, "
-                f"unit={list(unit.keys())})"
+                f"(shape={list(shape.keys())}, pixel_size={list(pixel_size.keys())}, "
+                f"translation={list(translation.keys())}, unit={list(unit.keys())}, "
+                f"ome_zarr_axes={list(ome_zarr_axes.keys())})"
             )
         object.__setattr__(self, "shape", shape)
         object.__setattr__(self, "pixel_size", pixel_size)
         object.__setattr__(self, "unit", unit)
         object.__setattr__(self, "translation", translation)
+        object.__setattr__(self, "ome_zarr_axes", ome_zarr_axes)
 
-    def with_axes(self, axes: OrderedAxes) -> "Scale":
-        """Build a Scale with all properties produced by their respective `.with_axes`."""
+    def with_axes(self, axes: OrderedAxes, *, infer_inserted_types: bool = False) -> "Scale":
+        """Build a Scale with all properties produced by their respective `.with_axes`.
+        infer_types: If True, infer OME-Zarr axis types *only for newly inserted axes*.
+        If you want to infer for all axes, use `ome_zarr_axes='infer'` during Scale construction."""
         if not axes:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to: {axes!r}")
+        new_ome_zarr_axes = self.ome_zarr_axes.with_axes(axes, infer_inserted_types=infer_inserted_types)
         return Scale(
             shape=self.shape.with_axes(axes),
             pixel_size=self.pixel_size.with_axes(axes),
             unit=self.unit.with_axes(axes),
             translation=self.translation.with_axes(axes),
+            ome_zarr_axes=new_ome_zarr_axes,
         )
 
     def has_physical_meta(self):
@@ -150,6 +177,43 @@ class Scale:
                 axis_strings.append(f"{axis}: {pixel_size:g}{unit}")
             pixel_size = " at pixel size: " + ", ".join(axis_strings)
         return f"{name_and_shape}{pixel_size}"
+
+    @staticmethod
+    def _reconcile_unit_and_axes(
+        axes: OrderedAxes,
+        unit: Optional[Unit],
+        ome_zarr_axes: Optional[OmeZarrAxes],
+    ) -> Tuple[Unit, OmeZarrAxes]:
+        if unit is None and ome_zarr_axes is None:
+            return Unit.fromkeys(axes), OmeZarrAxes.fromkeys(axes)
+
+        if ome_zarr_axes is None:
+            assert unit is not None
+            return unit, OmeZarrAxes([(a, OmeZarrAxis(name=a, unit=unit[a] or None)) for a in unit])
+
+        if unit is None:
+            derived_unit = Unit([(a, ax.unit or "") for a, ax in ome_zarr_axes.items()])
+            return derived_unit, ome_zarr_axes
+
+        _require_identical_axes(unit, ome_zarr_axes)
+
+        conflicts = {
+            a: (unit[a], ome_zarr_axes[a].unit)
+            for a in unit
+            if unit[a] and ome_zarr_axes[a].unit and unit[a] != ome_zarr_axes[a].unit
+        }
+        if conflicts:
+            raise ValueError(
+                f"Conflicting unit between `unit` and `ome_zarr_axes`: "
+                f"{ {a: f'{u!r} vs {ax!r}' for a, (u, ax) in conflicts.items()} }. Only specify unit once."
+            )
+        merged_unit = Unit([(a, unit[a] or ome_zarr_axes[a].unit or "") for a in unit])
+        if merged_unit == unit:
+            merged_unit = unit  # preserve instance
+        merged_axes = OmeZarrAxes([(a, replace(ax, unit=merged_unit[a] or None)) for a, ax in ome_zarr_axes.items()])
+        if merged_axes == ome_zarr_axes:
+            merged_axes = ome_zarr_axes
+        return merged_unit, merged_axes
 
 
 class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
@@ -541,7 +605,13 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             scales.append(
                 (
                     scale_key,
-                    Scale(shape=target_shape, pixel_size=new_pixel_size, unit=base.unit, translation=new_translation),
+                    Scale(
+                        shape=target_shape,
+                        pixel_size=new_pixel_size,
+                        unit=base.unit,
+                        translation=new_translation,
+                        ome_zarr_axes=base.ome_zarr_axes,
+                    ),
                 )
             )
 
@@ -717,10 +787,30 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         if _intrinsic_ref is None:
             if _transform_graph:
                 raise AssertionError("Must specify _intrinsic_ref when _transform_graph is given.")
-            self._transform_graph = self._make_single_system_graph()
-            self._intrinsic_ref = next(iter(self._transform_graph.system_refs))
+            canonical_axes = self._merge_ome_zarr_axes(list(self._mapping.values()))
+            # As long as the only format we can serialize to is OME-Zarr, we should enforce the order as early as possible
+            self._require_ome_zarr_permitted_type_order(canonical_axes)
+            canonical_unit = Unit([(a, ax.unit or "") for a, ax in canonical_axes.items()])
+            # Dedup: every Scale shares the same canonical Unit/OmeZarrAxes instances.
+            self._mapping = OrderedDict(
+                (
+                    key,
+                    Scale(
+                        shape=s.shape,
+                        pixel_size=s.pixel_size,
+                        unit=canonical_unit,
+                        translation=s.translation,
+                        ome_zarr_axes=canonical_axes,
+                    ),
+                )
+                for key, s in self._mapping.items()
+            )
+            intrinsic_sys = CoordinateSystem(canonical_axes)
+            sys_ref = intrinsic_sys.as_ref(_random_multiscale_name())
+            self._transform_graph = TransformGraph.single_isolated_system(sys_ref)
+            self._intrinsic_ref = sys_ref
         else:
-            transform_graph = _transform_graph or self._make_single_system_graph(_intrinsic_ref)
+            transform_graph = _transform_graph or TransformGraph.single_isolated_system(_intrinsic_ref)
             if _intrinsic_ref not in transform_graph.all_system_refs:
                 raise AssertionError("_intrinsic_ref must be inside _transform_graph")
             self._transform_graph = transform_graph
@@ -843,7 +933,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             scales_items.append(
                 (
                     scale_key,
-                    Scale(shape=scale_shape, pixel_size=scale_pixel_size, translation=scale_translation, unit=unit),
+                    Scale(
+                        shape=scale_shape,
+                        pixel_size=scale_pixel_size,
+                        translation=scale_translation,
+                        unit=unit,
+                        ome_zarr_axes=OmeZarrAxes(intrinsic_system_ref.owner),
+                    ),
                 )
             )
 
@@ -863,6 +959,15 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         scales_list = info_dict["scales"]
         num_channels = info_dict.get("num_channels", 1)
         axis_keys = ["c", "z", "y", "x"]  # Precomputed is always czyx (x varies fastest)
+        unit = Unit(zip(axis_keys, ["", "nm", "nm", "nm"]))
+        ome_zarr_axes = OmeZarrAxes(
+            [
+                ("c", OmeZarrAxis(name="c", type="channel", discrete=True)),
+                ("z", OmeZarrAxis(name="z", type="space", discrete=False)),
+                ("y", OmeZarrAxis(name="y", type="space", discrete=False)),
+                ("x", OmeZarrAxis(name="x", type="space", discrete=False)),
+            ]
+        )
 
         scales_items = []
         zero_scale_axes_by_key = {}
@@ -889,15 +994,21 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             offset = PixelOffset(zip(axis_keys, [0] + list(reversed(voxel_offset))))
             translation = offset.to_physical(pixel_size)
 
-            unit = Unit(zip(axis_keys, ["", "nm", "nm", "nm"]))
-
-            scale = Scale(shape, pixel_size, unit, translation)
+            scale = Scale(shape, pixel_size, unit, translation, ome_zarr_axes)
             scales_items.append((scale_key, scale))
 
         return cls(scales_items, _zero_scale_axes_by_key=zero_scale_axes_by_key)
 
     def axes(self) -> OrderedAxes:
         return self.first_value().shape.keys()
+
+    @property
+    def unit(self) -> Unit:
+        return self._intrinsic_ref.owner.get_unit()
+
+    @property
+    def ome_zarr_axes(self) -> OmeZarrAxes:
+        return OmeZarrAxes(self._intrinsic_ref.owner)
 
     def scaled_axes(self) -> Tuple[AxisKey, ...]:
         """Axes where pixel_sizes differ across scales."""
@@ -1115,7 +1226,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         *,
         version: Literal["0.4", "0.5", "0.6.rc0"],
         name: Optional[str] = None,
-        axis_types: Union[None, Literal["infer"], Mapping[AxisKey, Literal["space", "time", "channel"]]] = None,
     ) -> Dict[str, Any]:
         if version not in ome_zarr.SUPPORTED_OME_ZARR_VERSIONS_WRITE:
             raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.rc0.")
@@ -1144,9 +1254,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         # Legacy: Determine axes, coordinateTransformations, and datasets, and handle legacy t-scale convention
         assert self._intrinsic_ref.owner, "dev error: must always have intrinsic"
-        intrinsic_system_dict = self._intrinsic_ref.owner.to_ome_zarr(
-            name="", version=version, axis_types=axis_types, unit=self.first_value().unit
-        )
+        intrinsic_system_dict = self._intrinsic_ref.owner.to_ome_zarr(name="", version=version)
         result["axes"] = intrinsic_system_dict["axes"]
 
         multiscale_transforms = self._find_legacy_compatible_coordinate_system()
@@ -1203,18 +1311,36 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             result["datasets"].append(dataset)
         return result
 
-    def _make_single_system_graph(self, sys_ref: Optional[NodeRef[CoordinateSystem]] = None) -> TransformGraph:
-        if sys_ref is None:
-            intrinsic_sys = CoordinateSystem.fromkeys(list(self.axes()))
-            intrinsic_name = _random_multiscale_name()
-            sys_ref = intrinsic_sys.as_ref(intrinsic_name)
-        return TransformGraph.single_isolated_system(sys_ref)
-
     def as_ref(self, name: CoordinateSystemName) -> NodeRef["Multiscale"]:
         """For Multiscale, making a ref means selecting one of their coordinate systems by name."""
         if name not in (ref.name for ref in self._transform_graph.all_system_refs):
             raise NoSuchCoordinateSystemError(name)
         return NodeRef(name=str(name), owner=self)
+
+    @staticmethod
+    def _merge_ome_zarr_axes(scales: Sequence["Scale"]) -> OmeZarrAxes:
+        axes = list(scales[0].ome_zarr_axes.keys())
+        merged: Dict[AxisKey, Dict[str, Any]] = {a: {} for a in axes}
+        for field_name in ("unit", "type", "discrete", "long_name"):
+            for a in axes:
+                values = {v for s in scales if (v := getattr(s.ome_zarr_axes[a], field_name)) not in (None, "")}
+                if len(values) > 1:
+                    raise ValueError(
+                        f"Conflicting {field_name!r} for axis {a!r} across this Multiscale's Scales: {values!r}. "
+                        "Only the first Scale providing a value gets to define it; all others must agree or be blank."
+                    )
+                merged[a][field_name] = next(iter(values), None)
+        return OmeZarrAxes([(a, OmeZarrAxis(name=a, **merged[a])) for a in axes])
+
+    @staticmethod
+    def _require_ome_zarr_permitted_type_order(axes: "OmeZarrAxes") -> None:
+        type_order_ranks = {"time": 0, "channel": 1, None: 99999}
+        ranks = [type_order_ranks.get(ax.type, 99999) for a, ax in axes.items()]
+        if ranks != sorted(ranks):
+            raise ValueError(
+                f"When axis types are specified, axes must be ordered time-channel-others. "
+                f"(Reorder the base Scale using `.with_axes`?) Received: {axes!r}"
+            )
 
     def _get_interface_transform(self):
         """Allows a scene to traverse into this subgraph"""

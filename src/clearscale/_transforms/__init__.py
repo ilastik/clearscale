@@ -1,4 +1,4 @@
-"""Transforms are not part of the public API yet"""
+"""Transforms are not part of the public API"""
 
 from clearscale._transforms._base import (
     RelativePath,
@@ -15,6 +15,8 @@ from clearscale._transforms._base import (
     TransformGraphNode,
     PRE_TRANSFORMS_VERSIONS,
     PRE_COLLECTIONS_VERSIONS,
+    OmeZarrAxis,
+    OmeZarrAxes,
 )
 from clearscale._transforms._transform_types import (
     AffineTransform,
@@ -35,5 +37,8 @@ from clearscale._transforms._to_from_spatial_relation import (
     relations_to_transform,
 )
 
-__all__ = []
-"""Transforms are not part of the public API yet"""
+__all__ = ["OmeZarrAxes", "OmeZarrAxis"]
+"""Transforms are not part of the public API.
+
+OmeZarrAxes/OmeZarrAxis are for specifying axis properties specific to OME-Zarr for users familiar with the spec.
+They are importable from `clearscale.ome_zarr.Axes`/`clearscale.ome_zarr.Axis`"""

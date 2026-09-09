@@ -30,23 +30,26 @@ def write_ome_zarr_like_ilastik(
         export_unit = unit.with_axes(axes)
     else:
         export_unit = clearscale.Unit.empty(axes)
+    input_translation = None
+    export_ome_axes = "infer"
+    input_scale = input_multiscale[input_scale_key] if input_multiscale and input_scale_key else None
+    if input_scale:
+        input_translation = input_scale.translation.with_axes(axes)
+        export_ome_axes = input_scale.ome_zarr_axes.with_axes(axes, infer_inserted_types=True)
+    export_scale = clearscale.Scale(export_shape, export_pixel_size, export_unit, input_translation, export_ome_axes)
+    multiscale = export_blueprint.apply_to_scale(export_scale)
 
-    crop_translation = clearscale.Translation.identity(axes)
+    crop_translation = None
     if export_offset:
         crop_translation = export_offset.with_axes(axes).to_physical(export_pixel_size)
-
-    input_scale = input_multiscale[input_scale_key] if input_multiscale and input_scale_key else None
-    input_translation = input_scale.translation if input_scale else clearscale.Translation.identity(axes)
-    export_scale = clearscale.Scale(export_shape, export_pixel_size, export_unit, input_translation.with_axes(axes))
-    multiscale = export_blueprint.apply_to_scale(export_scale)
     if input_multiscale:
         derivation = []
         if axes != input_multiscale.axes():
             derivation.append(clearscale.AxisRearrangementTo(multiscale.axes()))
-        if not crop_translation.is_identity():
+        if crop_translation is not None:
             derivation.append(crop_translation)
         multiscale = multiscale.as_derived_from(input_multiscale, by=derivation)
-    elif not crop_translation.is_identity():
+    elif crop_translation is not None:
         # Inverted: the export needs to be un-shifted to return to its original space
         multiscale = multiscale.with_coordinate_system("source_image_space", reached_by=crop_translation.inverted())
     multiscale.ome.metadata.update(
@@ -60,7 +63,7 @@ def write_ome_zarr_like_ilastik(
         else {}
     )
 
-    return clearscale.OmeZarrGroup.from_single(multiscale).to_attrs(version="0.4", axis_types="infer")
+    return clearscale.OmeZarrGroup.from_single(multiscale).to_attrs(version="0.4")
 
 
 def test_pixel_sizes_test_write_ome_zarr_single_scale():

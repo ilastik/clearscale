@@ -75,7 +75,15 @@ def test_downscale_2_example():
 
     expected = {
         "coordinateSystems": [
-            {"axes": [{"name": "t"}, {"name": "z"}, {"name": "y"}, {"name": "x"}], "name": written_system_name}
+            {
+                "axes": [
+                    {"name": "t", "unit": "s"},
+                    {"name": "z", "unit": "micrometer"},
+                    {"name": "y", "unit": "micrometer"},
+                    {"name": "x", "unit": "micrometer"},
+                ],
+                "name": written_system_name,
+            }
         ],
         "datasets": [
             {
@@ -162,6 +170,7 @@ def test_skimage_pyramid_gaussian_example():
         shape=Shape(zip("zyx", image.shape)),
         pixel_size=dict(z=25, y=240, x=240),
         unit=dict(z="micron", y="nanometer", x="nanometer"),
+        ome_zarr_axes="infer",
     )
 
     # 4. Use the recorded scale shapes as a blueprint to expand a Multiscale
@@ -169,7 +178,7 @@ def test_skimage_pyramid_gaussian_example():
     multiscale = Multiscale.from_single(base, blueprint=blueprint)
 
     # 5. Save OME-Zarr metadata
-    group_meta = OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5", axis_types="infer")
+    group_meta = OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5")
     group.attrs.update(group_meta)
 
     written = group_meta
@@ -219,9 +228,9 @@ def test_extract_single_scale_example():
         "multiscales": [
             {
                 "axes": [
-                    {"name": "z", "unit": "micrometer"},
-                    {"name": "y", "unit": "micrometer"},
-                    {"name": "x", "unit": "micrometer"},
+                    {"name": "z", "type": "space", "unit": "micrometer"},
+                    {"name": "y", "type": "space", "unit": "micrometer"},
+                    {"name": "x", "type": "space", "unit": "micrometer"},
                 ],
                 "datasets": [
                     {"coordinateTransformations": [{"scale": [0.8, 0.64, 0.64], "type": "scale"}], "path": "s6"}

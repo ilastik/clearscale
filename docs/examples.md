@@ -19,13 +19,14 @@ base_scale = Scale(
     shape=recorded_shapes[0][1],
     pixel_size=PixelSize(z=0.5, y=0.25, x=0.25),
     unit=Unit(z="micrometer", y="micrometer", x="micrometer"),
+    ome_zarr_axes="infer"
 )
 
 blueprint = BlueprintShapes(recorded_shapes)
 multiscale = Multiscale.from_single(base_scale, blueprint=blueprint)
 
 zarr_group.attrs.update(
-    OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5", axis_types="infer")
+    OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5")
 )
 ```
 

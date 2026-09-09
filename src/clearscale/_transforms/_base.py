@@ -1,9 +1,7 @@
-import enum
 import functools
-import numbers
 import warnings
 from abc import ABC, abstractmethod
-from collections import defaultdict, deque
+from collections import defaultdict, deque, OrderedDict
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, field, replace, fields
 from itertools import chain
@@ -136,49 +134,121 @@ class _EndpointDimensionConstraints:
         return self == type(self)()
 
 
-class CoordinateContinuity(str, enum.Enum):
-    Categorical = enum.auto()
-    Discrete = enum.auto()
-    Continuous = enum.auto()
-
-
 @dataclass(frozen=True, slots=True)
 class OmeZarrAxis:
-    coordinate_domain: Optional[CoordinateContinuity] = None
-    _ome_zarr_type: Optional[str] = None
-    _ome_zarr_unit: Optional[str] = None
-    _ome_zarr_long_name: Optional[str] = None
+    # Candidate for being moved out of _transforms, if the value type for CoordinateSystem
+    # ever needs to diverge from OmeZarrAxis to reflect a clearscale-internal axis representation.
+    """Exact representation of the OME-Zarr axis object (for users who know the spec).
+
+    Only the longName property is pythonized as long_name.
+    `.discrete` and `.long_name` were introduced in OME-Zarr 0.6 and are omitted when writing older versions.
+
+    `axis.name` is autofilled inside `ome_zarr.Axes` mappings."""
+    name: Optional[AxisKey] = None
+    discrete: Optional[bool] = None
+    type: Optional[str] = None
+    unit: Optional[str] = None
+    long_name: Optional[str] = None
 
     @classmethod
     def from_ome_zarr(cls, axis_dict: Mapping[str, Any]) -> "OmeZarrAxis":
-        discrete = axis_dict.get("discrete")
-        discrete_meaning = {None: None, False: CoordinateContinuity.Continuous, True: CoordinateContinuity.Discrete}
-        coordinates = discrete_meaning.get(discrete)
         return cls(
-            coordinate_domain=coordinates,
-            _ome_zarr_type=axis_dict.get("type"),
-            _ome_zarr_unit=axis_dict.get("unit"),
-            _ome_zarr_long_name=axis_dict.get("longName"),
+            name=axis_dict.get("name"),
+            discrete=axis_dict.get("discrete"),
+            type=axis_dict.get("type"),
+            unit=axis_dict.get("unit"),
+            long_name=axis_dict.get("longName"),
         )
 
     def __repr__(self):
+        # Omit None fields
         items = (f"{f.name}={getattr(self, f.name)!r}" for f in fields(self) if getattr(self, f.name) is not None)
         return f"{self.__class__.__name__}({', '.join(items)})"
 
-    def to_ome_zarr(self, *, name: str) -> Dict[str, Any]:
-        axis_dict: Dict[str, Any] = {"name": name}
-        if self._ome_zarr_type:
-            axis_dict["type"] = self._ome_zarr_type
-        if self._ome_zarr_unit:
-            axis_dict["unit"] = self._ome_zarr_unit
-        if self._ome_zarr_long_name:
-            axis_dict["longName"] = self._ome_zarr_long_name
-        if self.coordinate_domain is not None:
-            if self.coordinate_domain is CoordinateContinuity.Continuous:
-                axis_dict["discrete"] = False
-            else:
-                axis_dict["discrete"] = True
+    def to_ome_zarr(self, *, version: str) -> Dict[str, Any]:
+        axis_dict: Dict[str, Any] = {"name": str(self.name)}
+        if self.type:
+            axis_dict["type"] = self.type
+        if self.unit:
+            axis_dict["unit"] = self.unit
+        if version not in PRE_TRANSFORMS_VERSIONS:
+            if self.long_name:
+                axis_dict["longName"] = self.long_name
+            if self.discrete is not None:
+                axis_dict["discrete"] = self.discrete
         return axis_dict
+
+
+def _ensure_axis_keys_and_names_synced(mapping: "OrderedDict[AxisKey, OmeZarrAxis]") -> None:
+    """Mutates `mapping` in place: fills OmeZarrAxis.name from its key if unset, raises on mismatch."""
+    for key, axis in mapping.items():
+        if axis.name is None:
+            mapping[key] = replace(axis, name=str(key))
+        elif axis.name != str(key):
+            raise ValueError(
+                f"OmeZarrAxis.name {axis.name!r} does not match its axis key {key!r}. "
+                "Either omit `name` or set it equal to the key."
+            )
+
+
+class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
+    # Candidate for being moved out of _transforms along with OmeZarrAxis if
+    # CoordinateSystem and OmeZarrAxes ever needs to become structurally different.
+    # At that point, CoordinateSystem.from/to_ome_zarr would need some adapter logic.
+    """Dict-like equivalent to OME-Zarr's `axes` list within multiscale (0.4, 0.5), respectively coordinateSystem (0.6) objects.
+
+    Works like `{axis_dict['name'] : ome_zarr.Axis.from_ome_zarr(axis_dict) for axis_dict in json['axes']}`"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _ensure_axis_keys_and_names_synced(self._mapping)
+
+    @classmethod
+    def fromkeys(cls, axes: OrderedAxes) -> "OmeZarrAxes":
+        return cls([(a, OmeZarrAxis(name=str(a))) for a in axes])
+
+    def with_axes(self, axes: OrderedAxes, *, infer_inserted_types: bool = False) -> "OmeZarrAxes":
+        """Order like axes. Insert a blank OmeZarrAxis for target axes not already present.
+        infer_inserted_types: If True, infer types *only for newly inserted axes*.
+        If you want to infer for all axes, call `.with_types_inferred` on the result."""
+        if not axes:
+            raise ValueError(f"Cannot create empty OmeZarrAxes. Attempted reorder to: {axes!r}")
+        inserts_items = [(a, OmeZarrAxis(name=str(a))) for a in axes if a not in self]
+        if not infer_inserted_types or not inserts_items:
+            return self.__class__([(a, self[a] if a in self else OmeZarrAxis(name=str(a))) for a in axes])
+        inserts = self.__class__(inserts_items).with_types_inferred()
+        new_axes = self.__class__([(a, self[a] if a in self else inserts[a]) for a in axes])
+        return new_axes
+
+    def with_types_inferred(self) -> "OmeZarrAxes":
+        inferred_types = {
+            "t": "time",
+            "time": "time",
+            "timestep": "time",
+            "timepoint": "time",
+            "c": "channel",
+            "ch": "channel",
+            "channel": "channel",
+            "channels": "channel",
+            "z": "space",
+            "y": "space",
+            "x": "space",
+        }
+        inferred_discrete = {"channel": True, "space": False, "time": False}
+        if not any(str(a) in inferred_types for a in self.keys()):
+            raise ValueError(
+                f"Cannot infer OME-Zarr axis types: none of {list(self.keys())!r} are recognized standard "
+                f"axis keys ({sorted(set(inferred_types))!r}). Specify ome_zarr_axes explicitly instead."
+            )
+        items = []
+        for a, existing in self.items():
+            if existing.type is not None or str(a) not in inferred_types:
+                items.append((a, existing))
+                continue
+            new_type = inferred_types[str(a)]
+            new_discrete = inferred_discrete.get(new_type)
+            items.append((a, replace(existing, type=new_type, discrete=new_discrete)))
+        return self.__class__(items)
 
 
 class TransformGraphNode(ABC):
@@ -303,8 +373,15 @@ AnyRef = Union[ResolvedRef, _UnresolvedRef]
 
 
 class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
+    """
+    Fulfills two functions:
+    * Representation specifically of OME-Zarr 0.6 coordinateSystem object
+    * 'Virtual' graph node representing a space without attached data, as OME-Zarr 0.6 coordinateSystems are
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        _ensure_axis_keys_and_names_synced(self._mapping)
 
     def __hash__(self):
         """(See __eq__)"""
@@ -326,82 +403,40 @@ class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
 
     @classmethod
     def fromkeys(cls, axes: OrderedAxes) -> "CoordinateSystem":
-        return cls([(a, OmeZarrAxis()) for a in axes])
+        return cls([(a, OmeZarrAxis(name=a)) for a in axes])
 
     @classmethod
     def from_ome_zarr(cls, system_or_multiscale_dict: Mapping[str, Any]):
         axis_dicts = system_or_multiscale_dict.get("axes")
         if not axis_dicts:
             # v0.1 and v0.2 did not have any axis metadata
-            return cls.fromkeys(["t", "c", "z", "y", "x"])
+            return cls(OmeZarrAxes.fromkeys(["t", "c", "z", "y", "x"]).with_types_inferred())
         if not isinstance(axis_dicts, list):
-            raise ValueError(f"Invalid axis metadata. Received: {system_or_multiscale_dict}")
+            raise ValueError(f"Invalid axis metadata. Expected list, received: {system_or_multiscale_dict!r}")
         if isinstance(axis_dicts[0], str):
             # v0.3 allowed specifying a subset of tczyx, e.g. ["t", "c", "y", "x"]
-            return cls.fromkeys(axis_dicts)
-        semantics_by_axis = []
+            return cls(OmeZarrAxes.fromkeys(axis_dicts).with_types_inferred())
+        items = []
         seen_axes = set()
-        for axis_dict in system_or_multiscale_dict["axes"]:
+        for axis_dict in axis_dicts:
             if not isinstance(axis_dict, MappingABC) or not axis_dict.get("name"):
                 raise ValueError(f"Invalid axis metadata: Missing axis name. Received: {system_or_multiscale_dict}")
             if axis_dict["name"] in seen_axes:
-                raise ValueError(f"Invalid axis metadata: Two axes named {axis_dict['name']}")
+                raise ValueError(f"Invalid axis metadata: Two axes named {axis_dict['name']!r} in {axis_dicts!r}")
             seen_axes.add(axis_dict["name"])
-            semantics_by_axis.append((axis_dict["name"], OmeZarrAxis.from_ome_zarr(axis_dict)))
-        return cls(semantics_by_axis)
+            items.append((axis_dict["name"], OmeZarrAxis.from_ome_zarr(axis_dict)))
+        return cls(items)
 
-    def to_ome_zarr(
-        self,
-        *,
-        name: CoordinateSystemName,
-        version="0.6.rc0",
-        axis_types: Union[None, Literal["infer"], Mapping[AxisKey, Literal["space", "time", "channel"]]] = None,
-        unit: Optional[Unit] = None,
-        long_names: Optional[Mapping[AxisKey, str]] = None,
-        discrete: Optional[Mapping[AxisKey, bool]] = None,
-    ) -> Dict[str, Any]:
+    def to_ome_zarr(self, *, name: CoordinateSystemName, version: str) -> Dict[str, Any]:
         if not name and version not in PRE_TRANSFORMS_VERSIONS:
             raise ValueError(f"Cannot store coordinate system without name in OME-Zarr version {version}.")
-        unit_map: Mapping[AxisKey, str] = unit or {}
-        long_name_map = long_names or {}
-        discrete_map = discrete or {}
-        if axis_types is None:
-            axis_types = {}
-        elif axis_types == "infer":
-            axis_types = {
-                "t": "time",
-                "time": "time",
-                "timestep": "time",
-                "timepoint": "time",
-                "c": "channel",
-                "ch": "channel",
-                "channel": "channel",
-                "channels": "channel",
-                "z": "space",
-                "y": "space",
-                "x": "space",
-            }
-        elif axis_types and not any(ax in self.axes() for ax in axis_types):
-            warnings.warn(f"Unexpected axis types provided: Did not find any axis of: {list(axis_types.keys())}")
-        axis_dicts = []
-        for ax, sem in self.items():
-            adict = sem.to_ome_zarr(name=str(ax))
-            if ax in unit_map and unit_map[ax]:
-                adict["unit"] = unit_map[ax]
-            if ax in axis_types and axis_types[ax]:
-                adict["type"] = axis_types[ax]
-            if ax in long_name_map and long_name_map[ax]:
-                adict["longName"] = long_name_map[ax]
-            if ax in discrete_map and discrete_map[ax]:
-                adict["discrete"] = discrete_map[ax]
-            axis_dicts.append(adict)
-        d: Dict[str, Any] = {"axes": axis_dicts}
-        if name:
-            d["name"] = name
-        return d
+        return {
+            "axes": [axis.to_ome_zarr(version=version) for axis in self.values()],
+            **({"name": name} if name else {}),
+        }
 
     def get_unit(self) -> Unit:
-        return Unit([(a, sem._ome_zarr_unit or "") for a, sem in self.items()])  # noqa
+        return Unit([(a, ax.unit or "") for a, ax in self.items()])
 
 
 @dataclass(frozen=True, slots=True)

@@ -667,18 +667,6 @@ def validate_multiscale(multiscale: "Multiscale"):
         if not _is_valid_relative_path(str(scale_key)):
             raise ValueError(f"Scale key '{scale_key}' is not a valid relative filesystem path")
 
-    axes = list(multiscale.axes())
-    standard_axes_set = set("tczyx")
-
-    if all(ax in standard_axes_set for ax in axes):
-        expected_order = [ax for ax in "tczyx" if ax in axes]
-        if axes != expected_order:
-            warnings.warn(
-                f"Axes {axes} are all standard (t,c,z,y,x) but not in OME-Zarr "
-                f"canonical order. Expected: {expected_order}. "
-                f"This may cause issues with some OME-Zarr readers."
-            )
-
 
 def _is_valid_relative_path(path: str) -> bool:
     if not OME_ZARR_PATH_RE.fullmatch(path):

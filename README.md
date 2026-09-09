@@ -151,6 +151,7 @@ base = Scale(
     shape=Shape(zip("zyx", image.shape)),
     pixel_size=dict(z=25, y=240, x=240),
     unit=dict(z="micrometer", y="nanometer", x="nanometer"),
+    ome_zarr_axes="infer"
 )
 
 # 4. Use the recorded scale shapes as a blueprint to expand a Multiscale
@@ -158,7 +159,7 @@ blueprint = BlueprintShapes(scaled_shapes)
 multiscale = Multiscale.from_single(base, blueprint=blueprint)
 
 # 5. Save OME-Zarr metadata
-group_meta = OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5", axis_types="infer")
+group_meta = OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5")
 group.attrs.update(group_meta)
 ```
 
