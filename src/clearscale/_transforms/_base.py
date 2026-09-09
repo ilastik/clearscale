@@ -143,14 +143,14 @@ class CoordinateContinuity(str, enum.Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class AxisSemantics:
+class OmeZarrAxis:
     coordinate_domain: Optional[CoordinateContinuity] = None
     _ome_zarr_type: Optional[str] = None
     _ome_zarr_unit: Optional[str] = None
     _ome_zarr_long_name: Optional[str] = None
 
     @classmethod
-    def from_ome_zarr(cls, axis_dict: Mapping[str, Any]) -> "AxisSemantics":
+    def from_ome_zarr(cls, axis_dict: Mapping[str, Any]) -> "OmeZarrAxis":
         discrete = axis_dict.get("discrete")
         discrete_meaning = {None: None, False: CoordinateContinuity.Continuous, True: CoordinateContinuity.Discrete}
         coordinates = discrete_meaning.get(discrete)
@@ -302,7 +302,7 @@ ResolvedRef = NodeRef[TransformGraphNode]
 AnyRef = Union[ResolvedRef, _UnresolvedRef]
 
 
-class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode):
+class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -325,20 +325,20 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
         return NodeRef(str(name), self)
 
     @classmethod
-    def without_semantics(cls, axes: OrderedAxes) -> "CoordinateSystem":
-        return cls([(a, AxisSemantics()) for a in axes])
+    def fromkeys(cls, axes: OrderedAxes) -> "CoordinateSystem":
+        return cls([(a, OmeZarrAxis()) for a in axes])
 
     @classmethod
     def from_ome_zarr(cls, system_or_multiscale_dict: Mapping[str, Any]):
         axis_dicts = system_or_multiscale_dict.get("axes")
         if not axis_dicts:
             # v0.1 and v0.2 did not have any axis metadata
-            return cls.without_semantics(["t", "c", "z", "y", "x"])
+            return cls.fromkeys(["t", "c", "z", "y", "x"])
         if not isinstance(axis_dicts, list):
             raise ValueError(f"Invalid axis metadata. Received: {system_or_multiscale_dict}")
         if isinstance(axis_dicts[0], str):
             # v0.3 allowed specifying a subset of tczyx, e.g. ["t", "c", "y", "x"]
-            return cls.without_semantics(axis_dicts)
+            return cls.fromkeys(axis_dicts)
         semantics_by_axis = []
         seen_axes = set()
         for axis_dict in system_or_multiscale_dict["axes"]:
@@ -347,7 +347,7 @@ class CoordinateSystem(_AxisMapping[AxisKey, AxisSemantics], TransformGraphNode)
             if axis_dict["name"] in seen_axes:
                 raise ValueError(f"Invalid axis metadata: Two axes named {axis_dict['name']}")
             seen_axes.add(axis_dict["name"])
-            semantics_by_axis.append((axis_dict["name"], AxisSemantics.from_ome_zarr(axis_dict)))
+            semantics_by_axis.append((axis_dict["name"], OmeZarrAxis.from_ome_zarr(axis_dict)))
         return cls(semantics_by_axis)
 
     def to_ome_zarr(

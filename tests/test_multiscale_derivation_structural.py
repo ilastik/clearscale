@@ -11,7 +11,7 @@ def _multiscale(axes="zyx", size=4):
 
 
 def _with_edge(ms, name, target_axes, *, direction="forward", via=None):
-    target_ref = CoordinateSystem.without_semantics(target_axes).as_ref(name)
+    target_ref = CoordinateSystem.fromkeys(target_axes).as_ref(name)
     transform = via if via is not None else IdentityTransform()
     edge = (
         transform.bound(source=ms._intrinsic_ref, target=target_ref)

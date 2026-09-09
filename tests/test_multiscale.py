@@ -34,7 +34,7 @@ from clearscale._transforms._base import _is_owner_coordinate_system
 
 
 def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
-    return CoordinateSystem.without_semantics(axes).as_ref(name)
+    return CoordinateSystem.fromkeys(axes).as_ref(name)
 
 
 def test_blueprint_hash_matches_value_equality():
@@ -278,7 +278,7 @@ def _with_intrinsic_system_name(ms: Multiscale, name: str) -> Multiscale:
 
 def _with_extra_system(ms: Multiscale, name: str) -> Multiscale:
     """Attach one additional named coordinate system to `ms` via an identity edge from its intrinsic ref."""
-    extra_ref = CoordinateSystem.without_semantics(tuple(ms.axes())).as_ref(name)
+    extra_ref = CoordinateSystem.fromkeys(tuple(ms.axes())).as_ref(name)
     edge = IdentityTransform().bound(source=ms._intrinsic_ref, target=extra_ref)
     graph = TransformGraph(transforms=ms._transform_graph.transforms + (edge,))
     return Multiscale(ms.items(), _transform_graph=graph, _intrinsic_ref=ms._intrinsic_ref)

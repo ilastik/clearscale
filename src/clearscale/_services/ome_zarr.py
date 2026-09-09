@@ -540,7 +540,7 @@ def multiscale_graph_from_legacy(
             ), f"dev error: {global_transforms.scale_transform.scale} doesn't actually use global-t convention"
             return graph, intrinsic_system_ref, (global_t_scale, global_transforms.translation_transform)
         own_axes = tuple(intrinsic_system.axes())
-        synthetic_external = CoordinateSystem.without_semantics(own_axes).as_ref(f"external-{name}")
+        synthetic_external = CoordinateSystem.fromkeys(own_axes).as_ref(f"external-{name}")
         try:
             bound_transform = global_transforms.bound(source=intrinsic_system_ref, target=synthetic_external)
             assert isinstance(bound_transform, MultiscaleTransforms), "should not change type"

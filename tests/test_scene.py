@@ -34,7 +34,7 @@ def test_from_graph_edges_binds_between_multiscales():
 
 
 def test_from_graph_edges_binds_coordinate_system_refs():
-    world = CoordinateSystem.without_semantics("zyx")
+    world = CoordinateSystem.fromkeys("zyx")
     image = _multiscale(z=2, y=3, x=4)
 
     scene = Scene.from_graph_edges(
@@ -57,7 +57,7 @@ def test_from_graph_edges_binds_coordinate_system_refs():
 def test_from_graph_edges_multiple_edges():
     moving = _multiscale(z=2, y=3, x=4)
     fixed = _multiscale(z=2, y=3, x=4)
-    world = CoordinateSystem.without_semantics("zyx")
+    world = CoordinateSystem.fromkeys("zyx")
 
     scene = Scene.from_graph_edges(
         [
@@ -77,7 +77,7 @@ def test_from_graph_edges_multiple_edges():
 
 
 def test_from_graph_edges_rejects_coordinate_system_and_other_types():
-    world = CoordinateSystem.without_semantics("zyx")
+    world = CoordinateSystem.fromkeys("zyx")
     image = _multiscale(z=2, y=3, x=4)
 
     with pytest.raises(TypeError, match="Use CoordinateSystem.as_ref"):
@@ -160,7 +160,7 @@ def test_scene_from_tiles_translations_rejects_mismatching_axes_in_translations(
 
 
 def test_transforms_between_accepts_path_addressed_unresolved_refs():
-    world = CoordinateSystem.without_semantics("yx").as_ref("world")
+    world = CoordinateSystem.fromkeys("yx").as_ref("world")
     transform = TranslationTransform(
         translation=(1, 2),
         source=_UnresolvedRef(file=FileRef(path="tile_0"), name="physical"),
@@ -175,7 +175,7 @@ def test_transforms_between_accepts_path_addressed_unresolved_refs():
 
 def test_transforms_between_can_include_child_multiscale_graphs():
     multiscale = _multiscale(y=2, x=3)
-    world = CoordinateSystem.without_semantics("yx").as_ref("world")
+    world = CoordinateSystem.fromkeys("yx").as_ref("world")
     scene_transform = TranslationTransform(
         translation=(10, 20),
         source=multiscale.as_ref(multiscale._intrinsic_ref.name),

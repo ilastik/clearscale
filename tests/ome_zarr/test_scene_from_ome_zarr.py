@@ -89,7 +89,7 @@ def test_with_resolved_remembers_only_paths_that_resolved_transform_endpoints():
 
 def test_with_resolved_does_not_resolve_by_name():
     multiscale = _multiscale()
-    world = CoordinateSystem.without_semantics("yx").as_ref("world")
+    world = CoordinateSystem.fromkeys("yx").as_ref("world")
     transform = TranslationTransform(
         translation=(0, 0),
         source=_UnresolvedRef(name="world"),

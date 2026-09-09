@@ -945,7 +945,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         source_axes = tuple(self.axes())
         target_axes = relation_chain_target_axes(relations, source_axes) if relations else source_axes
 
-        target_ref = CoordinateSystem.without_semantics(target_axes).as_ref(name)
+        target_ref = CoordinateSystem.fromkeys(target_axes).as_ref(name)
         transform = (relations_to_transform(relations, source_axes) if relations else IdentityTransform()).bound(
             source=self._intrinsic_ref, target=target_ref
         )
@@ -1205,7 +1205,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     def _make_single_system_graph(self, sys_ref: Optional[NodeRef[CoordinateSystem]] = None) -> TransformGraph:
         if sys_ref is None:
-            intrinsic_sys = CoordinateSystem.without_semantics(list(self.axes()))
+            intrinsic_sys = CoordinateSystem.fromkeys(list(self.axes()))
             intrinsic_name = _random_multiscale_name()
             sys_ref = intrinsic_sys.as_ref(intrinsic_name)
         return TransformGraph.single_isolated_system(sys_ref)
