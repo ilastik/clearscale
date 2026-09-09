@@ -2,7 +2,7 @@ import warnings
 from abc import ABC
 from collections import OrderedDict, defaultdict
 from collections.abc import Mapping as ABCMapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
 from typing import (
@@ -42,7 +42,6 @@ from clearscale._axis_values import (
     OrderedAxes,
     AxisKey,
     AxisKeyT,
-    _require_identical_axes,
 )
 from clearscale._errors import NoSuchCoordinateSystemError
 from clearscale._spatial_relations import SpatialRelation
@@ -80,6 +79,7 @@ base_scale: the reference scale being transformed from
 target_scale: the new scale being created (with 0 translation)
 Returns: target_scale's translation
 """
+OmeZarrAxesParam = Union[Literal["infer"], OmeZarrAxes, Mapping[AxisKeyT, OmeZarrAxis]]
 
 
 class DuplicatePolicy(str, Enum):
@@ -87,6 +87,23 @@ class DuplicatePolicy(str, Enum):
     KEEP_ALL = "keep_all"
     KEEP_FIRST = "keep_first"
     KEEP_LAST = "keep_last"
+
+
+def _normalize_ome_zarr_axes_param(ome_zarr_axes: Optional[OmeZarrAxesParam], keys: OrderedAxes) -> OmeZarrAxes:
+    """Return OmeZarrAxes with `keys`. Blank if param None, default properties if param 'infer'.
+    Preserve ome_zarr_axes instance if no changes."""
+    if isinstance(ome_zarr_axes, str):
+        if ome_zarr_axes != "infer":
+            raise ValueError(
+                f"ome_zarr_axes must be 'infer', None, or {{axis_key : ome_zarr.Axis}}, not {ome_zarr_axes!r}"
+            )
+        return OmeZarrAxes.fromkeys(keys).with_types_inferred()
+    elif ome_zarr_axes is None:
+        return OmeZarrAxes.fromkeys(keys)
+    elif isinstance(ome_zarr_axes, OmeZarrAxes):  # preserve instance
+        return ome_zarr_axes.with_axes(keys)
+    else:
+        return OmeZarrAxes(ome_zarr_axes).with_axes(keys)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -176,43 +193,42 @@ class Scale:
         pixel_size: Optional[Union[PixelSize, Mapping[AxisKeyT, float]]] = None,
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         translation: Optional[Union[Translation, Mapping[AxisKeyT, float]]] = None,
-        ome_zarr_axes: Optional[Union[Literal["infer"], OmeZarrAxes, Mapping[AxisKeyT, OmeZarrAxis]]] = None,
+        ome_zarr_axes: Optional[OmeZarrAxesParam] = None,
     ):
         shape = Shape(shape)
         pixel_size = PixelSize.fromkeys(shape) if pixel_size is None else PixelSize(pixel_size)
         translation = Translation.fromkeys(shape) if translation is None else Translation(translation)
+        assert translation is not None, "for pyright"
 
-        # Preserve unit and ome_zarr_axes instances if valid, so Multiscale can dedup
         parsed_unit = unit if isinstance(unit, Unit) or unit is None else Unit(unit)
-        parsed_axes: Union[OmeZarrAxes, None] = None
-        if not isinstance(ome_zarr_axes, str):
-            parsed_axes = (
-                ome_zarr_axes
-                if isinstance(ome_zarr_axes, OmeZarrAxes) or ome_zarr_axes is None
-                else OmeZarrAxes(ome_zarr_axes)
-            )
-        elif ome_zarr_axes != "infer":
-            raise ValueError(
-                f"ome_zarr_axes must be either 'infer', None, or {{axis_key : ome_zarr.Axis}}, not {ome_zarr_axes!r}"
-            )
+        keys = shape.keys()
+        parsed_ome_axes = _normalize_ome_zarr_axes_param(ome_zarr_axes, keys)
 
-        do_infer = ome_zarr_axes == "infer"
-        unit, ome_zarr_axes = self._reconcile_unit_and_axes(shape.keys(), parsed_unit, parsed_axes)
-        if do_infer:
-            ome_zarr_axes = ome_zarr_axes.with_types_inferred()
+        if parsed_unit is not None:
+            conflicts = parsed_ome_axes.conflicts_with_unit(parsed_unit)
+            if conflicts:
+                raise ValueError(
+                    f"Conflicting unit between `unit` and `ome_zarr_axes`: "
+                    f"{ {a: f'{slf!r} vs {oth!r}' for a, (slf, oth) in conflicts.items()} }. Only specify unit once."
+                )
+            parsed_ome_axes = parsed_ome_axes.with_unit_merged(parsed_unit.with_axes(keys))
 
-        if not (shape.keys() == pixel_size.keys() == unit.keys() == translation.keys() == ome_zarr_axes.keys()):
+        merged_unit = parsed_ome_axes.get_unit()
+        final_unit = parsed_unit if parsed_unit == merged_unit else merged_unit  # preserve instance where possible
+        assert final_unit is not None, "for pyright"
+
+        if not (shape.keys() == pixel_size.keys() == final_unit.keys() == translation.keys() == parsed_ome_axes.keys()):
             raise ValueError(
                 f"Tried to set up invalid scale: Axiskeys differ "
                 f"(shape={list(shape.keys())}, pixel_size={list(pixel_size.keys())}, "
-                f"translation={list(translation.keys())}, unit={list(unit.keys())}, "
-                f"ome_zarr_axes={list(ome_zarr_axes.keys())})"
+                f"translation={list(translation.keys())}, unit={list(final_unit.keys())}, "
+                f"ome_zarr_axes={list(parsed_ome_axes.keys())})"
             )
         object.__setattr__(self, "shape", shape)
         object.__setattr__(self, "pixel_size", pixel_size)
-        object.__setattr__(self, "unit", unit)
+        object.__setattr__(self, "unit", final_unit)
         object.__setattr__(self, "translation", translation)
-        object.__setattr__(self, "ome_zarr_axes", ome_zarr_axes)
+        object.__setattr__(self, "ome_zarr_axes", parsed_ome_axes)
 
     def with_axes(self, axes: OrderedAxes, *, infer_inserted_types: bool = False) -> "Scale":
         """Build a Scale with all properties produced by their respective `.with_axes`.
@@ -250,43 +266,6 @@ class Scale:
                 axis_strings.append(f"{axis}: {pixel_size:g}{unit}")
             pixel_size = " at pixel size: " + ", ".join(axis_strings)
         return f"{name_and_shape}{pixel_size}"
-
-    @staticmethod
-    def _reconcile_unit_and_axes(
-        axes: OrderedAxes,
-        unit: Optional[Unit],
-        ome_zarr_axes: Optional[OmeZarrAxes],
-    ) -> Tuple[Unit, OmeZarrAxes]:
-        if unit is None and ome_zarr_axes is None:
-            return Unit.fromkeys(axes), OmeZarrAxes.fromkeys(axes)
-
-        if ome_zarr_axes is None:
-            assert unit is not None
-            return unit, OmeZarrAxes([(a, OmeZarrAxis(name=a, unit=unit[a] or None)) for a in unit])
-
-        if unit is None:
-            derived_unit = Unit([(a, ax.unit or "") for a, ax in ome_zarr_axes.items()])
-            return derived_unit, ome_zarr_axes
-
-        _require_identical_axes(unit, ome_zarr_axes)
-
-        conflicts = {
-            a: (unit[a], ome_zarr_axes[a].unit)
-            for a in unit
-            if unit[a] and ome_zarr_axes[a].unit and unit[a] != ome_zarr_axes[a].unit
-        }
-        if conflicts:
-            raise ValueError(
-                f"Conflicting unit between `unit` and `ome_zarr_axes`: "
-                f"{ {a: f'{u!r} vs {ax!r}' for a, (u, ax) in conflicts.items()} }. Only specify unit once."
-            )
-        merged_unit = Unit([(a, unit[a] or ome_zarr_axes[a].unit or "") for a in unit])
-        if merged_unit == unit:
-            merged_unit = unit  # preserve instance
-        merged_axes = OmeZarrAxes([(a, replace(ax, unit=merged_unit[a] or None)) for a, ax in ome_zarr_axes.items()])
-        if merged_axes == ome_zarr_axes:
-            merged_axes = ome_zarr_axes
-        return merged_unit, merged_axes
 
     @staticmethod
     def _require_matching_length(values: Optional[Sequence[Any]], reference: Sequence[Any], param_name: str) -> None:
@@ -1091,6 +1070,16 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     def ome_zarr_axes(self) -> OmeZarrAxes:
         return OmeZarrAxes(self._intrinsic_ref.owner)
 
+    def coordinate_system_ome_zarr_axes(self, name: str) -> OmeZarrAxes:
+        """Return axis properties of the coordinate system named `name`"""
+        refs = self._transform_graph.all_system_refs
+        matching = [ref for ref in refs if ref.name == name and ref is not self._intrinsic_ref]
+        if not matching:
+            available = [ref.name for ref in refs]
+            raise ValueError(f"No coordinate system named {name!r} in {available}")
+        assert len(matching) == 1, "names should be unique in the graph"
+        return OmeZarrAxes(matching[0].owner)
+
     def scaled_axes(self) -> Tuple[AxisKey, ...]:
         """Axes where pixel_sizes differ across scales."""
         if len(self) < 2:
@@ -1120,8 +1109,41 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return {shape: tuple(keys) for shape, keys in grouped.items()}
 
     def with_coordinate_system(
-        self, name: str, *, reached_by: Union[SpatialRelation, Sequence[SpatialRelation], None] = None
+        self,
+        name: str,
+        *,
+        reached_by: Union[SpatialRelation, Sequence[SpatialRelation], None] = None,
+        unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
+        ome_zarr_axes: Optional[OmeZarrAxesParam] = None,
     ) -> "Multiscale":
+        def _reconcile_axis_prop_params(
+            target_axes: Tuple[AxisKey, ...],
+            source_ome_axes: OmeZarrAxes,
+            provided_ome_axes: Optional[OmeZarrAxesParam],
+            unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]],
+        ) -> OmeZarrAxes:
+            unit = Unit.empty(target_axes) if unit is None else Unit(unit)
+            parsed_ome_axes = _normalize_ome_zarr_axes_param(provided_ome_axes, target_axes)
+
+            conflicts = parsed_ome_axes.conflicts_with_unit(unit)
+            if conflicts:
+                raise ValueError(
+                    f"Conflicting unit between `unit` and `ome_zarr_axes`: "
+                    f"{ {a: f'{slf!r} vs {oth!r}' for a, (slf, oth) in conflicts.items()} }. Only specify unit once."
+                )
+
+            if provided_ome_axes == "infer":
+                authoritative = source_ome_axes.with_axes(target_axes)
+                # Drop inferred properties for already existing axes
+                extra_properties = parsed_ome_axes.without_axes_except(set(target_axes) - set(source_ome_axes.keys()))
+            else:
+                authoritative = parsed_ome_axes.with_axes(target_axes)
+                extra_properties = source_ome_axes
+
+            result = authoritative.with_blanks_filled_from(extra_properties)
+
+            return result.with_unit_merged(unit)
+
         relations = (
             [] if reached_by is None else [reached_by] if isinstance(reached_by, SpatialRelation) else list(reached_by)
         )
@@ -1136,8 +1158,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         source_axes = tuple(self.axes())
         target_axes = relation_chain_target_axes(relations, source_axes) if relations else source_axes
+        target_ome_axes = _reconcile_axis_prop_params(target_axes, self.ome_zarr_axes, ome_zarr_axes, unit)
 
-        target_ref = CoordinateSystem.fromkeys(target_axes).as_ref(name)
+        target_ref = CoordinateSystem(target_ome_axes).as_ref(name)
         transform = (relations_to_transform(relations, source_axes) if relations else IdentityTransform()).bound(
             source=self._intrinsic_ref, target=target_ref
         )
@@ -1158,7 +1181,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         self, other: "Multiscale", *, by: Union[SpatialRelation, Sequence[SpatialRelation], None] = None
     ) -> "Multiscale":
         """
-        Transfer the spatial context and serialization convention from `other`.
+        Transfer the spatial context, axis properties, and serialization convention from `other`.
         Optionally specify *how* `self` was derived from `other` using `by=Factor(...)` or other SpatialRelations.
         """
         relations: List[SpatialRelation] = [] if by is None else [by] if isinstance(by, SpatialRelation) else list(by)
@@ -1186,20 +1209,52 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     f"from {source_axes!r}, but this Multiscale has {target_axes!r}. {by=!r}"
                 )
 
+        merged_ome_axes = self.ome_zarr_axes.with_blanks_filled_from(other.ome_zarr_axes)
+        if merged_ome_axes == self.ome_zarr_axes:
+            intrinsic_ref = self._intrinsic_ref
+            transform_graph = self._transform_graph
+            mapping_items = list(self.items())
+        else:
+            self._require_ome_zarr_permitted_type_order(merged_ome_axes)  # should be unnecessary but might as well
+            merged_unit = merged_ome_axes.get_unit()
+            intrinsic_ref = CoordinateSystem(merged_ome_axes).as_ref(self._intrinsic_ref.name)
+            transform_graph = TransformGraph(
+                transforms=tuple(
+                    self._replace_transform_ref(t, self._intrinsic_ref, intrinsic_ref)
+                    for t in self._transform_graph.transforms
+                ),
+                system_refs=tuple(
+                    intrinsic_ref if r == self._intrinsic_ref else r for r in self._transform_graph.system_refs
+                ),
+            )
+            mapping_items = [
+                (
+                    key,
+                    Scale(
+                        shape=s.shape,
+                        pixel_size=s.pixel_size,
+                        unit=merged_unit,
+                        translation=s.translation,
+                        ome_zarr_axes=merged_ome_axes,
+                    ),
+                )
+                for key, s in self.items()
+            ]
+
         transferred_global_t_scale = None
         if other._legacy_convention_global_t_scale:
             # Transfer the fact that we use the convention; but only if self can even be expressed using it
             # (i.e. has t, and isn't scaled across t). The actual value stored must be self's own t-scale.
-            if "t" in self.axes() and not "t" in self.scaled_axes():
+            if "t" in self.axes() and "t" not in self.scaled_axes():
                 transferred_global_t_scale = self.first_value().pixel_size["t"]
         unchanged_t_scale = transferred_global_t_scale == self._legacy_convention_global_t_scale
 
-        existing_refs = list(self._transform_graph.all_system_refs)
+        existing_refs = list(transform_graph.all_system_refs)
         other_unique = self._find_or_make_unique_ref(
             other._intrinsic_ref.owner, other._intrinsic_ref.name, existing_refs
         )
         derivation = (relations_to_transform(relations, source_axes) if relations else IdentityTransform()).bound(
-            source=other_unique, target=self._intrinsic_ref
+            source=other_unique, target=intrinsic_ref
         )
         existing_refs.append(other_unique)
 
@@ -1218,21 +1273,21 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     edge = (
                         TransformSequence((derivation.inverted(), t))
                         .canonicalized()
-                        .bound(source=self._intrinsic_ref, target=resolved_ref)
+                        .bound(source=intrinsic_ref, target=resolved_ref)
                     )
                 elif t.source is satellite:
                     # `self <--deriv-- other <--t-- satellite` becomes `self <--deriv--t-- satellite` (prefer not inverting)
                     edge = (
                         TransformSequence((t, derivation))
                         .canonicalized()
-                        .bound(source=resolved_ref, target=self._intrinsic_ref)
+                        .bound(source=resolved_ref, target=intrinsic_ref)
                     )
                 elif t.is_invertible:
                     # `self <--deriv-- other (<)--t--> satellite` becomes `self <--deriv--(t^-1)-- satellite` (last resort)
                     edge = (
                         TransformSequence((t.inverted(), derivation))
                         .canonicalized()
-                        .bound(source=resolved_ref, target=self._intrinsic_ref)
+                        .bound(source=resolved_ref, target=intrinsic_ref)
                     )
                 else:
                     # `self <--deriv-- other --t--> satellite`
@@ -1244,24 +1299,24 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                         )
                     continue
 
-                if edge not in self._transform_graph.transforms + tuple(to_merge_list):
+                if edge not in transform_graph.transforms + tuple(to_merge_list):
                     existing_refs.append(resolved_ref)
                     to_merge_list.append(edge)
 
-        if relations and derivation not in self._transform_graph.transforms + tuple(to_merge_list):
+        if relations and derivation not in transform_graph.transforms + tuple(to_merge_list):
             to_merge_list.append(derivation)
-        if not to_merge_list and unchanged_t_scale:
+        if not to_merge_list and unchanged_t_scale and intrinsic_ref == self._intrinsic_ref:
             return self
         to_merge = tuple(to_merge_list)
 
         new_graph = TransformGraph(
-            transforms=self._transform_graph.transforms + to_merge,
-            system_refs=self._transform_graph.system_refs,
+            transforms=transform_graph.transforms + to_merge,
+            system_refs=transform_graph.system_refs,
         )
         return Multiscale(
-            self.items(),
+            mapping_items,
             _transform_graph=new_graph,
-            _intrinsic_ref=self._intrinsic_ref,
+            _intrinsic_ref=intrinsic_ref,
             _zero_scale_axes_by_key=self._zero_scale_axes_by_key,
             _legacy_convention_global_t_scale=transferred_global_t_scale,
         )
@@ -1419,8 +1474,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         ranks = [type_order_ranks.get(ax.type, 99999) for a, ax in axes.items()]
         if ranks != sorted(ranks):
             raise ValueError(
-                f"When axis types are specified, axes must be ordered time-channel-others. "
-                f"(Reorder the base Scale using `.with_axes`?) Received: {axes!r}"
+                f"When OME-Zarr axis types are specified, axes must be ordered time-channel-others. "
+                f"(Reorder using `.with_axes` first?) Received: {axes!r}"
             )
 
     def _get_interface_transform(self):

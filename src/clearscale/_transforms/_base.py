@@ -165,6 +165,23 @@ class OmeZarrAxis:
         items = (f"{f.name}={getattr(self, f.name)!r}" for f in fields(self) if getattr(self, f.name) is not None)
         return f"{self.__class__.__name__}({', '.join(items)})"
 
+    def with_fields_overridden_by(self, override: Optional["OmeZarrAxis"]) -> "OmeZarrAxis":
+        """Override with non-None fields from `override`, and .unit with `unit_override`.
+        `.name` must already match. If override has a .unit and unit_override is provided, they must match."""
+        if override is None:
+            return self
+        result = self
+        assert override.name is None or override.name == self.name, "don't override with mismatching axis obj"
+        result = replace(
+            result,
+            **{
+                f: value
+                for f in ("discrete", "type", "unit", "long_name")
+                if (value := getattr(override, f)) is not None
+            },
+        )
+        return result
+
     def to_ome_zarr(self, *, version: str) -> Dict[str, Any]:
         axis_dict: Dict[str, Any] = {"name": str(self.name)}
         if self.type:
@@ -199,13 +216,17 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
 
     Works like `{axis_dict['name'] : ome_zarr.Axis.from_ome_zarr(axis_dict) for axis_dict in json['axes']}`"""
 
+    @staticmethod
+    def _default(key: AxisKey):
+        return OmeZarrAxis(name=str(key))
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _ensure_axis_keys_and_names_synced(self._mapping)
 
     @classmethod
     def fromkeys(cls, axes: OrderedAxes) -> "OmeZarrAxes":
-        return cls([(a, OmeZarrAxis(name=str(a))) for a in axes])
+        return cls([(a, cls._default(a)) for a in axes])
 
     def with_axes(self, axes: OrderedAxes, *, infer_inserted_types: bool = False) -> "OmeZarrAxes":
         """Order like axes. Insert a blank OmeZarrAxis for target axes not already present.
@@ -213,12 +234,20 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
         If you want to infer for all axes, call `.with_types_inferred` on the result."""
         if not axes:
             raise ValueError(f"Cannot create empty OmeZarrAxes. Attempted reorder to: {axes!r}")
-        inserts_items = [(a, OmeZarrAxis(name=str(a))) for a in axes if a not in self]
+        if axes == self.keys():
+            return self
+        inserts_items = [(a, self._default(a)) for a in axes if a not in self]
         if not infer_inserted_types or not inserts_items:
-            return self.__class__([(a, self[a] if a in self else OmeZarrAxis(name=str(a))) for a in axes])
+            return self.__class__([(a, self[a] if a in self else self._default(a)) for a in axes])
         inserts = self.__class__(inserts_items).with_types_inferred()
         new_axes = self.__class__([(a, self[a] if a in self else inserts[a]) for a in axes])
         return new_axes
+
+    def with_unit_merged(self, unit: Unit) -> "OmeZarrAxes":
+        """Override any .unit property on self.values with provided (only for axes where provided has non-empty string)"""
+        aligned = unit.with_axes(self.keys())
+        replaced = self.__class__((a, replace(ax, unit=aligned[a]) if aligned[a] else ax) for a, ax in self.items())
+        return replaced if replaced != self else self
 
     def with_types_inferred(self) -> "OmeZarrAxes":
         inferred_types = {
@@ -249,6 +278,30 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
             new_discrete = inferred_discrete.get(new_type)
             items.append((a, replace(existing, type=new_type, discrete=new_discrete)))
         return self.__class__(items)
+
+    def with_blanks_filled_from(self, other: "OmeZarrAxes") -> "OmeZarrAxes":
+        """Return `self`, with any None field filled from `other`'s value for the same axis key.
+        Self is authoritative: any field self has already set is kept unchanged, regardless of `other`."""
+        aligned_other = other.with_axes(self.keys())
+        result = self.__class__((a, aligned_other[a].with_fields_overridden_by(self[a])) for a in self)
+        return result if result != self else self
+
+    def conflicts_with_unit(self, unit: Unit) -> Dict[AxisKey, Tuple[str, str]]:
+        """Return {axis: (self_unit, other_unit)} for axes where both self and `unit` state a non-blank,
+        disagreeing unit. Empty (falsy) if there's no conflict; axes present on only one side never conflict."""
+        aligned = unit.with_axes(self.keys())
+        conflicts = {}
+
+        for a in self:
+            self_unit = self[a].unit
+            other_unit = aligned[a]
+            if self_unit and other_unit and self_unit != other_unit:
+                conflicts[a] = (self_unit, other_unit)
+
+        return conflicts
+
+    def get_unit(self) -> Unit:
+        return Unit([(a, ax.unit or "") for a, ax in self.items()])
 
 
 class TransformGraphNode(ABC):

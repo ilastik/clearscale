@@ -109,6 +109,35 @@ class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, A
         This is just to stay consistent with the plain dict interface."""
         return self.__class__(self._mapping)
 
+    def with_axes_order(self: _AxisMappingSelf, axes: OrderedAxesT) -> _AxisMappingSelf:
+        """Order like given axes (but no new insertions or drops)."""
+        if not axes:
+            raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to {axes!r}.")
+        would_drop = tuple(a for a in self if a not in axes)
+        if would_drop:
+            raise ValueError(
+                f"Cannot reorder {self.__class__.__name__} to axes {axes!r}. This would drop: {would_drop!r}."
+            )
+        reordered_items = [(a, self[a]) for a in axes if a in self]
+        return self.__class__(reordered_items)
+
+    def without_axes_except(self: _AxisMappingSelf, axes: Axes) -> _AxisMappingSelf:
+        """Keep only given axes (no reordering)."""
+        kept_items = [(a, self[a]) for a in self if _axis_in(a, axes)]
+        if not kept_items:
+            raise ValueError(
+                f"Cannot create empty {self.__class__.__name__}. "
+                f"None of the specified axes {axes!r} are present in {list(self.keys())}."
+            )
+        return self.__class__(kept_items)
+
+    def without_axes(self: _AxisMappingSelf, axes: Axes) -> _AxisMappingSelf:
+        """Drop given axes."""
+        kept_items = [(a, self[a]) for a in self if not _axis_in(a, axes)]
+        if not kept_items:
+            raise ValueError(f"Cannot create empty {self.__class__.__name__}. Removing {axes!r} would leave no axes.")
+        return self.__class__(kept_items)
+
     def to_tuple(self) -> Tuple[AxisMappedHashable, ...]:
         return tuple(self.values())
 
@@ -137,35 +166,6 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to: {axes!r}")
         reordered_items = [(a, self[a] if a in self else self._default()) for a in axes]
         return self.__class__(reordered_items)
-
-    def with_axes_order(self: _AxisValuesSelf, axes: OrderedAxesT) -> _AxisValuesSelf:
-        """Order like given axes (but no new insertions or drops)."""
-        if not axes:
-            raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to {axes!r}.")
-        would_drop = tuple(a for a in self if a not in axes)
-        if would_drop:
-            raise ValueError(
-                f"Cannot reorder {self.__class__.__name__} to axes {axes!r}. This would drop: {would_drop!r}."
-            )
-        reordered_items = [(a, self[a]) for a in axes if a in self]
-        return self.__class__(reordered_items)
-
-    def without_axes_except(self: _AxisValuesSelf, axes: Axes) -> _AxisValuesSelf:
-        """Keep only given axes (no reordering)."""
-        kept_items = [(a, self[a]) for a in self if _axis_in(a, axes)]
-        if not kept_items:
-            raise ValueError(
-                f"Cannot create empty {self.__class__.__name__}. "
-                f"None of the specified axes {axes!r} are present in {list(self.keys())}."
-            )
-        return self.__class__(kept_items)
-
-    def without_axes(self: _AxisValuesSelf, axes: Axes) -> _AxisValuesSelf:
-        """Drop given axes."""
-        kept_items = [(a, self[a]) for a in self if not _axis_in(a, axes)]
-        if not kept_items:
-            raise ValueError(f"Cannot create empty {self.__class__.__name__}. Removing {axes!r} would leave no axes.")
-        return self.__class__(kept_items)
 
     def without_default_values(self: _AxisValuesSelf) -> _AxisValuesSelf:
         """Drop axes with default value"""
