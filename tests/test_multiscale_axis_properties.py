@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Multiscale, Scale, Shape, Unit, ome_zarr
+from clearscale import Multiscale, Scale, Shape, Unit, ome_zarr, PixelSize, Translation
 
 
 class TestOmeZarrAxis:
@@ -188,6 +188,88 @@ class TestScale:
         s1 = Scale(shape=Shape(x=10))
         s2 = Scale(shape=Shape(x=10), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})
         assert s1 != s2
+
+
+class TestScaleFromLists:
+    def test_minimal_keys_only_gives_singleton_shape(self):
+        s = Scale.from_lists("yx")
+        assert s.shape == Shape(y=1, x=1)
+
+    def test_all_params(self):
+        s = Scale.from_lists(
+            keys="yx",
+            shape=[512, 512],
+            pixel_size=[0.25, 0.25],
+            unit=["micrometer", "micrometer"],
+            translation=[1.0, 2.0],
+            ome_zarr_axes="infer",
+        )
+        assert s.shape == Shape(y=512, x=512)
+        assert s.pixel_size == PixelSize(y=0.25, x=0.25)
+        assert s.unit == Unit(y="micrometer", x="micrometer")
+        assert s.translation == Translation(y=1.0, x=2.0)
+        assert s.ome_zarr_axes == {
+            "y": ome_zarr.Axis(name="y", type="space", discrete=False, unit="micrometer"),
+            "x": ome_zarr.Axis(name="x", type="space", discrete=False, unit="micrometer"),
+        }
+
+    def test_ome_zarr_axes_as_raw_dicts(self):
+        s = Scale.from_lists(
+            keys="yx",
+            ome_zarr_axes=[{"type": "space", "unit": "micrometer"}, {"type": "space", "unit": "micrometer"}],
+        )
+        assert s.ome_zarr_axes["y"].type == "space"
+        assert s.unit["y"] == "micrometer"
+
+    def test_ome_zarr_axes_as_sole_param(self):
+        # Valid OME-Zarr axes meta
+        axes_json = [
+            {"name": "t", "type": "time", "unit": "sec", "discrete": False},
+            {"name": "c", "type": "channel", "discrete": True},
+            {"name": "z", "type": "space", "unit": "mm", "discrete": False},
+            {"name": "y", "type": "space", "unit": "mm", "discrete": False},
+            {"name": "x", "type": "space", "unit": "mm", "discrete": False},
+        ]
+        s = Scale.from_lists(ome_zarr_axes=axes_json)
+        inferred = Scale.from_lists("tczyx", unit=["sec", "", "mm", "mm", "mm"], ome_zarr_axes="infer")
+        assert s == inferred
+
+    def test_ome_zarr_axes_as_objects(self):
+        s = Scale.from_lists(
+            keys="yx",
+            ome_zarr_axes=[ome_zarr.Axis(type="space"), ome_zarr.Axis(type="space")],
+        )
+        assert s.ome_zarr_axes["x"].type == "space"
+
+    def test_ome_zarr_axes_mixed_dicts_and_objects(self):
+        s = Scale.from_lists(
+            keys="cx",
+            ome_zarr_axes=[ome_zarr.Axis(type="channel"), {"type": "space"}],
+        )
+        assert s.ome_zarr_axes["c"].type == "channel"
+        assert s.ome_zarr_axes["x"].type == "space"
+
+    def test_per_axis_name_in_dict_must_match_key(self):
+        with pytest.raises(ValueError, match="does not match its axis key"):
+            Scale.from_lists(keys="yx", ome_zarr_axes=[{"name": "wrong"}, {}])
+
+    def test_empty_keys_raises(self):
+        with pytest.raises(ValueError, match="at least one axis key"):
+            Scale.from_lists(keys=[])
+
+    def test_duplicate_keys_raise(self):
+        with pytest.raises(ValueError, match="unique axis keys"):
+            Scale.from_lists(keys="xx", shape=[10, 10])
+
+    @pytest.mark.parametrize("param", ["shape", "pixel_size", "unit", "translation"])
+    def test_mismatched_length_raises(self, param):
+        kwargs = {param: [1]}  # length 1, but keys has length 2
+        with pytest.raises(ValueError, match="has length"):
+            Scale.from_lists(keys="yx", **kwargs)  # type: ignore[reportArgumentType]
+
+    def test_mismatched_length_ome_zarr_axes_raises(self):
+        with pytest.raises(ValueError, match="length"):
+            Scale.from_lists(keys="yx", ome_zarr_axes=[{"type": "space"}])
 
 
 class TestMultiscale:

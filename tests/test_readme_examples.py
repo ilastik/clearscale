@@ -13,7 +13,7 @@ def test_simple_dump_example():
 
     # Write metadata
     # Make a Scale, expand it to a Multiscale, put that in an OME-Zarr group.
-    scale = Scale(shape=dict(zip("zyx", image.shape)))  # Axis keys are the minimum you really must specify
+    scale = Scale.from_lists("zyx")  # Axis keys are the minimum you really must specify
     written = OmeZarrGroup.from_single(Multiscale.from_single(scale, scale_key=array_path)).to_attrs(version="0.5")
 
     assert "ome" in written
@@ -166,10 +166,11 @@ def test_skimage_pyramid_gaussian_example():
         scaled_shapes.append((scale_key, Shape(zip("zyx", level.shape))))
 
     # 3. Describe the full-resolution image
-    base = Scale(
-        shape=Shape(zip("zyx", image.shape)),
-        pixel_size=dict(z=25, y=240, x=240),
-        unit=dict(z="micron", y="nanometer", x="nanometer"),
+    base = Scale.from_lists(
+        keys="zyx",
+        shape=image.shape,
+        pixel_size=[25, 240, 240],
+        unit=["micrometer", "nanometer", "nanometer"],
         ome_zarr_axes="infer",
     )
 
@@ -188,7 +189,7 @@ def test_skimage_pyramid_gaussian_example():
     assert len(written["ome"]["multiscales"]) == 1
     written_ms_dict = written["ome"]["multiscales"][0]
     assert written_ms_dict["axes"] == [
-        {"name": "z", "type": "space", "unit": "micron"},
+        {"name": "z", "type": "space", "unit": "micrometer"},
         {"name": "y", "type": "space", "unit": "nanometer"},
         {"name": "x", "type": "space", "unit": "nanometer"},
     ]

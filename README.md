@@ -98,17 +98,17 @@ from clearscale import OmeZarrGroup, Multiscale, Scale
 # You have some array
 image = np.random.random((128, 1024, 1024)).astype(np.float32)
 
-# 1. Create a zarr group to write it to
+# 1. (not clearscale) Create a zarr group to write it to
 # (zarr-format v3 because we specify OME-Zarr version 0.5 below, which must be written in zarr-format v3)
 group = zarr.open_group("demo-output/example1.ome.zarr", mode="w", zarr_format=3)
 
-# 2. Write data
+# 2. (not clearscale) Write data
 array_path = "s0"
 group.create_array(array_path, data=image)
 
-# 3. Write metadata
+# 3. (clearscale) Write metadata
 # (Make a Scale, expand it to a Multiscale, put that in an OME-Zarr group)
-scale = Scale(shape=dict(zip("zyx", image.shape)))  # Axis keys are the minimum you really must specify
+scale = Scale.from_lists("zyx")  # Axis keys are the minimum you really must specify
 group.attrs.update(
     OmeZarrGroup
     .from_single(Multiscale.from_single(scale, scale_key=array_path))
@@ -147,10 +147,11 @@ for i, level in enumerate(pyramid):
     )
 
 # 3. Describe the full-resolution image
-base = Scale(
-    shape=Shape(zip("zyx", image.shape)),
-    pixel_size=dict(z=25, y=240, x=240),
-    unit=dict(z="micrometer", y="nanometer", x="nanometer"),
+base = Scale.from_lists(
+    keys="zyx",
+    shape=image.shape,
+    pixel_size=[25, 240, 240],
+    unit=["micrometer", "nanometer", "nanometer"],
     ome_zarr_axes="infer"
 )
 

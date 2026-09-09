@@ -97,6 +97,79 @@ class Scale:
     translation: Translation
     ome_zarr_axes: OmeZarrAxes
 
+    @classmethod
+    def from_lists(
+        cls,
+        keys: Optional[OrderedAxes] = None,
+        shape: Optional[Sequence[int]] = None,
+        pixel_size: Optional[Sequence[float]] = None,
+        unit: Optional[Sequence[str]] = None,
+        translation: Optional[Sequence[float]] = None,
+        ome_zarr_axes: Optional[Union[Literal["infer"], Sequence[Union[Mapping[str, Any], OmeZarrAxis]]]] = None,
+    ) -> "Scale":
+        """
+        Convenience constructor for axes given as parallel sequences rather than {axis: value} mappings.
+        Enables construction of Scales
+        * with just axis keys: `Scale.from_lists("zyx")`, `Scale.from_lists("zyx", ome_zarr_axes="infer")`
+        * directly from OME-Zarr json: `Scale.from_lists(json["axes"])`
+
+        `keys` is optional if `ome_zarr_axes` is given as a sequence of dicts/ome_zarr.Axis that all
+        carry a `name` (or "name" key) - in that case, axis keys are derived from them. Otherwise, `keys` is
+        mandatory. Any other argument left as None takes that type's usual default (e.g. shape=None means
+        every axis is a singleton).
+
+        `ome_zarr_axes` entries may be either raw OME-Zarr axis dicts (using OME-Zarr's own key
+        spelling: "type", "unit", "discrete", "longName", "name") or `ome_zarr.Axis` instances directly.
+        """
+        parsed_ome_zarr_axes: Optional[List[OmeZarrAxis]]
+        if ome_zarr_axes is None or isinstance(ome_zarr_axes, str):
+            parsed_ome_zarr_axes = None
+        else:
+            parsed_ome_zarr_axes = [
+                entry if isinstance(entry, OmeZarrAxis) else OmeZarrAxis.from_ome_zarr(entry) for entry in ome_zarr_axes
+            ]
+
+        if keys is None:
+            if parsed_ome_zarr_axes is None:
+                raise ValueError(
+                    "Scale.from_lists requires `keys`, unless `ome_zarr_axes` is given as a sequence of "
+                    "dicts/ome_zarr.Axis that all specify a name."
+                )
+            missing_name = [i for i, ax in enumerate(parsed_ome_zarr_axes) if ax.name is None]
+            if missing_name:
+                raise ValueError(
+                    "Scale.from_lists cannot derive `keys` from `ome_zarr_axes`: entries at index "
+                    f"{missing_name} have no name. Either provide `keys`, or a name for every entry."
+                )
+            keys = [str(ax.name) for ax in parsed_ome_zarr_axes]
+
+        keys = list(keys)
+        if not keys:
+            raise ValueError("Scale.from_lists requires at least one axis key.")
+        if len(set(keys)) != len(keys):
+            raise ValueError(f"Scale.from_lists requires unique axis keys. Received: {keys!r}")
+
+        Scale._require_matching_length(shape, keys, "shape")
+        Scale._require_matching_length(pixel_size, keys, "pixel_size")
+        Scale._require_matching_length(unit, keys, "unit")
+        Scale._require_matching_length(translation, keys, "translation")
+
+        resolved_ome_zarr_axes: Union[None, Literal["infer"], OmeZarrAxes]
+        if parsed_ome_zarr_axes is None:
+            # Let __init__ handle != "infer"; instance check to satisfy pyright
+            resolved_ome_zarr_axes = ome_zarr_axes if isinstance(ome_zarr_axes, str) else None
+        else:
+            Scale._require_matching_length(parsed_ome_zarr_axes, keys, "ome_zarr_axes")
+            resolved_ome_zarr_axes = OmeZarrAxes(zip(keys, parsed_ome_zarr_axes))
+
+        return cls(
+            shape=Shape.all_singletons(keys) if shape is None else Shape(zip(keys, shape)),
+            pixel_size=None if pixel_size is None else PixelSize(zip(keys, pixel_size)),
+            unit=None if unit is None else Unit(zip(keys, unit)),
+            translation=None if translation is None else Translation(zip(keys, translation)),
+            ome_zarr_axes=resolved_ome_zarr_axes,
+        )
+
     def __init__(
         self,
         shape: ShapeLike,
@@ -214,6 +287,14 @@ class Scale:
         if merged_axes == ome_zarr_axes:
             merged_axes = ome_zarr_axes
         return merged_unit, merged_axes
+
+    @staticmethod
+    def _require_matching_length(values: Optional[Sequence[Any]], reference: Sequence[Any], param_name: str) -> None:
+        if values is not None and len(values) != len(reference):
+            raise ValueError(
+                f"Scale.from_lists: '{param_name}' has length {len(values)}, "
+                f"expected {len(reference)} to match keys={reference!r}"
+            )
 
 
 class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
