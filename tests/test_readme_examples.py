@@ -54,7 +54,7 @@ def test_downscale_2_example():
     scaling_blueprint = BlueprintShapes.downscale_powers_of_2_xyz(
         base_shape=shape,
         rounding="ceil",
-        shape_limit=Shape(z=8, y=128, x=128),
+        limit_all=Shape(z=8, y=128, x=128),
     )
 
     # 3. Scale data according to the blueprint

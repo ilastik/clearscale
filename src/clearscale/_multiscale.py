@@ -1,3 +1,5 @@
+import math
+import string
 import warnings
 from abc import ABC
 from collections import OrderedDict, defaultdict
@@ -42,6 +44,7 @@ from clearscale._axis_values import (
     OrderedAxes,
     AxisKey,
     AxisKeyT,
+    _axis_in,
 )
 from clearscale._errors import NoSuchCoordinateSystemError
 from clearscale._spatial_relations import SpatialRelation
@@ -84,9 +87,14 @@ OmeZarrAxesParam = Union[Literal["infer"], OmeZarrAxes, Mapping[AxisKeyT, OmeZar
 
 class DuplicatePolicy(str, Enum):
     ERROR = "error"
+    """Raise if two scale keys have the same shape or factor value."""
     KEEP_ALL = "keep_all"
+    """No deduplication. The same shape or factor value can appear multiple times under different scale keys."""
+    # Both KEEP_ policies are identical when generating blueprints, because the scale keys are rewritten consecutively anyway.
     KEEP_FIRST = "keep_first"
+    """Deduplicate: For each set of scale keys with the same shape or factor value, keep only the first scale key."""
     KEEP_LAST = "keep_last"
+    """Deduplicate: For each set of scale keys with the same shape or factor value, keep only the last scale key."""
 
 
 def _normalize_ome_zarr_axes_param(ome_zarr_axes: Optional[OmeZarrAxesParam], keys: OrderedAxes) -> OmeZarrAxes:
@@ -345,9 +353,11 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
         """
         if isinstance(keys_pattern_or_func, str):
             pattern = keys_pattern_or_func
-            if pattern.format(0) == pattern:
+            fields = [field_name for _, field_name, _, _ in string.Formatter().parse(pattern) if field_name is not None]
+            if fields != [""]:
                 raise ValueError(
-                    f"Name pattern must contain exactly one placeholder for scale index (received: '{pattern}')"
+                    "Name pattern must contain exactly one anonymous placeholder for the scale index, "
+                    f"e.g. 's{{}}' or 's{{:03d}}'. Received: '{pattern}'"
                 )
             items = [(keys_pattern_or_func.format(i), v) for i, v in enumerate(self.values())]
             return self.__class__(items)
@@ -452,19 +462,153 @@ class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
         return self._with_values([value.with_axes(axes) for value in self.values()])
 
     @staticmethod
+    def _require_positive_resampling_step(step: Union[int, float]):
+        if step <= 0:
+            raise ValueError(f"Cannot resample by a negative step size (received: {step})")
+
+    @staticmethod
+    def _limit_crossed(value: Union[int, float], limit: Union[int, float], step: Union[int, float]) -> bool:
+        """Whether `value` has reached or passed `limit` in the direction implied by `step`."""
+        return value <= limit if step > 1 else value >= limit
+
+    @staticmethod
+    def _validate_scaling_limit(
+        base_shape: Shape, scaled_axes: Axes, limit: ShapeLike, step: Union[int, float], *, require_full_coverage: bool
+    ) -> None:
+        applicable_axes = [a for a in limit if a in base_shape and _axis_in(a, scaled_axes)]
+        if not applicable_axes:
+            raise ValueError(
+                f"Cannot apply a limit if none of its axes ({list(limit.keys())}) "
+                f"are scaled axes present in scaled_axes ({list(scaled_axes)})."
+            )
+        if require_full_coverage and step < 1 and set(scaled_axes) != set(applicable_axes):
+            raise ValueError("When upscaling, limit_all must cover all scaled axes.")
+        for axis in applicable_axes:
+            if step > 1 and limit[axis] > base_shape[axis]:
+                raise ValueError(
+                    f"limit already exceeded by base_shape along '{axis}' while downsampling "
+                    f"(limit={limit[axis]}, base={base_shape[axis]}). No scale could ever be generated."
+                )
+            if step < 1 and limit[axis] < base_shape[axis]:
+                raise ValueError(
+                    f"limit already exceeded by base_shape along '{axis}' while upsampling "
+                    f"(limit={limit[axis]}, base={base_shape[axis]}). No scale could ever be generated."
+                )
+
+    @staticmethod
+    def _require_same_axis_sets(pixel_size: PixelSize, scaled_axes: Sequence[AxisKey]) -> None:
+        missing = [a for a in scaled_axes if a not in pixel_size]
+        if missing:
+            raise ValueError(f"pixel_size must provide values for all scaled_axes. Missing: {missing}")
+
+    @classmethod
+    def _resolve_scaled_axes_and_limits(
+        cls,
+        *,
+        step: Union[int, float],
+        base_shape: Shape,
+        scaled_axes: Optional[Axes],
+        limit_all: Optional[ShapeLike],
+        limit_any: Optional[ShapeLike],
+    ) -> Optional[Tuple[List[AxisKey], Shape, Optional[Shape]]]:
+        """
+        Shared setup/validation for .uniform_steps and .adaptive_steps on BlueprintShapes and BlueprintFactors.
+        Returns `(scaled_axes, limit_all_shape, limit_any_shape)`, resolved and validated against `base_shape`.
+        Returns None for single-scale blueprint cases (step == 1 or none of `scaled_axes` present in `base_shape`).
+        """
+        cls._require_positive_resampling_step(step)
+        if step == 1:
+            return None
+
+        if scaled_axes is None:
+            scaled_axes = base_shape.keys()
+        resolved_scaled_axes = [a for a in scaled_axes if a in base_shape]
+        if not resolved_scaled_axes:
+            return None
+
+        limit_all = limit_all or base_shape.with_ones(resolved_scaled_axes)
+        cls._validate_scaling_limit(base_shape, resolved_scaled_axes, limit_all, step, require_full_coverage=True)
+        limit_all_shape = Shape(limit_all).without_axes_except(base_shape)
+
+        limit_any_shape: Optional[Shape] = None
+        if limit_any is not None:
+            limit_any_shape = Shape(limit_any)
+            cls._validate_scaling_limit(
+                base_shape,
+                resolved_scaled_axes,
+                limit_any_shape,
+                step,
+                require_full_coverage=False,
+            )
+            limit_any_shape = limit_any_shape.without_axes_except(base_shape)
+
+        return resolved_scaled_axes, limit_all_shape, limit_any_shape
+
+    @classmethod
+    def _generate_adaptive_scales(
+        cls,
+        *,
+        step: Union[int, float],
+        base_shape: Shape,
+        pixel_size: PixelSize,
+        rounding: RoundingMethod,
+        scaled_axes: Sequence[AxisKey],
+        limit_all: Shape,
+        limit_any: Optional[Shape],
+        max_levels: int,
+        name_pattern: str,
+    ) -> List[Tuple[ScaleKey, Factor, Shape]]:
+        """
+        Shared engine for BlueprintShapes.adaptive_steps and BlueprintFactors.adaptive_steps.
+        Returns (scale_key, scale factor, projected shape) for each generated level.
+        """
+        accum_factor = Factor.identity(scaled_axes)
+        results: List[Tuple[ScaleKey, Factor, Shape]] = []
+        for i in range(max_levels):
+            scaled_shape = base_shape.scaled_by(accum_factor, rounding=rounding)
+            key = name_pattern.format(i)
+            results.append((key, accum_factor.with_axes(base_shape), scaled_shape))
+
+            all_crossed = all(cls._limit_crossed(scaled_shape[a], limit_all[a], step) for a in scaled_axes)
+            any_crossed = limit_any is not None and any(
+                cls._limit_crossed(scaled_shape[a], limit_any[a], step) for a in limit_any
+            )
+            if all_crossed or any_crossed:
+                break
+
+            effective_pixel_size = pixel_size * accum_factor
+            reference = max(effective_pixel_size.values()) if step > 1 else min(effective_pixel_size.values())
+            lagging = [a for a in scaled_axes if not math.isclose(effective_pixel_size[a], reference, rel_tol=1e-9)]
+
+            axes_to_scale_this_round = scaled_axes
+
+            if lagging:
+                current_anisotropy = max(effective_pixel_size.values()) / min(effective_pixel_size.values())
+                next_effective_pixel_size = PixelSize(effective_pixel_size) * Factor.uniform(lagging, step)
+                next_anisotropy = max(next_effective_pixel_size.values()) / min(next_effective_pixel_size.values())
+
+                if next_anisotropy < current_anisotropy:
+                    axes_to_scale_this_round = lagging
+
+            accum_factor *= Factor.uniform(axes_to_scale_this_round, step).with_axes(scaled_axes)
+
+        if step < 1:
+            # Same reasoning as uniform_steps: per-axis step counts only ever grow, so upscaling
+            # (step < 1) generates smallest-first. Reverse to match required output order.
+            results.reverse()
+
+        return results
+
+    @staticmethod
     def _resolve_duplicates(
-        raw_items: Iterable[Tuple[ScaleKey, AxisValuesType]],
-        on_duplicate: DuplicatePolicy,
-        on_duplicate_prefer: Optional[ScaleKey],
-    ) -> List[Tuple[ScaleKey, AxisValuesType]]:
+        raw_items: Iterable[Tuple[ScaleKey, Union[Shape, Factor]]], on_duplicate: DuplicatePolicy
+    ) -> List[Tuple[ScaleKey, Union[Shape, Factor]]]:
         """
         Ensure raw_items contains no duplicate values. Resolve duplicates according to on_duplicate:
         "error": Raise error if there are duplicates.
         "keep_all": Skip (return raw_items as list)
         "keep_first": Keep the first key seen with any particular value.
         "keep_last": Keep the last key seen with any particular value.
-        The two "keep" policies can be combined with `on_duplicate_prefer`.
-        In this case, if the `on_duplicate_prefer` key is involved in a duplication, it has priority over first/last.
         """
         raw_items = list(raw_items)
         if on_duplicate == DuplicatePolicy.KEEP_ALL:
@@ -480,14 +624,12 @@ class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
 
         pop_keys: List[ScaleKey] = []
         for dup_keys in duplicates:
-            if on_duplicate_prefer is not None and on_duplicate_prefer in dup_keys:
-                keep = on_duplicate_prefer
-            elif on_duplicate == DuplicatePolicy.KEEP_FIRST:
+            if on_duplicate == DuplicatePolicy.KEEP_FIRST:
                 keep = dup_keys[0]
             elif on_duplicate == DuplicatePolicy.KEEP_LAST:
                 keep = dup_keys[-1]
             else:
-                raise AssertionError(f"Invalid duplicate scale policy: '{on_duplicate}'")
+                raise AssertionError(f"Invalid duplicate scale policy: {on_duplicate!r}")
 
             pop_keys.extend(k for k in dup_keys if k != keep)
 
@@ -536,29 +678,38 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         step: Union[int, float],
         base_shape: Shape,
         rounding: RoundingMethod,
-        shape_limit: Optional[ShapeLike] = None,
+        limit_all: Optional[ShapeLike] = None,
+        limit_any: Optional[ShapeLike] = None,
         scaled_axes: Optional[Axes] = None,
         max_levels=42,
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
-        on_duplicate_prefer: Optional[ScaleKey] = None,
     ) -> "BlueprintShapes":
-        """Generate Blueprint where each scale is a `step` downsampling of the previous scale.
-        Applies scaling uniformly to all axes until they become singleton."""
-        cls._validate_resampling_step(step)
-        if step == 1:
+        """
+        Generate a blueprint where each scale is a `step` downsampling of the previous scale.
+        Applies scaling uniformly to all axes until they become singleton.
+
+        When step < 1 (generating upscales), the result is still ordered largest-to-smallest, with the
+        raw shape at the end of the blueprint.
+
+        Generation stops (inclusive of the triggering scale) when either:
+        - `limit_all`: every scaled axis has crossed its value (<= when downsampling, >= when
+          upsampling). Defaults to singleton (1) on `scaled_axes` if not given. This is the
+          primary target shape.
+        - `limit_any`: any single axis has crossed its value. Use this as a floor/ceiling
+          guard on individual axes (e.g. "never let z go below 4"), independent of `limit_all`.
+        Both may reference the same or different axes; whichever condition is met first wins.
+        Raises if `base_shape` already crosses a limit.
+
+        If `step` is fractional, `rounding` is applied to round the generated shapes.
+        If this generates duplicate shapes, they are deduplicated according to `on_duplicate`.
+        """
+        resolved = cls._resolve_scaled_axes_and_limits(
+            step=step, base_shape=base_shape, scaled_axes=scaled_axes, limit_all=limit_all, limit_any=limit_any
+        )
+        if resolved is None:
             return cls({name_pattern.format(0): base_shape})
-
-        if scaled_axes is None:
-            scaled_axes = base_shape.keys()
-        scaled_axes = [a for a in scaled_axes if a in base_shape]
-        if not scaled_axes:
-            return cls({name_pattern.format(0): base_shape})
-
-        shape_limit = shape_limit or base_shape.with_ones(scaled_axes)
-
-        cls._validate_shape_limit(base_shape, scaled_axes, shape_limit, max_levels, step)
-        shape_limit = Shape(shape_limit).without_axes_except(base_shape)
+        scaled_axes, limit_all, limit_any_shape = resolved
 
         scales_items = []
         for i in range(0, max_levels):
@@ -567,11 +718,18 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             scaling = Factor.uniform(base_shape, scale_factor).with_identity_except(scaled_axes)
             scaled_shape = base_shape.scaled_by(scaling, rounding=rounding)
             scales_items.append((scale_key, scaled_shape))
-            if (step > 1 and all(scaled_shape[axis] <= shape_limit[axis] for axis in scaled_axes)) or (
-                step < 1 and all(scaled_shape[axis] >= shape_limit[axis] for axis in scaled_axes)
-            ):
+
+            all_crossed = all(cls._limit_crossed(scaled_shape[axis], limit_all[axis], step) for axis in scaled_axes)
+            any_crossed = limit_any_shape is not None and any(
+                cls._limit_crossed(scaled_shape[axis], limit_any_shape[axis], step) for axis in limit_any_shape
+            )
+            if all_crossed or any_crossed:
                 break
-        scales_items = cls._resolve_duplicates(scales_items, on_duplicate, on_duplicate_prefer)
+
+        if step < 1:
+            scales_items.reverse()  # Ensure scales are largest-to-smallest
+
+        scales_items = cls._resolve_duplicates(scales_items, on_duplicate)
         bp = cls(scales_items)
         return bp.with_keys(name_pattern)
 
@@ -581,22 +739,120 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         *,
         base_shape: Shape,
         rounding: RoundingMethod,
-        shape_limit: Optional[ShapeLike] = None,
+        limit_all: Optional[ShapeLike] = None,
+        limit_any: Optional[ShapeLike] = None,
         max_levels: int = 42,
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
-        on_duplicate_prefer: Optional[ScaleKey] = None,
     ):
+        """
+        Generate a blueprint where each scale is a 2x downsampling of the previous scale.
+        Apply scaling uniformly to axes "z", "y" and "x".
+        Error if base_shape has none of these axes.
+
+        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        """
+        xyz = [a for a in base_shape if str(a).lower() in ("x", "y", "z")]
         return cls.uniform_steps(
             step=2,
-            scaled_axes="xyz",
+            scaled_axes=xyz,
             base_shape=base_shape,
             rounding=rounding,
-            shape_limit=shape_limit,
+            limit_all=limit_all,
+            limit_any=limit_any,
             max_levels=max_levels,
             name_pattern=name_pattern,
             on_duplicate=on_duplicate,
-            on_duplicate_prefer=on_duplicate_prefer,
+        )
+
+    @classmethod
+    def adaptive_steps(
+        cls,
+        *,
+        step: Union[int, float],
+        base_shape: Shape,
+        pixel_size: PixelSize,
+        rounding: RoundingMethod,
+        limit_all: Optional[ShapeLike] = None,
+        limit_any: Optional[ShapeLike] = None,
+        scaled_axes: Optional[Axes] = None,
+        max_levels=42,
+        name_pattern=DEFAULT_NAME_PATTERN,
+        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+    ) -> "BlueprintShapes":
+        """
+        Generate a blueprint that first converges scaled axes toward isotropic physical pixel
+        size, then steps all of them together by `step`, like `uniform_steps`.
+
+        Most combinations of `step` and `pixel_size` will never converge to exact isotropy, so the initial convergence
+        stops when the pixel size becomes as isotropic as the requested `step` permits, continuing with uniform steps.
+
+        Equivalent to `uniform_steps` when `pixel_size` is already isotropic along `scaled_axes`.
+
+        When step < 1 (generating upscales), the result is still ordered largest-to-smallest, with the
+        raw shape at the end of the blueprint.
+
+        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        """
+        resolved = cls._resolve_scaled_axes_and_limits(
+            step=step, base_shape=base_shape, scaled_axes=scaled_axes, limit_all=limit_all, limit_any=limit_any
+        )
+        if resolved is None:
+            return cls({name_pattern.format(0): base_shape})
+        scaled_axes, limit_all, limit_any_shape = resolved
+        cls._require_same_axis_sets(pixel_size, scaled_axes)
+
+        generated = cls._generate_adaptive_scales(
+            step=step,
+            base_shape=base_shape,
+            pixel_size=pixel_size,
+            rounding=rounding,
+            scaled_axes=scaled_axes,
+            limit_all=limit_all,
+            limit_any=limit_any_shape,
+            max_levels=max_levels,
+            name_pattern=name_pattern,
+        )
+        scales_items = [(key, shape) for key, _factor, shape in generated]
+        scales_items = cls._resolve_duplicates(scales_items, on_duplicate)
+        bp = cls(scales_items)
+        return bp.with_keys(name_pattern)
+
+    @classmethod
+    def adaptive_powers_of_2_xyz(
+        cls,
+        *,
+        base_shape: Shape,
+        pixel_size: PixelSize,
+        rounding: RoundingMethod,
+        limit_all: Optional[ShapeLike] = None,
+        limit_any: Optional[ShapeLike] = None,
+        max_levels: int = 42,
+        name_pattern=DEFAULT_NAME_PATTERN,
+        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+    ) -> "BlueprintShapes":
+        """
+        Generate a blueprint where each scale is a 2x downsampling of the previous scale.
+        Apply scaling to axes "z", "y" and "x", first converging toward isotropic physical pixel size,
+        then stepping all of them together like `downscale_powers_of_2_xyz`.
+        Error if base_shape has none of these axes.
+
+        Equivalent to `downscale_powers_of_2_xyz` when `pixel_size` is already isotropic.
+
+        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        """
+        xyz = [a for a in base_shape if str(a).lower() in ("x", "y", "z")]
+        return cls.adaptive_steps(
+            step=2,
+            scaled_axes=xyz,
+            base_shape=base_shape,
+            pixel_size=pixel_size,
+            rounding=rounding,
+            limit_all=limit_all,
+            limit_any=limit_any,
+            max_levels=max_levels,
+            name_pattern=name_pattern,
+            on_duplicate=on_duplicate,
         )
 
     def axes(self) -> Iterable[AxisKey]:
@@ -678,34 +934,6 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         return Multiscale(scales)
 
     @staticmethod
-    def _validate_resampling_step(step: Union[int, float]):
-        if step <= 0:
-            raise ValueError(f"Cannot downsample by a negative step size (received: {step})")
-
-    @staticmethod
-    def _validate_shape_limit(
-        base_shape: Shape, scaled_axes: Axes, shape_limit: ShapeLike, max_levels, step: Union[int, float]
-    ):
-        applicable_limit_axes = [a for a in shape_limit if a in base_shape]
-        if not applicable_limit_axes:
-            raise ValueError(
-                f"Cannot scale to limit if none of the axes in shape_limit "
-                f"({list(shape_limit.keys())}) are in base_shape ({list(base_shape.keys())})."
-            )
-        if step < 1 and set(scaled_axes) != set(applicable_limit_axes) and not max_levels:
-            raise ValueError(
-                f"When upscaling, either max_levels must be set, or shape_limit must limit all axes in `scaled_axes`. "
-                f"Received: {scaled_axes=}, {max_levels=}, {shape_limit=}"
-            )
-        for axis in scaled_axes:
-            if axis not in applicable_limit_axes:
-                continue
-            if step > 1 and shape_limit[axis] > base_shape[axis]:
-                raise ValueError(f"Cannot limit downsampling to a shape larger than the base (along {axis}).")
-            if step < 1 and shape_limit[axis] < base_shape[axis]:
-                raise ValueError(f"Cannot limit upsampling to a shape smaller than the base (along {axis}).")
-
-    @staticmethod
     def _compute_and_validate_shift(translation_shift_func, base, target_scale_pre_shift):
         try:
             shift = translation_shift_func(base, target_scale_pre_shift)
@@ -742,6 +970,186 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
     @classmethod
     def from_multiscale(cls, multiscale: "Multiscale", reference: Shape) -> "BlueprintFactors":
         return BlueprintShapes.from_multiscale(multiscale).to_factors(reference)
+
+    @classmethod
+    def uniform_steps(
+        cls,
+        *,
+        step: Union[int, float],
+        base_shape: Shape,
+        rounding: RoundingMethod,
+        limit_all: Optional[ShapeLike] = None,
+        limit_any: Optional[ShapeLike] = None,
+        scaled_axes: Optional[Axes] = None,
+        max_levels=42,
+        name_pattern=DEFAULT_NAME_PATTERN,
+        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+    ) -> "BlueprintFactors":
+        """
+        Generate a blueprint where each scale's factor is an exact power of `step`
+        (step**0, step**1, ...).
+
+        `rounding` is used only to project each candidate factor to a
+        shape, for limit-checking and for detecting when consecutive levels collapse to the same
+        shape. It does not affect the returned factor values.
+
+        When step < 1 (generating upscales), the result is still ordered such that the generated scaled
+        shapes will be largest-to-smallest, with factor=1 at the end of the blueprint.
+
+        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        The limits apply in the same way here, to the *projected* shape at the respective factor.
+        """
+        resolved = cls._resolve_scaled_axes_and_limits(
+            step=step, base_shape=base_shape, scaled_axes=scaled_axes, limit_all=limit_all, limit_any=limit_any
+        )
+        if resolved is None:
+            return cls({name_pattern.format(0): Factor.identity(base_shape)})
+        scaled_axes, limit_all, limit_any_shape = resolved
+
+        factor_items = []
+        shape_items = []
+        for i in range(0, max_levels):
+            scale_key = name_pattern.format(i)
+            factor = Factor.uniform(base_shape, step**i).with_identity_except(scaled_axes)
+            projected_shape = base_shape.scaled_by(factor, rounding=rounding)
+
+            factor_items.append((scale_key, factor))
+            shape_items.append((scale_key, projected_shape))
+
+            all_crossed = all(cls._limit_crossed(projected_shape[axis], limit_all[axis], step) for axis in scaled_axes)
+            any_crossed = limit_any_shape is not None and any(
+                cls._limit_crossed(projected_shape[axis], limit_any_shape[axis], step) for axis in limit_any_shape
+            )
+            if all_crossed or any_crossed:
+                break
+
+        if step < 1:
+            # Ensure scales are largest-to-smallest
+            factor_items.reverse()
+            shape_items.reverse()
+
+        kept_keys = {k for k, _ in cls._resolve_duplicates(shape_items, on_duplicate)}
+        factor_items = [(k, f) for k, f in factor_items if k in kept_keys]
+
+        bp = cls(factor_items)
+        return bp.with_keys(name_pattern)
+
+    @classmethod
+    def downscale_powers_of_2_xyz(
+        cls,
+        *,
+        base_shape: Shape,
+        rounding: RoundingMethod,
+        limit_all: Optional[ShapeLike] = None,
+        limit_any: Optional[ShapeLike] = None,
+        max_levels: int = 42,
+        name_pattern=DEFAULT_NAME_PATTERN,
+        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+    ) -> "BlueprintFactors":
+        """
+        Generate a blueprint where each scale factor is successive powers of 2 (1, 2, 4, 8...) along "x", "y" and "z".
+        Error if base_shape has none of these axes.
+
+        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        The limits apply in the same way here, to the *projected* shape at the respective factor.
+        """
+        xyz = [a for a in base_shape if str(a).lower() in ("x", "y", "z")]
+        return cls.uniform_steps(
+            step=2,
+            scaled_axes=xyz,
+            base_shape=base_shape,
+            rounding=rounding,
+            limit_all=limit_all,
+            limit_any=limit_any,
+            max_levels=max_levels,
+            name_pattern=name_pattern,
+            on_duplicate=on_duplicate,
+        )
+
+    @classmethod
+    def adaptive_steps(
+        cls,
+        *,
+        step: Union[int, float],
+        base_shape: Shape,
+        pixel_size: PixelSize,
+        rounding: RoundingMethod,
+        limit_all: Optional[ShapeLike] = None,
+        limit_any: Optional[ShapeLike] = None,
+        scaled_axes: Optional[Axes] = None,
+        max_levels=42,
+        name_pattern=DEFAULT_NAME_PATTERN,
+        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+    ) -> "BlueprintFactors":
+        """Like BlueprintShapes.adaptive_steps, generate factors as powers of `step` along `scaled_axes`, first
+        converging `pixel_size` to isotropy and then continuing as uniform steps. Returns each level's per-axis factor
+        (step ** per-axis step count).
+
+        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        `rounding` is used only to project shapes for limit-checking and to detect duplicates internally.
+        The returned factor values are exact powers of `step`."""
+        resolved = cls._resolve_scaled_axes_and_limits(
+            step=step, base_shape=base_shape, scaled_axes=scaled_axes, limit_all=limit_all, limit_any=limit_any
+        )
+        if resolved is None:
+            return cls({name_pattern.format(0): Factor.identity(base_shape)})
+        scaled_axes, limit_all, limit_any_shape = resolved
+        cls._require_same_axis_sets(pixel_size, scaled_axes)
+
+        generated = cls._generate_adaptive_scales(
+            step=step,
+            base_shape=base_shape,
+            pixel_size=pixel_size,
+            rounding=rounding,
+            scaled_axes=scaled_axes,
+            limit_all=limit_all,
+            limit_any=limit_any_shape,
+            max_levels=max_levels,
+            name_pattern=name_pattern,
+        )
+
+        factor_items = [(key, factor) for key, factor, _shape in generated]
+        shape_items = [(key, shape) for key, _step_counts, shape in generated]  # dedup by projected shape
+
+        kept_keys = {k for k, _ in cls._resolve_duplicates(shape_items, on_duplicate)}
+        factor_items = [(k, f) for k, f in factor_items if k in kept_keys]
+
+        bp = cls(factor_items)
+        return bp.with_keys(name_pattern)
+
+    @classmethod
+    def adaptive_powers_of_2_xyz(
+        cls,
+        *,
+        base_shape: Shape,
+        pixel_size: PixelSize,
+        rounding: RoundingMethod,
+        limit_all: Optional[ShapeLike] = None,
+        limit_any: Optional[ShapeLike] = None,
+        max_levels: int = 42,
+        name_pattern=DEFAULT_NAME_PATTERN,
+        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+    ) -> "BlueprintFactors":
+        """Like BlueprintShapes.adaptive_powers_of_2_xyz: Generate shape-halving factors (1, 2, 4, 8...) along "x", "y" and "z",
+        first converging `pixel_size` to isotropy and then continuing as uniform steps. Returns each level's per-axis factor
+        (step ** per-axis step count).
+
+        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        `rounding` is used only to project shapes for limit-checking and duplicate detection internally.
+        The returned factor values are exact powers of `step`."""
+        xyz = [a for a in base_shape if str(a).lower() in ("x", "y", "z")]
+        return cls.adaptive_steps(
+            step=2,
+            scaled_axes=xyz,
+            base_shape=base_shape,
+            pixel_size=pixel_size,
+            rounding=rounding,
+            limit_all=limit_all,
+            limit_any=limit_any,
+            max_levels=max_levels,
+            name_pattern=name_pattern,
+            on_duplicate=on_duplicate,
+        )
 
     def axes(self) -> Iterable[AxisKey]:
         return self.first_value().keys()
@@ -841,15 +1249,16 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         for key, scale in self._mapping.items():
             if scale.shape.keys() != self.axes():
                 raise ValueError(
-                    f"All Scales must have identical axes. Scale at '{key}' has {list(scale.shape.keys())}"
+                    f"All Scales must have identical axes. Scale at '{key}' has {list(scale.shape.keys())} != {list(self.axes())}"
                 )
 
         if _intrinsic_ref is None:
+            # No internals supplied - "From scratch" construction with enforcement of multiscale format requirements
             if _transform_graph:
                 raise AssertionError("Must specify _intrinsic_ref when _transform_graph is given.")
             canonical_axes = self._merge_ome_zarr_axes(list(self._mapping.values()))
-            # As long as the only format we can serialize to is OME-Zarr, we should enforce the order as early as possible
             self._require_ome_zarr_permitted_type_order(canonical_axes)
+            self._require_non_increasing_shape_order(list(self._mapping.items()))
             canonical_unit = Unit([(a, ax.unit or "") for a, ax in canonical_axes.items()])
             # Dedup: every Scale shares the same canonical Unit/OmeZarrAxes instances.
             self._mapping = OrderedDict(
@@ -870,6 +1279,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             self._transform_graph = TransformGraph.single_isolated_system(sys_ref)
             self._intrinsic_ref = sys_ref
         else:
+            # Internal construction without format requirement enforcement.
+            # Leniency for loading existing, strictly speaking invalid, datasets through from_ome_zarr / from_precomputed.
             transform_graph = _transform_graph or TransformGraph.single_isolated_system(_intrinsic_ref)
             if _intrinsic_ref not in transform_graph.all_system_refs:
                 raise AssertionError("_intrinsic_ref must be inside _transform_graph")
@@ -1470,6 +1881,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     @staticmethod
     def _require_ome_zarr_permitted_type_order(axes: "OmeZarrAxes") -> None:
+        """As long as the only format we can serialize to is OME-Zarr, we should enforce the order as early as possible"""
         type_order_ranks = {"time": 0, "channel": 1, None: 99999}
         ranks = [type_order_ranks.get(ax.type, 99999) for a, ax in axes.items()]
         if ranks != sorted(ranks):
@@ -1477,6 +1889,23 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 f"When OME-Zarr axis types are specified, axes must be ordered time-channel-others. "
                 f"(Reorder using `.with_axes` first?) Received: {axes!r}"
             )
+
+    @staticmethod
+    def _require_non_increasing_shape_order(items: Sequence[Tuple[ScaleKey, Scale]]):
+        """
+        Like _require_ome_zarr_permitted_type_order, this exists to prevent creating Multiscales that will not be
+        valid in any serialized format.
+        All existing multiscale formats require scales to be ordered from largest to smallest (shape).
+        """
+        for (prev_key, prev_scale), (key, scale) in zip(items, items[1:]):
+            shape = scale.shape
+            prev_shape = prev_scale.shape
+            increased = [a for a in shape if shape[a] > prev_shape[a]]
+            if increased:
+                raise ValueError(
+                    f"Multiscales must be ordered from largest to smallest. Scale shape increases along "
+                    f"{increased} between {prev_key!r} and {key!r} ({prev_shape} -> {shape})."
+                )
 
     def _get_interface_transform(self):
         """Allows a scene to traverse into this subgraph"""

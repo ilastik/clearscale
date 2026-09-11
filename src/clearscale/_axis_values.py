@@ -20,6 +20,7 @@ from typing import (
     ValuesView,
     Tuple,
     Iterable,
+    overload,
 )
 
 from clearscale._spatial_relations import SpatialRelation
@@ -335,6 +336,15 @@ class Factor(_AxisFloats, SpatialRelation):
         """True if the product across all axes is lesser than 1.
         Note: Factors act as divisors for shape (e.g. 1024 / 0.5 = 2048)."""
         return math.prod(self.values()) < 1
+
+    @overload
+    def __mul__(self, other: "Factor") -> "Factor": ...
+
+    @overload
+    def __mul__(self, other: "PixelSize") -> "PixelSize": ...
+
+    @overload
+    def __mul__(self, other: "Translation") -> "Translation": ...
 
     def __mul__(self, other: object) -> Union["Factor", "PixelSize", "Translation", NotImplementedType]:
         if isinstance(other, Factor):

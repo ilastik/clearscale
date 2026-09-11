@@ -338,7 +338,7 @@ class TestMultiscale:
 
     def test_merge_is_order_independent(self):
         s_with_unit = Scale(shape=Shape(x=100), unit=Unit(x="micrometer"))
-        s_with_type = Scale(shape=Shape(x=50), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})
+        s_with_type = Scale(shape=Shape(x=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})
         ms_a = Multiscale({"s0": s_with_unit, "s1": s_with_type})
         ms_b = Multiscale({"s0": s_with_type, "s1": s_with_unit})
         assert ms_a.ome_zarr_axes["x"] == ms_b.ome_zarr_axes["x"]

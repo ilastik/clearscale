@@ -60,6 +60,39 @@ def test_multiscale_refs_are_hashable():
     assert len({left.as_ref("physical"), right.as_ref("physical")}) == 2
 
 
+def test_multiscale_accepts_duplicate_scale_shapes():
+    items = [("s0", Scale(shape={"x": 1})), ("s1", Scale(shape={"x": 1}))]
+    _ = Multiscale(items)
+
+
+@pytest.mark.parametrize(
+    "shape1, shape2",
+    [
+        ({"x": 1}, {"x": 2}),
+        ({"x": 1, "y": 1}, {"x": 1, "y": 2}),
+        ({"t": 5, "x": 1, "y": 1}, {"t": 3, "x": 1, "y": 3}),
+    ],
+)
+def test_multiscale_rejects_increasing_scale_shapes(shape1, shape2):
+    items = [("s0", Scale(shape=shape1)), ("s1", Scale(shape=shape2))]
+    with pytest.raises(ValueError, match="Multiscales must be ordered from largest to smallest"):
+        _ = Multiscale(items)
+
+
+def test_multiscale_accepts_increasing_scale_shapes_from_ome_zarr():
+    """Leniency when reading existing datasets - even though OME-Zarr (and Precomputed) require datasets to be ordered
+    from largest to smallest."""
+    ome_meta = {
+        "axes": [{"name": "x"}, {"name": "y"}],
+        "datasets": [
+            {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [2.0, 2.0]}]},
+            {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]},
+        ],
+    }
+    ms = Multiscale.from_ome_zarr(ome_meta, shape_source={"s0": (1, 1), "s1": (2, 2)})
+    assert tuple(ms["s0"].shape.values()) < tuple(ms["s1"].shape.values())
+
+
 def test_with_sizes_broadcasts_single_shape_to_all_scales():
     shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
 

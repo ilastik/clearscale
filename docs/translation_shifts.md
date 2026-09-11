@@ -47,7 +47,7 @@ blueprint = BlueprintShapes.uniform_steps(
     step=2,
     base_shape=base.shape,
     rounding="round",
-    shape_limit=Shape(y=256, x=384),
+    limit_all=Shape(y=256, x=384),
 )
 
 # Data scaling, for example with scikit-image:

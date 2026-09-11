@@ -213,7 +213,7 @@ def test_same_kind_operations_reject_incompatible_axes(operation, left, right):
 
 
 def test_implemented_dunders_return_not_implemented_for_unsupported_operands():
-    assert Factor(y=2.0).__mul__(Shape(y=2)) is NotImplemented
+    assert Factor(y=2.0).__mul__(Shape(y=2)) is NotImplemented  # type: ignore[reportArgumentType]
     assert Factor(y=2.0).__truediv__(PixelSize(y=1.0)) is NotImplemented
     assert PixelSize(y=1.0).__mul__(PixelSize(y=2.0)) is NotImplemented
     assert PixelSize(y=1.0).__truediv__(Shape(y=2)) is NotImplemented

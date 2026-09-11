@@ -121,7 +121,7 @@ class ShapeSourceMap(Protocol):
     def __getitem__(self, path: str, /) -> ShapeValue: ...
 
 
-ShapeSource = Union[Literal["singletons"], Callable[[str], ShapeValue], ShapeSourceMap]
+ShapeSource = Union[Literal["singletons"], Callable[[str], ShapeValue], ShapeSourceMap, Mapping[str, ShapeValue]]
 """
 Lets clearscale know how to obtain a zarr's array shape in this Python environment.
 Options:

@@ -246,7 +246,7 @@ blueprint = BlueprintShapes.uniform_steps(
     scaled_axes="yx",
     base_shape=base.shape,
     rounding="ceil",
-    shape_limit=Shape(y=128, x=128),
+    limit_all=Shape(y=128, x=128),
 )
 
 # Scale your data using this shape blueprint:

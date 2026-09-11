@@ -624,7 +624,7 @@ def testOpExportSlot_test_ome_zarr_multi_scale():
     def generate_default_target_scales(shape: Shape) -> clearscale.BlueprintShapes:
         chunk_shape = Shape(zip("yx", (506, 505))).with_axes("tczyx")
         shapes = clearscale.BlueprintShapes.downscale_powers_of_2_xyz(
-            base_shape=shape.with_axes("tczyx"), shape_limit=chunk_shape.with_axes("tczyx"), rounding="floor"
+            base_shape=shape.with_axes("tczyx"), limit_all=chunk_shape.with_axes("tczyx"), rounding="floor"
         )
         return shapes
 
