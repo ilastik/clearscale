@@ -6,6 +6,53 @@ from clearscale import BlueprintFactors, BlueprintShapes, DuplicatePolicy, Facto
 from clearscale._axis_values import RoundingMethod
 
 
+class TestFactorsToShapes:
+    colliding_factors = BlueprintFactors(
+        {
+            "s0": Factor(y=3.0),  # 10 // 3.0 = 3
+            "s1": Factor(y=3.1),  # 10 // 3.1 = 3  (dup of s0)
+            "s2": Factor(y=3.3),  # 10 // 3.3 = 3  (dup of s0)
+            "s3": Factor(y=3.5),  # 10 // 3.5 = 2
+            "s4": Factor(y=3.9),  # 10 // 3.9 = 2  (dup of s2)
+        }
+    )
+    reference = Shape(y=10)
+
+    @pytest.mark.parametrize(
+        "on_duplicate", [DuplicatePolicy.KEEP_ALL, DuplicatePolicy.KEEP_FIRST, DuplicatePolicy.KEEP_LAST]
+    )
+    def test_no_collisions_unaffected_by_policy(self, on_duplicate):
+        factors = BlueprintFactors({"s0": Factor(y=1.0), "s1": Factor(y=2.0), "s2": Factor(y=4.0)})
+        shapes = factors.to_shapes(Shape(y=16), rounding="ceil", on_duplicate=on_duplicate)
+        assert list(shapes.items()) == [("s0", Shape(y=16)), ("s1", Shape(y=8)), ("s2", Shape(y=4))]
+
+    def test_default_keeps_first_of_each_colliding_group(self):
+        shapes = self.colliding_factors.to_shapes(self.reference, rounding="floor")  # default: KEEP_FIRST
+        assert list(shapes.items()) == [("s0", Shape(y=3)), ("s3", Shape(y=2))]
+
+    def test_keep_last_of_each_colliding_group(self):
+        shapes = self.colliding_factors.to_shapes(
+            self.reference, rounding="floor", on_duplicate=DuplicatePolicy.KEEP_LAST
+        )
+        assert list(shapes.items()) == [("s2", Shape(y=3)), ("s4", Shape(y=2))]
+
+    def test_keep_all_preserves_every_factor_including_collisions(self):
+        shapes = self.colliding_factors.to_shapes(
+            self.reference, rounding="floor", on_duplicate=DuplicatePolicy.KEEP_ALL
+        )
+        assert list(shapes.items()) == [
+            ("s0", Shape(y=3)),
+            ("s1", Shape(y=3)),
+            ("s2", Shape(y=3)),
+            ("s3", Shape(y=2)),
+            ("s4", Shape(y=2)),
+        ]
+
+    def test_on_duplicate_error_raises(self):
+        with pytest.raises(ValueError, match="Duplicate values not allowed"):
+            self.colliding_factors.to_shapes(self.reference, rounding="floor", on_duplicate=DuplicatePolicy.ERROR)
+
+
 class TestUniformSteps:
     uniform_steps_cases = [
         dict(

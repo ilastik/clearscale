@@ -86,15 +86,17 @@ OmeZarrAxesParam = Union[Literal["infer"], OmeZarrAxes, Mapping[AxisKeyT, OmeZar
 
 
 class DuplicatePolicy(str, Enum):
+    """ERROR: Raise if two scale keys have the same shape or factor value.
+    KEEP_ALL: No deduplication. The same shape or factor value can appear multiple times under different scale keys.
+    KEEP_FIRST: Deduplicate: For each set of scale keys with the same shape or factor value, keep only the first scale key.
+    KEEP_LAST: Deduplicate: For each set of scale keys with the same shape or factor value, keep only the last scale key.
+    """
+
     ERROR = "error"
-    """Raise if two scale keys have the same shape or factor value."""
     KEEP_ALL = "keep_all"
-    """No deduplication. The same shape or factor value can appear multiple times under different scale keys."""
-    # Both KEEP_ policies are identical when generating blueprints, because the scale keys are rewritten consecutively anyway.
+    # KEEP_FIRST/LAST behave identically when generating blueprints, because the scale keys are rewritten consecutively anyway.
     KEEP_FIRST = "keep_first"
-    """Deduplicate: For each set of scale keys with the same shape or factor value, keep only the first scale key."""
     KEEP_LAST = "keep_last"
-    """Deduplicate: For each set of scale keys with the same shape or factor value, keep only the last scale key."""
 
 
 def _normalize_ome_zarr_axes_param(ome_zarr_axes: Optional[OmeZarrAxesParam], keys: OrderedAxes) -> OmeZarrAxes:
@@ -669,7 +671,9 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         if scaled_axes:
             factors = factors.with_identity_except(scaled_axes)
 
-        return factors.to_shapes(reference=target_shape, rounding=rounding)
+        # KEEP_ALL: Should be an edge case at most (source Multiscale would have to have two Scales with same shape).
+        # Even so, the source Multiscale is authoritative.
+        return factors.to_shapes(reference=target_shape, rounding=rounding, on_duplicate=DuplicatePolicy.KEEP_ALL)
 
     @classmethod
     def uniform_steps(
@@ -1181,10 +1185,24 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         """
         return super()._with_values_by_axes(other, only_axes=only_axes)
 
-    def to_shapes(self, reference: ShapeLike, *, rounding: RoundingMethod) -> BlueprintShapes:
+    def to_shapes(
+        self,
+        reference: ShapeLike,
+        *,
+        rounding: RoundingMethod,
+        on_duplicate: DuplicatePolicy = DuplicatePolicy.KEEP_FIRST,
+    ) -> BlueprintShapes:
+        """
+        Divide `reference` by this blueprint's factors to obtain concrete shapes.
+
+        Applies `rounding` when factors unevenly divide `reference`.
+        Rounding can lead to duplicate shapes on successive scale levels. By default, duplicates are removed.
+        Use `on_duplicate` to customize which duplicate is kept, or to keep all duplicates.
+        """
         ref = Shape(reference)
-        shapes = [ref.scaled_by(scale_factor, rounding=rounding) for scale_factor in self.values()]
-        return BlueprintShapes(zip(self.keys(), shapes))
+        raw_items = [(key, ref.scaled_by(scale_factor, rounding=rounding)) for key, scale_factor in self.items()]
+        items = self._resolve_duplicates(raw_items, on_duplicate)
+        return BlueprintShapes(items)
 
     def apply_to_scale(
         self,
@@ -1193,7 +1211,8 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         rounding: RoundingMethod,
         translation_shift_func: Optional[TranslationShiftFunction] = None,
     ) -> "Multiscale":
-        shapes = self.to_shapes(scale.shape, rounding=rounding)
+        # KEEP_ALL: The blueprint is authoritative on the scales it wants to generate.
+        shapes = self.to_shapes(scale.shape, rounding=rounding, on_duplicate=DuplicatePolicy.KEEP_ALL)
         return shapes.apply_to_scale(scale, translation_shift_func=translation_shift_func)
 
     def with_identity(self, axes: Axes) -> "BlueprintFactors":
