@@ -59,7 +59,7 @@ def write_ome_zarr_like_ilastik(
             "version": "0.24.0",
             "kwargs": {"order": 1, "anti_aliasing": True, "preserve_range": True},
         }
-        if export_blueprint.scaled_axes()
+        if export_blueprint.scaled_axes
         else {}
     )
 

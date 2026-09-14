@@ -863,6 +863,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
     def axes(self) -> Tuple[AxisKey, ...]:
         return tuple(self.first_value().keys())
 
+    @property
     def scaled_axes(self) -> Tuple[AxisKey, ...]:
         """Axes where shapes differ across scales."""
         if len(self) < 2:
@@ -1513,6 +1514,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         assert len(matching) == 1, "names should be unique in the graph"
         return OmeZarrAxes(matching[0].owner)
 
+    @property
     def scaled_axes(self) -> Tuple[AxisKey, ...]:
         """Axes where pixel_sizes differ across scales."""
         if len(self) < 2:
@@ -1678,7 +1680,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         if other._legacy_convention_global_t_scale:
             # Transfer the fact that we use the convention; but only if self can even be expressed using it
             # (i.e. has t, and isn't scaled across t). The actual value stored must be self's own t-scale.
-            if "t" in self.axes and "t" not in self.scaled_axes():
+            if "t" in self.axes and "t" not in self.scaled_axes:
                 transferred_global_t_scale = self.first_value().pixel_size["t"]
         unchanged_t_scale = transferred_global_t_scale == self._legacy_convention_global_t_scale
 
@@ -1829,7 +1831,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         multiscale_transforms = self._find_legacy_compatible_coordinate_system()
         do_apply_global_t = False
         if self._legacy_convention_global_t_scale:
-            can_apply_global_t_convention = "t" in self.axes and "t" not in self.scaled_axes()
+            can_apply_global_t_convention = "t" in self.axes and "t" not in self.scaled_axes
             # Decision: Convention overrides external system in the legacy case.
             # See `test_multiscale_to_ome_zarr_t_scale_convention_overrides_compatible_coordinate_system`
             if can_apply_global_t_convention:
