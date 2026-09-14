@@ -1,9 +1,9 @@
 from collections import OrderedDict
-from typing import Optional, Mapping
+from typing import Optional, Mapping, Any, Dict
 
 import clearscale
 import pytest
-from clearscale import PixelSize, Unit, Shape, PixelOffset, Multiscale
+from clearscale import PixelSize, Unit, Shape, PixelOffset, Multiscale, OmeZarrGroup, ome_zarr
 from clearscale.types import AxisKey
 
 
@@ -15,7 +15,7 @@ def write_ome_zarr_like_ilastik(
     export_offset: Optional[clearscale.PixelOffset] = None,
     input_multiscale: Optional[clearscale.Multiscale] = None,
     input_scale_key: Optional[str] = None,
-):
+) -> Dict[str, Any]:
     # Couple of details from `lazyflow.utility.io_util.write_ome_zarr`
     ome_zarr_axes = "tczyx"
     export_pixel_size = pixel_size.with_axes(ome_zarr_axes)
@@ -94,6 +94,42 @@ def test_pixel_sizes_test_write_ome_zarr_single_scale():
     assert "datasets" in m and "path" in m["datasets"][0]
     assert len(m["datasets"]) == 1
     assert m["datasets"][0]["coordinateTransformations"] == expected_dataset_transform
+
+
+def test_pixel_sizes_test_write_read_roundtrip_ome_zarr():
+    axes = ["t", "z", "y", "x", "c"]
+    source_shape = OrderedDict(zip(axes, (6, 5, 4, 3, 2)))
+    resolutions = OrderedDict(zip(axes, [0.4, 5.0, 0.3, 6.4, 8.99991]))
+    units = ["sec", "um", "nm", "mm", "noodles"]
+    target_shape_up = OrderedDict(zip("tczyx", (6, 2, 16, 15, 13)))  # ome-zarr standard
+    target_shape_down = OrderedDict(zip("tczyx", (6, 2, 3, 2, 3)))
+    target_scales = clearscale.BlueprintShapes([("upscale", target_shape_up), ("downscale", target_shape_down)])
+
+    result = write_ome_zarr_like_ilastik(
+        Shape(source_shape), PixelSize(resolutions), Unit(zip(axes, units)), export_blueprint=target_scales
+    )
+
+    roundtrip = OmeZarrGroup.from_attrs(result, shape_source=target_scales).multiscales[0]
+
+    down_expected_res = [source_shape[tag] / target_shape_down[tag] * resolutions[tag] for tag in "tczyx"]
+    assert list(roundtrip["downscale"].pixel_size.values()) == down_expected_res
+    up_expected_res = [source_shape[tag] / target_shape_up[tag] * resolutions[tag] for tag in "tczyx"]
+    assert list(roundtrip["upscale"].pixel_size.values()) == up_expected_res
+
+    assert roundtrip == clearscale.BlueprintShapes(target_scales).apply_to_scale(
+        clearscale.Scale(
+            shape=source_shape,
+            pixel_size=resolutions,
+            unit=Unit(zip(axes, units)),
+            ome_zarr_axes={
+                "t": ome_zarr.Axis(type="time"),
+                "z": ome_zarr.Axis(type="space"),
+                "y": ome_zarr.Axis(type="space"),
+                "x": ome_zarr.Axis(type="space"),
+                "c": ome_zarr.Axis(type="channel"),
+            },
+        ).with_axes("tczyx"),
+    )
 
 
 @pytest.mark.parametrize(
