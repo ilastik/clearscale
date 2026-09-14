@@ -25,7 +25,7 @@ def write_ome_zarr_like_ilastik(
         single_target_key = input_scale_key if input_scale_key else SINGE_SCALE_DEFAULT_KEY
         export_blueprint = clearscale.BlueprintShapes({single_target_key: export_shape})
     # And the rest is `lazyflow.utility.io_util._write_ome_zarr_and_ilastik_metadata`
-    axes = list(export_pixel_size.keys())
+    axes = tuple(export_pixel_size.keys())
     if unit:
         export_unit = unit.with_axes(axes)
     else:
@@ -44,8 +44,8 @@ def write_ome_zarr_like_ilastik(
         crop_translation = export_offset.with_axes(axes).to_physical(export_pixel_size)
     if input_multiscale:
         derivation = []
-        if axes != input_multiscale.axes():
-            derivation.append(clearscale.AxisRearrangementTo(multiscale.axes()))
+        if axes != input_multiscale.axes:
+            derivation.append(clearscale.AxisRearrangementTo(axes))
         if crop_translation is not None:
             derivation.append(crop_translation)
         multiscale = multiscale.as_derived_from(input_multiscale, by=derivation)

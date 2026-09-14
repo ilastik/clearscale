@@ -510,7 +510,7 @@ def test_linear_is_identity_along(linear, axes, expected):
 def test_affine_init_accepts_partial_args(linear, translation):
     affine = Affine(linear=linear, translation=translation)
     assert affine == Affine.identity("x")
-    assert tuple(affine.axes()) == ("x",)
+    assert affine.axes == ("x",)
 
 
 def test_affine_from_linear_aliases_init():

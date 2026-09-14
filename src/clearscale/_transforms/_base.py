@@ -307,8 +307,9 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
 class TransformGraphNode(ABC):
     """Mixin for classes that can own coordinate-system refs inside a TransformGraph."""
 
+    @property
     @abstractmethod
-    def axes(self) -> Iterable[AxisKey]: ...
+    def axes(self) -> Tuple[AxisKey, ...]: ...
 
     @abstractmethod
     def as_ref(self, name: CoordinateSystemName) -> "ResolvedRef": ...
@@ -389,7 +390,7 @@ class NodeRef(Generic[TransformGraphNodeT]):
         return hash((type(self), self.name, id(self.owner)))
 
     def __repr__(self):
-        return f"NodeRef(name='{self.name}', owner={type(self.owner).__name__}<id={id(self.owner)}, axes={tuple(self.owner.axes())})>"
+        return f"NodeRef(name='{self.name}', owner={type(self.owner).__name__}<id={id(self.owner)}, axes={self.owner.axes})>"
 
     def to_ome_zarr(self, version: str = "0.6.rc0", path: Optional[str] = None) -> Dict[str, Any]:
         if path and isinstance(path, str):
@@ -447,8 +448,9 @@ class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
         relationship between the coordinate systems of two different JPEG scans of paper."""
         return self is other  # even content-identical coordinate systems may not be the same system
 
-    def axes(self) -> Iterable[AxisKey]:
-        return self.keys()
+    @property
+    def axes(self) -> Tuple[AxisKey, ...]:
+        return tuple(self.keys())
 
     def as_ref(self, name: CoordinateSystemName) -> NodeRef["CoordinateSystem"]:
         """For CoordinateSystem, making a ref means giving the coordinate system a name."""
@@ -762,8 +764,8 @@ class Transform(ABC):
         return name
 
     def _validate_bound_axes(self) -> None:
-        source_axes = tuple(self.source.owner.axes()) if isinstance(self.source, NodeRef) else None
-        target_axes = tuple(self.target.owner.axes()) if isinstance(self.target, NodeRef) else None
+        source_axes = self.source.owner.axes if isinstance(self.source, NodeRef) else None
+        target_axes = self.target.owner.axes if isinstance(self.target, NodeRef) else None
         self._validate_ndims_compatible_with_payload(
             len(source_axes) if source_axes is not None else None,
             len(target_axes) if target_axes is not None else None,

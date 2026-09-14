@@ -86,6 +86,16 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
                 f"Linear must be square. Target axes {tuple(self.keys())!r} != source axes {tuple(expected_axes)!r}."
             )
 
+    @property
+    def axes(self) -> Tuple[AxisKey, ...]:
+        return tuple(self.keys())
+
+    def is_identity(self) -> bool:
+        return self == self.identity(self.axes)
+
+    def is_identity_along(self, axes: Axes) -> bool:
+        return self == self.with_identity(axes)
+
     def copy(self) -> "Linear":
         """.copy doesn't provide much value since this is immutable, but Linear still behaves enough
         like a dict that it might be nice to have, for consistency with dict.copy"""
@@ -201,15 +211,6 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
     def at(self, row: AxisKey, col: AxisKey) -> float:
         return self._mapping[row][col]
 
-    def axes(self) -> Iterable[AxisKey]:
-        return self.keys()
-
-    def is_identity(self) -> bool:
-        return self == self.identity(tuple(self.axes()))
-
-    def is_identity_along(self, axes: Axes) -> bool:
-        return self == self.with_identity(axes)
-
 
 @dataclass(frozen=True, slots=True, init=False)
 class Affine:
@@ -288,6 +289,10 @@ class Affine:
             )
         object.__setattr__(self, "linear", linear)
         object.__setattr__(self, "translation", translation)
+
+    @property
+    def axes(self) -> Tuple[AxisKey, ...]:
+        return tuple(self.linear.keys())
 
     def with_axes(self, axes: OrderedAxes) -> "Affine":
         """Order like axes. Drop axes, or insert new identity axes if necessary."""
@@ -370,9 +375,6 @@ class Affine:
 
     def to_lists_homogenous(self) -> List[List[float]]:
         return self.to_lists() + [[*(0.0 for _ in self.linear), 1.0]]
-
-    def axes(self) -> Iterable[AxisKey]:
-        return self.linear.keys()
 
     def is_identity(self) -> bool:
         return self.linear.is_identity() and self.translation.is_identity()

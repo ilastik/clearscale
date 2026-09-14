@@ -859,8 +859,9 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             on_duplicate=on_duplicate,
         )
 
-    def axes(self) -> Iterable[AxisKey]:
-        return self.first_value().keys()
+    @property
+    def axes(self) -> Tuple[AxisKey, ...]:
+        return tuple(self.first_value().keys())
 
     def scaled_axes(self) -> Tuple[AxisKey, ...]:
         """Axes where shapes differ across scales."""
@@ -1155,8 +1156,9 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
             on_duplicate=on_duplicate,
         )
 
-    def axes(self) -> Iterable[AxisKey]:
-        return self.first_value().keys()
+    @property
+    def axes(self) -> Tuple[AxisKey, ...]:
+        return tuple(self.first_value().keys())
 
     @property
     def scaled_axes(self) -> Tuple[AxisKey, ...]:
@@ -1266,9 +1268,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         """
         super().__init__(*args, **kwargs)
         for key, scale in self._mapping.items():
-            if scale.shape.keys() != self.axes():
+            if tuple(scale.shape.keys()) != self.axes:
                 raise ValueError(
-                    f"All Scales must have identical axes. Scale at '{key}' has {list(scale.shape.keys())} != {list(self.axes())}"
+                    f"All Scales must have identical axes. Scale at '{key}' has {list(scale.shape.keys())} != {list(self.axes)}"
                 )
 
         if _intrinsic_ref is None:
@@ -1307,7 +1309,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             self._intrinsic_ref = _intrinsic_ref
         zero_scale_axes_by_key = {}
         if _zero_scale_axes_by_key:
-            available_axes = set(self.axes())
+            available_axes = set(self.axes)
             for key, axes in _zero_scale_axes_by_key.items():
                 if key not in self:
                     continue
@@ -1401,7 +1403,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             if global_meta is not None:
                 global_t_scale, _ = global_meta
         assert intrinsic_system_ref.owner, "dev error: must reference intrinsic system"
-        axis_keys = list(intrinsic_system_ref.owner.axes())
+        axis_keys = list(intrinsic_system_ref.owner.axes)
         unit = intrinsic_system_ref.owner.get_unit()
         datasets = multiscale_dict["datasets"]
         base_shape = None
@@ -1489,8 +1491,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         return cls(scales_items, _zero_scale_axes_by_key=zero_scale_axes_by_key)
 
-    def axes(self) -> OrderedAxes:
-        return self.first_value().shape.keys()
+    @property
+    def axes(self) -> Tuple[AxisKey, ...]:
+        return tuple(self.first_value().shape.keys())
 
     @property
     def unit(self) -> Unit:
@@ -1586,7 +1589,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         if name in self.coordinate_systems:
             raise ValueError(f"Coordinate system name {name!r} already exists on this Multiscale.")
 
-        source_axes = tuple(self.axes())
+        source_axes = self.axes
         target_axes = relation_chain_target_axes(relations, source_axes) if relations else source_axes
         target_ome_axes = _reconcile_axis_prop_params(target_axes, self.ome_zarr_axes, ome_zarr_axes, unit)
 
@@ -1620,8 +1623,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 "The derivation relationship must be expressed using SpatialRelations like Factor,"
                 'Translation or AxisRearrangementTo("zyx").'
             )
-        source_axes = tuple(other.axes())
-        target_axes = tuple(self.axes())
+        source_axes = other.axes
+        target_axes = self.axes
 
         if not relations:
             if source_axes != target_axes:
@@ -1675,7 +1678,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         if other._legacy_convention_global_t_scale:
             # Transfer the fact that we use the convention; but only if self can even be expressed using it
             # (i.e. has t, and isn't scaled across t). The actual value stored must be self's own t-scale.
-            if "t" in self.axes() and "t" not in self.scaled_axes():
+            if "t" in self.axes and "t" not in self.scaled_axes():
                 transferred_global_t_scale = self.first_value().pixel_size["t"]
         unchanged_t_scale = transferred_global_t_scale == self._legacy_convention_global_t_scale
 
@@ -1826,7 +1829,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         multiscale_transforms = self._find_legacy_compatible_coordinate_system()
         do_apply_global_t = False
         if self._legacy_convention_global_t_scale:
-            can_apply_global_t_convention = "t" in self.axes() and "t" not in self.scaled_axes()
+            can_apply_global_t_convention = "t" in self.axes and "t" not in self.scaled_axes()
             # Decision: Convention overrides external system in the legacy case.
             # See `test_multiscale_to_ome_zarr_t_scale_convention_overrides_compatible_coordinate_system`
             if can_apply_global_t_convention:
@@ -1849,7 +1852,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             return result
 
         # Legacy convention where pixel size along t is written as a global scale transform
-        axes = list(self.axes())
+        axes = list(self.axes)
         assert do_apply_global_t, "implied by branch above"
         pixel_size_t_values = set(scale.pixel_size["t"] for scale in self.values())
         assert len(pixel_size_t_values) == 1, "non-scaling across t implied by do_apply_global_t condition"
@@ -2024,7 +2027,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 ms_t = t.transforms[-1]
                 assert isinstance(ms_t, ome_zarr.MultiscaleTransforms) and isinstance(ms_t.source, NodeRef)
                 return self._reshaped_multiscale_transforms(
-                    ms_t, source_axes=tuple(ms_t.source.owner.axes()), target_axes=tuple(self.axes())
+                    ms_t, source_axes=ms_t.source.owner.axes, target_axes=self.axes
                 )
             elif isinstance(t.transforms[0], ome_zarr.InvertedMultiscaleTransforms) and self._is_pure_axis_reshape(
                 t.transforms[1:]
@@ -2032,7 +2035,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 ms_t = t.transforms[0].inverted()
                 assert isinstance(ms_t, ome_zarr.MultiscaleTransforms) and isinstance(ms_t.source, NodeRef)
                 return self._reshaped_multiscale_transforms(
-                    ms_t, source_axes=tuple(ms_t.source.owner.axes()), target_axes=tuple(self.axes())
+                    ms_t, source_axes=ms_t.source.owner.axes, target_axes=self.axes
                 )
         for t in candidates:
             try:
@@ -2068,14 +2071,12 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     continue
                 is_physical_then_structural = translation_i == 0 if scale is None else scale_i == 0
                 assert isinstance(t.target, NodeRef), "all transforms in graph must be bound and resolved"
-                ms_t_source_axes = tuple(self.axes()) if is_physical_then_structural else tuple(t.target.owner.axes())
+                ms_t_source_axes = self.axes if is_physical_then_structural else t.target.owner.axes
                 identity_scale = ScaleTransform((1.0,) * len(ms_t_source_axes))
                 scale = scale if scale is not None else identity_scale
                 ms_children = (scale,) if translation is None else (scale, translation)
                 ms_t = ome_zarr.MultiscaleTransforms(ms_children)
-                return self._reshaped_multiscale_transforms(
-                    ms_t, source_axes=ms_t_source_axes, target_axes=tuple(self.axes())
-                )
+                return self._reshaped_multiscale_transforms(ms_t, source_axes=ms_t_source_axes, target_axes=self.axes)
             assert t.target == self._intrinsic_ref, "intrinsic must be either source or target"
             # Inverted: external --t--> self; presumably stored this way because the sequence is non-invertible.
             # Legacy transforms express self --global_transforms--> external, so the physical component of t must be inverted
@@ -2085,14 +2086,12 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             last = len(t.transforms)
             is_physical_then_structural = translation_i == last if scale is None else scale_i == last
             assert isinstance(t.source, NodeRef), "all transforms in graph must be bound and resolved"
-            ms_t_source_axes = tuple(t.source.owner.axes()) if is_physical_then_structural else tuple(self.axes())
+            ms_t_source_axes = t.source.owner.axes if is_physical_then_structural else self.axes
             identity_scale = ScaleTransform((1.0,) * len(ms_t_source_axes))
             scale = scale if scale is not None else identity_scale
             ms_children = (scale,) if translation is None else (translation, scale)
             ms_t = ome_zarr.InvertedMultiscaleTransforms(ms_children).inverted()
-            return self._reshaped_multiscale_transforms(
-                ms_t, source_axes=ms_t_source_axes, target_axes=tuple(self.axes())
-            )
+            return self._reshaped_multiscale_transforms(ms_t, source_axes=ms_t_source_axes, target_axes=self.axes)
         return None
 
     @staticmethod

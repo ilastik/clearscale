@@ -141,15 +141,15 @@ class Scene:
         first_ms = translations[0][0]
         for multiscale, translation in translations:
             # TODO: Validate units?
-            if multiscale.axes() != first_ms.axes():
+            if multiscale.axes != first_ms.axes:
                 raise ValueError(
                     "All Multiscales in a stitched Scene must have identical axis keys. "
-                    f"Expected {first_ms.axes()!r}, received {multiscale.axes()!r}."
+                    f"Expected {first_ms.axes!r}, received {multiscale.axes!r}."
                 )
-            if translation.keys() != first_ms.axes():
+            if tuple(translation.keys()) != first_ms.axes:
                 raise ValueError(
                     "All Translations for a stitched Scene must have identical axis keys. "
-                    f"Expected {first_ms.axes()!r}, received {translation.keys()!r}."
+                    f"Expected {first_ms.axes!r}, received {translation.keys()!r}."
                 )
 
         return cls.from_star_graph(

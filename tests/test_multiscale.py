@@ -311,7 +311,7 @@ def _with_intrinsic_system_name(ms: Multiscale, name: str) -> Multiscale:
 
 def _with_extra_system(ms: Multiscale, name: str) -> Multiscale:
     """Attach one additional named coordinate system to `ms` via an identity edge from its intrinsic ref."""
-    extra_ref = CoordinateSystem.fromkeys(tuple(ms.axes())).as_ref(name)
+    extra_ref = CoordinateSystem.fromkeys(ms.axes).as_ref(name)
     edge = IdentityTransform().bound(source=ms._intrinsic_ref, target=extra_ref)
     graph = TransformGraph(transforms=ms._transform_graph.transforms + (edge,))
     return Multiscale(ms.items(), _transform_graph=graph, _intrinsic_ref=ms._intrinsic_ref)
@@ -439,7 +439,7 @@ def test_multiscale_as_derived_from_with_system_transferred_by_derivation_retain
     source_ms = _with_extra_system(_multiscale(), "world")
 
     derived_ms = _multiscale()
-    result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes()))
+    result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
 
     assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
     assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
@@ -450,7 +450,7 @@ def test_multiscale_as_derived_from_with_no_system_transferred_but_derivation_re
     source_ms = _multiscale()
 
     derived_ms = _multiscale()
-    result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes()))
+    result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
 
     assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
     assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
@@ -460,7 +460,7 @@ def test_multiscale_as_derived_from_with_derivation_renames_duplicate_intrinsic_
     derived_ms = _with_intrinsic_system_name(_multiscale(), "physical")
     source_ms = _with_intrinsic_system_name(_multiscale(), "physical")
 
-    result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes()))
+    result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
 
     assert len(result._transform_graph.all_system_refs) == 2
     assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
@@ -608,7 +608,7 @@ def test_multiscale_with_coordinate_system_identity():
     world_refs = [ref for ref in result._transform_graph.all_system_refs if ref.name == "world"]
     assert len(world_refs) == 1
     world = world_refs[0]
-    assert tuple(world.owner.axes()) == tuple(ms.axes())
+    assert world.owner.axes == ms.axes
     assert len(result._transform_graph.transforms) == 1
     assert IdentityTransform().bound(source=ms._intrinsic_ref, target=world) in result._transform_graph.transforms
 
@@ -644,7 +644,7 @@ def test_multiscale_with_coordinate_system_accepts_relation_sequence():
     result = ms.with_coordinate_system("world", reached_by=relations)
 
     world = next(ref for ref in result._transform_graph.all_system_refs if ref.name == "world")
-    assert tuple(world.owner.axes()) == ("y", "x")
+    assert world.owner.axes == ("y", "x")
 
     # When specifying rearrange->factor->translation, the translation is already at "world" scale.
     # Coordinate ms[0, 0, 0] == world[3.0, 4.0] (ms is shifted relative to world origin)

@@ -528,7 +528,7 @@ def multiscale_graph_from_legacy(
     graph = TransformGraph.single_isolated_system(intrinsic_system_ref)
     if global_transforms is not None:
         global_t_scale = global_t_scale_if_matches_legacy_convention(
-            multiscale, global_transforms, tuple(intrinsic_system.axes())
+            multiscale, global_transforms, intrinsic_system.axes
         )
         if global_t_scale:
             # Using the global transforms for pixel_size[t] as the convention does,
@@ -539,7 +539,7 @@ def multiscale_graph_from_legacy(
                 sum(v == global_t_scale for v in global_transforms.scale_transform.scale) == 1
             ), f"dev error: {global_transforms.scale_transform.scale} doesn't actually use global-t convention"
             return graph, intrinsic_system_ref, (global_t_scale, global_transforms.translation_transform)
-        own_axes = tuple(intrinsic_system.axes())
+        own_axes = intrinsic_system.axes
         synthetic_external = CoordinateSystem.fromkeys(own_axes).as_ref(f"external-{name}")
         try:
             bound_transform = global_transforms.bound(source=intrinsic_system_ref, target=synthetic_external)

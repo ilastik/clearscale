@@ -145,14 +145,14 @@ scale_data = zarr_group["s2"]
 print(scale_data.shape)  # (5708, 6479, 6875)
 
 # Do whatever you do with your data arrays
-first_z_slice_data = numpy.take(scale_data, 0, axis=list(multiscale.axes()).index("z"))
+first_z_slice_data = numpy.take(scale_data, 0, axis=multiscale.axes.index("z"))
 ```
 
 And that's it!
 
 Other important information you can get from a Multiscale includes:
 
-* The axes: `list(ms.axes())`, usually `["t", "c", "z", "y", "x"]` or a subset of them, in that order.
+* The axes: `ms.axes`, usually `("t", "c", "z", "y", "x")` or a subset of them, in that order.
 * Each Scale `ms[scale_key]` provides:
 
 ```python
