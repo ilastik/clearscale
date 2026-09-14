@@ -1296,7 +1296,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 for key, s in self._mapping.items()
             )
             intrinsic_sys = CoordinateSystem(canonical_axes)
-            sys_ref = intrinsic_sys.as_ref(_random_multiscale_name())
+            sys_ref = intrinsic_sys._as_ref(_random_multiscale_name())
             self._transform_graph = TransformGraph.single_isolated_system(sys_ref)
             self._intrinsic_ref = sys_ref
         else:
@@ -1593,7 +1593,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         target_axes = relation_chain_target_axes(relations, source_axes) if relations else source_axes
         target_ome_axes = _reconcile_axis_prop_params(target_axes, self.ome_zarr_axes, ome_zarr_axes, unit)
 
-        target_ref = CoordinateSystem(target_ome_axes).as_ref(name)
+        target_ref = CoordinateSystem(target_ome_axes)._as_ref(name)
         transform = (relations_to_transform(relations, source_axes) if relations else IdentityTransform()).bound(
             source=self._intrinsic_ref, target=target_ref
         )
@@ -1650,7 +1650,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         else:
             self._require_ome_zarr_permitted_type_order(merged_ome_axes)  # should be unnecessary but might as well
             merged_unit = merged_ome_axes.get_unit()
-            intrinsic_ref = CoordinateSystem(merged_ome_axes).as_ref(self._intrinsic_ref.name)
+            intrinsic_ref = CoordinateSystem(merged_ome_axes)._as_ref(self._intrinsic_ref.name)
             transform_graph = TransformGraph(
                 transforms=tuple(
                     self._replace_transform_ref(t, self._intrinsic_ref, intrinsic_ref)
@@ -1880,7 +1880,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             result["datasets"].append(dataset)
         return result
 
-    def as_ref(self, name: CoordinateSystemName) -> NodeRef["Multiscale"]:
+    def _as_ref(self, name: CoordinateSystemName) -> NodeRef["Multiscale"]:
         """For Multiscale, making a ref means selecting one of their coordinate systems by name."""
         if name not in (ref.name for ref in self._transform_graph.all_system_refs):
             raise NoSuchCoordinateSystemError(name)
@@ -1931,7 +1931,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     def _get_interface_transform(self):
         """Allows a scene to traverse into this subgraph"""
-        return IdentityTransform(source=self._intrinsic_ref, target=self.as_ref(self._intrinsic_ref.name))
+        return IdentityTransform(source=self._intrinsic_ref, target=self._as_ref(self._intrinsic_ref.name))
 
     @staticmethod
     def _replace_transform_ref(t: Transform, old: NodeRef, new: NodeRef) -> Transform:
@@ -1946,7 +1946,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             if ref.owner is owner:
                 return ref
         existing_names = {ref.name for ref in existing_refs}
-        return owner.as_ref(self._make_unique_name(requested_name, existing_names))
+        return owner._as_ref(self._make_unique_name(requested_name, existing_names))
 
     @staticmethod
     def _make_unique_name(name: str, exclude: Collection[str]) -> str:

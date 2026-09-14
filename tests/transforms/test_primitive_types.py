@@ -21,7 +21,7 @@ from clearscale._transforms._transform_types import IDENTITY_TOLERANCE
 
 
 def _sys_ref(name, axes) -> NodeRef[CoordinateSystem]:
-    return CoordinateSystem.fromkeys(axes).as_ref(name)
+    return CoordinateSystem.fromkeys(axes)._as_ref(name)
 
 
 def test_identity_bound_rejects_endpoint_axis_count_mismatch():

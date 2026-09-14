@@ -22,7 +22,7 @@ from clearscale._transforms import (
 
 
 def _sys_ref(name, axes):
-    return CoordinateSystem.fromkeys(axes).as_ref(name)
+    return CoordinateSystem.fromkeys(axes)._as_ref(name)
 
 
 def test_transform_name_round_trips():
@@ -49,7 +49,7 @@ def test_transform_name_round_trips():
 def test_resolving_transform_revalidates_endpoint_axes():
 
     def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
-        return CoordinateSystem.fromkeys(axes).as_ref(name)
+        return CoordinateSystem.fromkeys(axes)._as_ref(name)
 
     multiscale = Multiscale({"s0": Scale(Shape(z=1, y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
     world = _sys_ref("world", "yx")
@@ -64,7 +64,7 @@ def test_resolving_transform_revalidates_endpoint_axes():
 
 
 def test_with_resolved_by_name_does_not_resolve_path_refs():
-    world = CoordinateSystem.fromkeys("yx").as_ref("world")
+    world = CoordinateSystem.fromkeys("yx")._as_ref("world")
     original_target = _UnresolvedRef(file=FileRef.from_string("tile_0"), name="world")
     transform = TranslationTransform(translation=(0, 0), source=_UnresolvedRef(name="world"), target=original_target)
 

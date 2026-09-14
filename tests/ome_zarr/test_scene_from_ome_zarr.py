@@ -89,7 +89,7 @@ def test_with_resolved_remembers_only_paths_that_resolved_transform_endpoints():
 
 def test_with_resolved_does_not_resolve_by_name():
     multiscale = _multiscale()
-    world = CoordinateSystem.fromkeys("yx").as_ref("world")
+    world = CoordinateSystem.fromkeys("yx")._as_ref("world")
     transform = TranslationTransform(
         translation=(0, 0),
         source=_UnresolvedRef(name="world"),
@@ -99,4 +99,4 @@ def test_with_resolved_does_not_resolve_by_name():
     resolved = scene.with_resolved({"tile_0": multiscale})
 
     assert isinstance(resolved._internal_graph.transforms[0].source, _UnresolvedRef)
-    assert resolved._internal_graph.transforms[0].target == multiscale.as_ref("physical")
+    assert resolved._internal_graph.transforms[0].target == multiscale._as_ref("physical")

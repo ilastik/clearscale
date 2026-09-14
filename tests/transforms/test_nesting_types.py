@@ -19,7 +19,7 @@ from clearscale._transforms import (
 
 
 def _sys_ref(name, axes):
-    return CoordinateSystem.fromkeys(axes).as_ref(name)
+    return CoordinateSystem.fromkeys(axes)._as_ref(name)
 
 
 def test_bijection_syncs_endpoints_with_children():

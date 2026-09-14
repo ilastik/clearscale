@@ -109,7 +109,7 @@ class Scene:
             center = multiscales[0][0]
 
         central_system = cls._node_to_coord_sys_ref(center).owner.copy()
-        central_ref = central_system.as_ref("world")
+        central_ref = central_system._as_ref("world")
 
         return cls(
             _internal_graph=TransformGraph(
@@ -229,13 +229,13 @@ class Scene:
     def _get_ref_for_key(self, key: UserFacingCoordinateSystemKey, include_children: bool) -> Optional[AnyRef]:
         if isinstance(key, dict):  # Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]]
             if key["path"] in self._multiscale_paths:
-                return self._multiscale_paths[key["path"]].as_ref(key["name"])
+                return self._multiscale_paths[key["path"]]._as_ref(key["name"])
             return _UnresolvedRef(name=key["name"], file=FileRef.from_string(key["path"]))
 
         if isinstance(key, tuple):  # Tuple[Multiscale, CoordinateSystemName]
             if not isinstance(key[0], Multiscale) or not (isinstance(key[1], CoordinateSystemName)):
                 raise TypeError(f"Coordinate system key must be tuple(multiscale, system_name). Received: {key}")
-            return key[0].as_ref(key[1])
+            return key[0]._as_ref(key[1])
 
         if isinstance(key, Multiscale):
             # If there were more than 1 and user cared, they'd give us a tuple
@@ -270,7 +270,7 @@ class Scene:
             ref = node
         else:
             raise TypeError(
-                f"Use CoordinateSystem.as_ref(name) to use a CoordinateSystem in a Scene. Received: {node!r}"
+                f"Use CoordinateSystem._as_ref(name) to use a CoordinateSystem in a Scene. Received: {node!r}"
             )
         return ref
 

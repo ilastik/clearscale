@@ -312,7 +312,11 @@ class TransformGraphNode(ABC):
     def axes(self) -> Tuple[AxisKey, ...]: ...
 
     @abstractmethod
-    def as_ref(self, name: CoordinateSystemName) -> "ResolvedRef": ...
+    def _as_ref(self, name: CoordinateSystemName) -> "ResolvedRef":
+        """_as_ref is considered package-private, not class-private.
+        Not a problem on CoordinateSystem (itself not part of the public API),
+        but "Multiscale.as_ref" could raise consumer question marks."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -452,7 +456,7 @@ class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
     def axes(self) -> Tuple[AxisKey, ...]:
         return tuple(self.keys())
 
-    def as_ref(self, name: CoordinateSystemName) -> NodeRef["CoordinateSystem"]:
+    def _as_ref(self, name: CoordinateSystemName) -> NodeRef["CoordinateSystem"]:
         """For CoordinateSystem, making a ref means giving the coordinate system a name."""
         return NodeRef(str(name), self)
 
@@ -650,7 +654,7 @@ class Transform(ABC):
         new_node = path_nodes.get(ref.file.path)
         if new_node is not None and ref.name is not None:
             try:
-                return new_node.as_ref(ref.name)
+                return new_node._as_ref(ref.name)
             except NoSuchCoordinateSystemError:
                 raise MismatchingMultiscaleError(path=ref.file.path, name=ref.name)
         return ref
@@ -1202,7 +1206,7 @@ class TransformGraph:
                 raise ValueError(
                     f'Invalid metadata: Multiple coordinate systems named "{name}". Received: {system_dict}'
                 )
-            named_systems.append(system.as_ref(name))
+            named_systems.append(system._as_ref(name))
             seen_names.add(name)
         transforms: List[Transform] = []
         for transform_dict in transform_dicts:

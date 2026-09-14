@@ -1,6 +1,6 @@
 class NoSuchCoordinateSystemError(ValueError):
     """
-    Raised by Multiscale.as_ref when called with a name that does not match any of the Multiscale's coordinate systems.
+    Raised by Multiscale._as_ref when called with a name that does not match any of the Multiscale's coordinate systems.
     """
 
     def __init__(self, name):

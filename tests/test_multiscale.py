@@ -34,7 +34,7 @@ from clearscale._transforms._base import _is_owner_coordinate_system
 
 
 def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
-    return CoordinateSystem.fromkeys(axes).as_ref(name)
+    return CoordinateSystem.fromkeys(axes)._as_ref(name)
 
 
 def test_blueprint_hash_matches_value_equality():
@@ -57,7 +57,7 @@ def test_multiscale_refs_are_hashable():
     left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
     right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
 
-    assert len({left.as_ref("physical"), right.as_ref("physical")}) == 2
+    assert len({left._as_ref("physical"), right._as_ref("physical")}) == 2
 
 
 def test_multiscale_accepts_duplicate_scale_shapes():
@@ -306,12 +306,12 @@ def test_multiscale_coordinate_systems_empty_by_default():
 
 def _with_intrinsic_system_name(ms: Multiscale, name: str) -> Multiscale:
     """Creates modified `ms` *with empty graph*, so this helper must be used *before* other helpers that modify the graph"""
-    return Multiscale(ms.items(), _intrinsic_ref=ms._intrinsic_ref.owner.as_ref(name))
+    return Multiscale(ms.items(), _intrinsic_ref=ms._intrinsic_ref.owner._as_ref(name))
 
 
 def _with_extra_system(ms: Multiscale, name: str) -> Multiscale:
     """Attach one additional named coordinate system to `ms` via an identity edge from its intrinsic ref."""
-    extra_ref = CoordinateSystem.fromkeys(ms.axes).as_ref(name)
+    extra_ref = CoordinateSystem.fromkeys(ms.axes)._as_ref(name)
     edge = IdentityTransform().bound(source=ms._intrinsic_ref, target=extra_ref)
     graph = TransformGraph(transforms=ms._transform_graph.transforms + (edge,))
     return Multiscale(ms.items(), _transform_graph=graph, _intrinsic_ref=ms._intrinsic_ref)

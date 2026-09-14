@@ -448,7 +448,7 @@ def extract_multiscale_graph(
         )
         if not intrinsic_system_name:
             raise e
-        intrinsic_system_ref = intrinsic_sys.as_ref(intrinsic_system_name)
+        intrinsic_system_ref = intrinsic_sys._as_ref(intrinsic_system_name)
         graph = TransformGraph.single_isolated_system(intrinsic_system_ref)
         return graph, intrinsic_system_ref
 
@@ -524,7 +524,7 @@ def multiscale_graph_from_legacy(
         warnings.warn(f"Pixel size metadata at multiscale-level was invalid. Received: {multiscale_tf_list!r}")
 
     intrinsic_system = CoordinateSystem.from_ome_zarr(multiscale)
-    intrinsic_system_ref = intrinsic_system.as_ref(name)
+    intrinsic_system_ref = intrinsic_system._as_ref(name)
     graph = TransformGraph.single_isolated_system(intrinsic_system_ref)
     if global_transforms is not None:
         global_t_scale = global_t_scale_if_matches_legacy_convention(
@@ -540,7 +540,7 @@ def multiscale_graph_from_legacy(
             ), f"dev error: {global_transforms.scale_transform.scale} doesn't actually use global-t convention"
             return graph, intrinsic_system_ref, (global_t_scale, global_transforms.translation_transform)
         own_axes = intrinsic_system.axes
-        synthetic_external = CoordinateSystem.fromkeys(own_axes).as_ref(f"external-{name}")
+        synthetic_external = CoordinateSystem.fromkeys(own_axes)._as_ref(f"external-{name}")
         try:
             bound_transform = global_transforms.bound(source=intrinsic_system_ref, target=synthetic_external)
             assert isinstance(bound_transform, MultiscaleTransforms), "should not change type"
