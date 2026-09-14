@@ -320,6 +320,7 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
     def values(self) -> ValuesView[ValueType]:
         return self._mapping.values()
 
+    @property
     def first_value(self) -> ValueType:
         return next(iter(self.values()))
 
@@ -861,7 +862,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
 
     @property
     def axes(self) -> Tuple[AxisKey, ...]:
-        return tuple(self.first_value().keys())
+        return tuple(self.first_value.keys())
 
     @property
     def scaled_axes(self) -> Tuple[AxisKey, ...]:
@@ -896,16 +897,16 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
 
     def to_factors(self, reference: Optional[Shape] = None) -> "BlueprintFactors":
         if reference is None:
-            reference = self.first_value()
+            reference = self.first_value
         factors = [Shape(reference).scaling_to(scale_shape) for scale_shape in self.values()]
         return BlueprintFactors(zip(self.keys(), factors))
 
     def apply_to_scale(
         self, base: Scale, *, translation_shift_func: Optional[TranslationShiftFunction] = None
     ) -> "Multiscale":
-        if list(self.first_value().keys()) != list(base.shape.keys()):
+        if list(self.first_value.keys()) != list(base.shape.keys()):
             raise ValueError(
-                f"Cannot apply blueprint with axes {list(self.first_value().keys())} "
+                f"Cannot apply blueprint with axes {list(self.first_value.keys())} "
                 f"to base scale with axes {list(base.shape.keys())}. "
                 "Axes must match exactly. Maybe blueprint.with_axes(base.shape) first?"
             )
@@ -1159,7 +1160,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
 
     @property
     def axes(self) -> Tuple[AxisKey, ...]:
-        return tuple(self.first_value().keys())
+        return tuple(self.first_value.keys())
 
     @property
     def scaled_axes(self) -> Tuple[AxisKey, ...]:
@@ -1377,7 +1378,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         translation_shift_func: Optional[TranslationShiftFunction] = None,
     ):
         bp = BlueprintShapes(blueprint)
-        base = base or Scale(shape=bp.first_value())
+        base = base or Scale(shape=bp.first_value)
         return bp.apply_to_scale(base, translation_shift_func=translation_shift_func)
 
     @staticmethod
@@ -1494,7 +1495,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     @property
     def axes(self) -> Tuple[AxisKey, ...]:
-        return tuple(self.first_value().shape.keys())
+        return tuple(self.first_value.shape.keys())
 
     @property
     def unit(self) -> Unit:
@@ -1681,7 +1682,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             # Transfer the fact that we use the convention; but only if self can even be expressed using it
             # (i.e. has t, and isn't scaled across t). The actual value stored must be self's own t-scale.
             if "t" in self.axes and "t" not in self.scaled_axes:
-                transferred_global_t_scale = self.first_value().pixel_size["t"]
+                transferred_global_t_scale = self.first_value.pixel_size["t"]
         unchanged_t_scale = transferred_global_t_scale == self._legacy_convention_global_t_scale
 
         existing_refs = list(transform_graph.all_system_refs)
