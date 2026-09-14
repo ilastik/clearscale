@@ -35,7 +35,7 @@ Scalar = Union[int, float, numbers.Real]
 ShapeLike = Union["Shape", Mapping[AxisKeyT, int]]
 FactorLike = Union["Factor", Mapping[AxisKeyT, float]]
 RoundingFunction = Callable[[float], int]
-RoundingMethod = Union[Literal["ceil"], Literal["floor"], Literal["round"], RoundingFunction]
+RoundingMethod = Union[Literal["ceil", "floor", "round", "round_half_up", "error_on_round"], RoundingFunction]
 _AxisMappingSelf = TypeVar("_AxisMappingSelf", bound="_AxisMapping[Any, Any]")
 _AxisValuesSelf = TypeVar("_AxisValuesSelf", bound="_AxisValues[Any, Any]")
 
@@ -247,13 +247,23 @@ def _require_axes_present(
         )
 
 
+def error_on_round(v: float):
+    if not v.is_integer():
+        raise ValueError(f"The declared rounding method requires integer values. Received {v!r}")
+    return int(v)
+
+
 def _normalize_rounding(rounding: RoundingMethod) -> RoundingFunction:
     if rounding == "ceil":
         return math.ceil
     if rounding == "floor":
-        return int
+        return math.floor
     if rounding == "round":
         return round
+    if rounding == "round_half_up":
+        return lambda v: math.floor(v + 0.5)
+    if rounding == "error_on_round":
+        return error_on_round
     return rounding
 
 

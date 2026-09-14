@@ -82,6 +82,15 @@ base_scale: the reference scale being transformed from
 target_scale: the new scale being created (with 0 translation)
 Returns: target_scale's translation
 """
+PixelSizingMethod = Literal["shape_ratio", "corner_ratio", "exact_factor"]
+"""
+How the scaling method used spaces output pixels.
+Options for both BlueprintShapes and BlueprintFactors:
+* shape_ratio: output_spacing = input_spacing * input_shape / output_shape
+* corner_ratio: output_spacing = input_spacing * (input_shape - 1) / (output_shape - 1)
+Option only for BlueprintFactors:
+* exact_factor: output_spacing = input_spacing * factor
+"""
 OmeZarrAxesParam = Union[Literal["infer"], OmeZarrAxes, Mapping[AxisKeyT, OmeZarrAxis]]
 
 
@@ -947,18 +956,18 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         except TypeError as e:
             if "argument" in str(e):
                 raise TypeError(
-                    "translation_shift_func must accept two positional arguments (base and target scale). "
+                    "translating must accept two positional arguments (base and target scale). "
                     "See clearscale.half_pixel_shift for an example implementation."
                 ) from e
             raise e
         if not isinstance(shift, Translation):
             raise TypeError(
-                f"translation_shift_func must return a Translation, got {type(shift).__name__}. "
+                f"translating must return a Translation, got {type(shift).__name__}. "
                 "See clearscale.half_pixel_shift for an example implementation."
             )
         if list(shift.keys()) != list(target_scale_pre_shift.shape.keys()):
             raise ValueError(
-                f"translation_shift_func returned Translation with axes {list(shift.keys())}, "
+                f"translating returned Translation with axes {list(shift.keys())}, "
                 f"but target scale has axes {list(target_scale_pre_shift.shape.keys())}."
             )
         return shift
