@@ -19,7 +19,10 @@ from clearscale._translation_shift import (
     discrete_bin_center,
     half_pixel_space_preservation,
     first_value_decimation,
-    detect_translation_shift,
+    ScalingMethodCharacterization,
+    characterize_shape_scaling_method,
+    characterize_shape_factor_scaling_method,
+    characterize_step_factor_scaling_method,
 )
 from clearscale._version import __version__
 
@@ -50,7 +53,10 @@ __all__ = [
     "discrete_bin_center",
     "half_pixel_space_preservation",
     "first_value_decimation",
-    "detect_translation_shift",
+    "ScalingMethodCharacterization",
+    "characterize_shape_scaling_method",
+    "characterize_shape_factor_scaling_method",
+    "characterize_step_factor_scaling_method",
     "Affine",
     "Coefficient",
     "Linear",

@@ -35,7 +35,7 @@ Scalar = Union[int, float, numbers.Real]
 ShapeLike = Union["Shape", Mapping[AxisKeyT, int]]
 FactorLike = Union["Factor", Mapping[AxisKeyT, float]]
 RoundingFunction = Callable[[float], int]
-RoundingMethod = Union[Literal["ceil"], Literal["floor"], Literal["round"], RoundingFunction]
+RoundingMethod = Union[Literal["ceil", "floor", "round", "round_half_up", "error_on_round"], RoundingFunction]
 _AxisMappingSelf = TypeVar("_AxisMappingSelf", bound="_AxisMapping[Any, Any]")
 _AxisValuesSelf = TypeVar("_AxisValuesSelf", bound="_AxisValues[Any, Any]")
 

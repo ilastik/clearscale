@@ -82,6 +82,7 @@ base_scale: the reference scale being transformed from
 target_scale: the new scale being created (with 0 translation)
 Returns: target_scale's translation
 """
+PixelSizingMethod = Literal["shape_ratio", "corner_ratio", "exact_factor"]
 OmeZarrAxesParam = Union[Literal["infer"], OmeZarrAxes, Mapping[AxisKeyT, OmeZarrAxis]]
 
 
