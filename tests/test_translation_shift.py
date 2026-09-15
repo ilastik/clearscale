@@ -143,11 +143,14 @@ class TestCharacterizeShapeScaler:
         assert characterization.translating_error < 1e-9
 
     def test_reports_error_from_closest_known_convention(self):
-        # half_pixel_space_preservation shift is 1.502 (the "correct" first coordinate)
-        # discrete_bin_center shift is 2.0
-        # As long as 1.502 + artificial_error is closer to 1.502 than 2.0,
-        # half_pixel_space_preservation is the closest match
-        artificial_error = 0.13
+        # characterize_shape_scaling_method uses input-len 1025, target-len 257
+        # shape ratio = 3.9883268482490272373540856031128
+        # predictions:
+        #   half-pixel: shape ratio - 1 * 0.5 = 1.4941634241245136186770428015564
+        #   bin-center: (ceil(shape ratio) - 1) * 0.5 = 1.5
+        #   decimation: 0
+        # Error tolerance between half-pixel and bin-center = (1.5 - 1.49416...) / 2 = 0.00291...
+        artificial_error = 0.0025
 
         def scaling_function(source, target_length):
             source_length = len(source)
@@ -306,27 +309,6 @@ class TestCharacterizeShapeFactorScaler:
         with pytest.raises(ValueError, match="only one rounding probe"):
             characterize_shape_factor_scaling_method(picky_scaling_function)
 
-    # TODO: Make sure this works and then delete the test; this is an internal detail and the probe length + factor are fully under our control
-    def test_probe_rounding_raises_on_ambiguous_tie(self):
-        """White-box: an all-exact-division probe set makes every rounding rule agree
-        identically (floor==ceil==round==round_half_up whenever division is exact), which
-        should be reported as ambiguous rather than an arbitrary pick."""
-
-        def exact_only(source, factor):
-            n = len(source)
-            target_length = round(n * factor)
-            return _linear_scale_values(first_coordinate=0.0, spacing=1.0 / factor, length=target_length)
-
-        rounding_rules = (
-            ("floor", lambda n, s: math.floor(n * s)),
-            ("ceil", lambda n, s: math.ceil(n * s)),
-            ("round", lambda n, s: round(n * s)),
-            ("round_half_up", lambda n, s: math.floor(n * s + 0.5)),
-        )
-
-        with pytest.raises(ValueError, match="ambiguous"):
-            _probe_rounding(exact_only, [(1000, 0.5), (1000, 0.25)], rounding_rules)
-
 
 class TestCharacterizeStepFactorScaler:
     def test_detects_shape_ratio_and_floor(self):
@@ -388,7 +370,7 @@ class TestCharacterizeExactDivisionOnlyFunction:
             target_length = n // factor
             return _linear_scale_values(first_coordinate=0.0, spacing=float(factor), length=target_length)
 
-        characterization = characterize_shape_factor_scaling_method(exact_division_only)
+        characterization = characterize_step_factor_scaling_method(exact_division_only)
 
         assert characterization.rounding == "error_on_round"
         assert characterization.rounding_error == math.inf
