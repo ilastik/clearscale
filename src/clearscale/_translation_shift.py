@@ -328,17 +328,20 @@ def _characterize_factor_scaling_method(
 def _accepts_exact_scaling_only(
     successes: Sequence[Tuple[Probe, List[float], bool]],
     exact_probes: Sequence[Probe],
-    exact_length_rule: RoundingImplementation,
+    some_rounding: RoundingImplementation,
 ) -> bool:
     """
     Final check with two probes that require no rounding.
-    When all other rounding probes, this should confirm whether the method refuses to do
+    When all other rounding probes fail, this should confirm whether the method refuses to do
     any rounding at all, or if it's plain broken and always errors.
+
+    some_rounding: Doesn't matter what kind, exact_probes is supposed to be inputs where no rounding
+    is necessary.
     """
     exact_results = {(n, f): out for (n, f), out, is_exact in successes if is_exact}
     if len(exact_results) < len(exact_probes):
         return False
-    return all(len(exact_results[(n, f)]) == exact_length_rule(n, f) for n, f in exact_probes)
+    return all(len(exact_results[(n, f)]) == some_rounding(n, f) for n, f in exact_probes)
 
 
 def _characterize(
