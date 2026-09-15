@@ -124,51 +124,13 @@ class ScalingMethodCharacterization:
         return kwargs
 
 
-RoundingProbe = Tuple[int, float]
-"""Tuple of input vector length and scaling factor, 
-for probing the rounding behavior of factor-based scaling methods.
+Probe = Tuple[int, float]
+"""Tuple of input vector length and scaling factor.
 The scaling method is provided with an input sequence of the given length, 
 and asked to scale by the given factor."""
-RoundingBehavior = Callable[[int, float], int]
-"""Provides output length for a RoundingProbe (input length, factor)
-expected if the scaling function matches this behavior."""
-
-_SHAPE_FACTOR_ROUNDING_RULES: Tuple[Tuple[RoundingMethod, RoundingBehavior], ...] = (
-    ("floor", lambda n, s: math.floor(n * s)),
-    ("ceil", lambda n, s: math.ceil(n * s)),
-    ("round", lambda n, s: round(n * s)),
-    ("round_half_up", lambda n, s: math.floor(n * s + 0.5)),
-)
-_SHAPE_FACTOR_EXACT_LENGTH_RULE: RoundingBehavior = lambda n, s: int(n * s)
-_STEP_FACTOR_ROUNDING_RULES: Tuple[Tuple[RoundingMethod, RoundingBehavior], ...] = (
-    ("floor", lambda n, s: math.floor(n / s)),
-    ("ceil", lambda n, s: math.ceil(n / s)),
-    ("round", lambda n, s: round(n / s)),
-    ("round_half_up", lambda n, s: math.floor(n / s + 0.5)),
-)
-_STEP_FACTOR_EXACT_LENGTH_RULE: RoundingBehavior = lambda n, s: int(n / s)
-
-_SHAPE_FACTOR_ROUNDING_PROBES: Tuple[RoundingProbe, ...] = (
-    (1003, 0.25),  # Distinguish ceil
-    (1003, 0.75),  # vs floor for downscaling
-    (1003, 1.25),  # and for upscaling.
-    (1003, 1.75),
-    (1001, 0.5),  # Distinguish round (500) from round_half_up (501);
-    (1001, 1.5),  # confirm true round, which in this case is == round_half_up (both 1502); + cover upscaling
-    (1025, 0.37),  # Check special handling of powers of 2 for good measure,
-    (1025, 1.37),  # also for upscaling.
-    (1002, 0.25),  # And an even input.
-)
-# Two probes used to confirm a method only accepts factors that scale the input exactly (no rounding allowed)
-_SHAPE_FACTOR_EXACT_PROBES: Tuple[RoundingProbe, ...] = ((1024, 0.5), (1200, 0.25))
-# Scaling functions that accept "step factors" (2 = downscale by 2) usually don't work with fractions < 1
-_STEP_FACTOR_ROUNDING_PROBES: Tuple[RoundingProbe, ...] = (
-    (1025, 4),  # Distinguish ceil
-    (999, 4),  # vs floor
-    (1001, 2),  # vs round / round_half_up.
-    (1002, 4),  # Even input
-)
-_STEP_FACTOR_EXACT_PROBES: Tuple[RoundingProbe, ...] = ((1000, 4), (1200, 3))
+RoundingImplementation = Callable[[int, float], int]
+"""Provides output length for a Probe (input length, factor)
+that would be expected if the scaling function matches this rounding behavior."""
 
 
 def characterize_shape_scaling_method(
@@ -198,6 +160,26 @@ def characterize_shape_factor_scaling_method(
     Note that clearscale.Factor is a shape *divisor*, so when calling such a scaling function
     to execute the blueprint, pass `factor.inverted().to_tuple()`.
     """
+    _SHAPE_FACTOR_ROUNDING_RULES: Tuple[Tuple[RoundingMethod, RoundingImplementation], ...] = (
+        ("floor", lambda n, s: math.floor(n * s)),
+        ("ceil", lambda n, s: math.ceil(n * s)),
+        ("round", lambda n, s: round(n * s)),
+        ("round_half_up", lambda n, s: math.floor(n * s + 0.5)),
+    )
+    _SHAPE_FACTOR_EXACT_LENGTH_RULE: RoundingImplementation = lambda n, s: int(n * s)
+    _SHAPE_FACTOR_ROUNDING_PROBES: Tuple[Probe, ...] = (
+        (1003, 0.25),  # Distinguish ceil
+        (1003, 0.75),  # vs floor for downscaling
+        (1003, 1.25),  # and for upscaling.
+        (1003, 1.75),
+        (1001, 0.5),  # Distinguish round (500) from round_half_up (501);
+        (1001, 1.5),  # confirm true round, which in this case is == round_half_up (both 1502); + cover upscaling
+        (1025, 0.37),  # Check special handling of powers of 2 for good measure,
+        (1025, 1.37),  # also for upscaling.
+        (1002, 0.25),  # And an even input.
+    )
+    # Two probes used to confirm a method only accepts factors that scale the input exactly (no rounding allowed)
+    _SHAPE_FACTOR_EXACT_PROBES: Tuple[Probe, ...] = ((1024, 0.5), (1200, 0.25))
     return _characterize_factor_scaling_method(
         scaling_function,
         discriminating_probes=_SHAPE_FACTOR_ROUNDING_PROBES,
@@ -221,6 +203,21 @@ def characterize_step_factor_scaling_method(
     factors into such a scaling function, usually like `factor.to_tuple()`.
     Most such methods only accept integer scaling factors.
     """
+    _STEP_FACTOR_ROUNDING_RULES: Tuple[Tuple[RoundingMethod, RoundingImplementation], ...] = (
+        ("floor", lambda n, s: math.floor(n / s)),
+        ("ceil", lambda n, s: math.ceil(n / s)),
+        ("round", lambda n, s: round(n / s)),
+        ("round_half_up", lambda n, s: math.floor(n / s + 0.5)),
+    )
+    _STEP_FACTOR_EXACT_LENGTH_RULE: RoundingImplementation = lambda n, s: int(n / s)
+    # Scaling functions that accept "step factors" (2 = downscale by 2) usually don't work with fractions < 1
+    _STEP_FACTOR_ROUNDING_PROBES: Tuple[Probe, ...] = (
+        (1025, 4),  # Distinguish ceil
+        (999, 4),  # vs floor
+        (1001, 2),  # vs round / round_half_up.
+        (1002, 4),  # Even input
+    )
+    _STEP_FACTOR_EXACT_PROBES: Tuple[Probe, ...] = ((1000, 4), (1200, 3))
     return _characterize_factor_scaling_method(
         scaling_function,
         discriminating_probes=_STEP_FACTOR_ROUNDING_PROBES,
@@ -234,10 +231,10 @@ def characterize_step_factor_scaling_method(
 def _characterize_factor_scaling_method(
     scaling_function: Callable[[Sequence[float], float], Iterable[float]],
     *,
-    discriminating_probes: Sequence[RoundingProbe],
-    exact_probes: Sequence[RoundingProbe],
-    length_rule_by_rounding: Sequence[Tuple[RoundingMethod, RoundingBehavior]],
-    exact_length_rule: RoundingBehavior,
+    discriminating_probes: Sequence[Probe],
+    exact_probes: Sequence[Probe],
+    length_rule_by_rounding: Sequence[Tuple[RoundingMethod, RoundingImplementation]],
+    exact_length_rule: RoundingImplementation,
     factor_to_spacing: Callable[[float], float],
 ) -> ScalingMethodCharacterization:
     """
@@ -251,7 +248,7 @@ def _characterize_factor_scaling_method(
     are numerically identical under exact division, so any fallback restricted to
     exact-dividing pairs would be structurally unable to distinguish them.
     """
-    successes: List[Tuple[RoundingProbe, List[float], bool]] = []
+    successes: List[Tuple[Probe, List[float], bool]] = []
     exact_set = set(exact_probes)
     for source_length, probe_value in (*discriminating_probes, *exact_probes):
         coords = [float(i) for i in range(source_length)]
@@ -334,9 +331,9 @@ def _characterize_factor_scaling_method(
 
 
 def _accepts_exact_scaling_only(
-    successes: Sequence[Tuple[RoundingProbe, List[float], bool]],
-    exact_probes: Sequence[RoundingProbe],
-    exact_length_rule: RoundingBehavior,
+    successes: Sequence[Tuple[Probe, List[float], bool]],
+    exact_probes: Sequence[Probe],
+    exact_length_rule: RoundingImplementation,
 ) -> bool:
     """
     Final check with two probes that require no rounding.
