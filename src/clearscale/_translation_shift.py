@@ -1,7 +1,6 @@
 import math
-import warnings
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Mapping, NamedTuple
 
 from clearscale._axis_values import Translation, PixelSize, RoundingMethod, Shape
 from clearscale._multiscale import Scale, TranslationShiftFunction, PixelSizingMethod
@@ -119,51 +118,14 @@ class ScalingMethodCharacterization:
         return kwargs
 
 
-RoundingProbe = Tuple[int, float]
-"""Tuple of input vector length and scaling factor, 
-for probing the rounding behavior of factor-based scaling methods.
-The scaling method is provided with an input sequence of the given length, 
-and asked to scale by the given factor."""
-RoundingBehavior = Callable[[int, float], int]
-"""Provides output length for a RoundingProbe (input length, factor)
-expected if the scaling function matches this behavior."""
+class Probe(NamedTuple):
+    source_length: int
+    factor: float
 
-_SHAPE_FACTOR_ROUNDING_RULES: Tuple[Tuple[RoundingMethod, RoundingBehavior], ...] = (
-    ("floor", lambda n, s: math.floor(n * s)),
-    ("ceil", lambda n, s: math.ceil(n * s)),
-    ("round", lambda n, s: round(n * s)),
-    ("round_half_up", lambda n, s: math.floor(n * s + 0.5)),
-)
-_SHAPE_FACTOR_EXACT_LENGTH_RULE: RoundingBehavior = lambda n, s: int(n * s)
-_STEP_FACTOR_ROUNDING_RULES: Tuple[Tuple[RoundingMethod, RoundingBehavior], ...] = (
-    ("floor", lambda n, s: math.floor(n / s)),
-    ("ceil", lambda n, s: math.ceil(n / s)),
-    ("round", lambda n, s: round(n / s)),
-    ("round_half_up", lambda n, s: math.floor(n / s + 0.5)),
-)
-_STEP_FACTOR_EXACT_LENGTH_RULE: RoundingBehavior = lambda n, s: int(n / s)
 
-_SHAPE_FACTOR_ROUNDING_PROBES: Tuple[RoundingProbe, ...] = (
-    (1003, 0.25),  # Distinguish ceil
-    (1003, 0.75),  # vs floor for downscaling
-    (1003, 1.25),  # and for upscaling.
-    (1003, 1.75),
-    (1001, 0.5),  # Distinguish round (500) from round_half_up (501);
-    (1001, 1.5),  # confirm true round, which in this case is == round_half_up (both 1502); + cover upscaling
-    (1025, 0.37),  # Check special handling of powers of 2 for good measure,
-    (1025, 1.37),  # also for upscaling.
-    (1002, 0.25),  # And an even input.
-)
-# Two probes used to confirm a method only accepts factors that scale the input exactly (no rounding allowed)
-_SHAPE_FACTOR_EXACT_PROBES: Tuple[RoundingProbe, ...] = ((1024, 0.5), (1200, 0.25))
-# Scaling functions that accept "step factors" (2 = downscale by 2) usually don't work with fractions < 1
-_STEP_FACTOR_ROUNDING_PROBES: Tuple[RoundingProbe, ...] = (
-    (1025, 4),  # Distinguish ceil
-    (999, 4),  # vs floor
-    (1001, 2),  # vs round / round_half_up.
-    (1002, 4),  # Even input
-)
-_STEP_FACTOR_EXACT_PROBES: Tuple[RoundingProbe, ...] = ((1000, 4), (1200, 3))
+RoundingRule = Callable[[Probe], int]
+"""Predicts the output length a specific rounding convention would produce for `probe`."""
+RoundingRuleTable = Mapping[RoundingMethod, RoundingRule]
 
 
 def characterize_shape_scaling_method(
@@ -176,7 +138,7 @@ def characterize_shape_scaling_method(
     """
     source_length = 1025
     out = _as_1d_float_list(scaling_function([float(i) for i in range(source_length)], 257))
-    characterization, is_tied = _characterize(out, source_length, exact_factor_spacing=None)
+    characterization, is_tied = _characterize_affine(out, source_length, exact_factor_spacing=None)
     assert not is_tied, "unreachable: no exact_factor candidate and source != target"
     return characterization
 
@@ -193,13 +155,32 @@ def characterize_shape_factor_scaling_method(
     Note that clearscale.Factor is a shape *divisor*, so when calling such a scaling function
     to execute the blueprint, pass `factor.inverted().to_tuple()`.
     """
+    rounding_rules: RoundingRuleTable = {
+        "floor": lambda p: math.floor(p.source_length * p.factor),
+        "ceil": lambda p: math.ceil(p.source_length * p.factor),
+        "round": lambda p: round(p.source_length * p.factor),
+        "round_half_up": lambda p: math.floor(p.source_length * p.factor + 0.5),
+    }
+    discriminating_probes = (
+        Probe(1003, 0.25),  # Distinguish ceil
+        Probe(1003, 0.75),  # vs floor for downscaling
+        Probe(1003, 1.25),  # and for upscaling.
+        Probe(1003, 1.75),
+        Probe(1001, 0.5),  # Distinguish round (500) from round_half_up (501);
+        Probe(1001, 1.5),  # confirm true round, which here == round_half_up (both 1502); covers upscaling too.
+        Probe(1025, 0.37),  # Check special handling around powers of 2,
+        Probe(1025, 1.37),  # also for upscaling.
+        Probe(1002, 0.25),  # And an even input length.
+    )
+    # Two probes used to confirm a method at least accepts factors that scale the input exactly (no rounding allowed)
+    exact_probes = (Probe(1024, 0.5), Probe(1200, 0.25))
+
     return _characterize_factor_scaling_method(
         scaling_function,
-        discriminating_probes=_SHAPE_FACTOR_ROUNDING_PROBES,
-        exact_probes=_SHAPE_FACTOR_EXACT_PROBES,
-        length_rule_by_rounding=_SHAPE_FACTOR_ROUNDING_RULES,
-        exact_length_rule=_SHAPE_FACTOR_EXACT_LENGTH_RULE,
-        spacing_for_factor=lambda f: 1.0 / f,
+        discriminating_probes=discriminating_probes,
+        exact_probes=exact_probes,
+        rounding_to_implementation=rounding_rules,
+        factor_to_spacing=lambda f: 1.0 / f,
     )
 
 
@@ -216,135 +197,147 @@ def characterize_step_factor_scaling_method(
     factors into such a scaling function, usually like `factor.to_tuple()`.
     Most such methods only accept integer scaling factors.
     """
+    rounding_rules: RoundingRuleTable = {
+        "floor": lambda p: math.floor(p.source_length / p.factor),
+        "ceil": lambda p: math.ceil(p.source_length / p.factor),
+        "round": lambda p: round(p.source_length / p.factor),
+        "round_half_up": lambda p: math.floor(p.source_length / p.factor + 0.5),
+    }
+    # Scaling functions that accept "step factors" (2 = downscale by 2) usually don't work with fractions < 1
+    discriminating_probes = (
+        Probe(1025, 4),  # Distinguish ceil
+        Probe(999, 4),  # vs floor
+        Probe(1001, 2),  # vs round / round_half_up.
+        Probe(1002, 4),  # Even input
+    )
+    exact_probes = (Probe(1000, 4), Probe(1200, 3))
+
     return _characterize_factor_scaling_method(
         scaling_function,
-        discriminating_probes=_STEP_FACTOR_ROUNDING_PROBES,
-        exact_probes=_STEP_FACTOR_EXACT_PROBES,
-        length_rule_by_rounding=_STEP_FACTOR_ROUNDING_RULES,
-        exact_length_rule=_STEP_FACTOR_EXACT_LENGTH_RULE,
-        spacing_for_factor=lambda f: float(f),
+        discriminating_probes=discriminating_probes,
+        exact_probes=exact_probes,
+        rounding_to_implementation=rounding_rules,
+        factor_to_spacing=lambda f: float(f),
     )
 
 
 def _characterize_factor_scaling_method(
     scaling_function: Callable[[Sequence[float], float], Iterable[float]],
     *,
-    discriminating_probes: Sequence[RoundingProbe],
-    exact_probes: Sequence[RoundingProbe],
-    length_rule_by_rounding: Sequence[Tuple[RoundingMethod, RoundingBehavior]],
-    exact_length_rule: RoundingBehavior,
-    spacing_for_factor: Callable[[float], float],
+    discriminating_probes: Sequence[Probe],
+    exact_probes: Sequence[Probe],
+    rounding_to_implementation: RoundingRuleTable,
+    factor_to_spacing: Callable[[float], float],
 ) -> ScalingMethodCharacterization:
     """
     Shared implementation for the two factor-parametrized characterize_* functions.
-    `spacing_for_factor` resolves a probe's factor value to its predicted "exact_factor"
+
+    `factor_to_spacing` resolves a probe's factor value to its predicted "exact_factor"
     pixel spacing under the caller's convention (1/f for multiplier, f for divisor).
-
-    Reuses each successfully-probed (n, f) call's actual output for both rounding
-    detection and pixel-sizing/shift fitting -- no probe is ever discarded after use,
-    and no separate "fallback factor" mechanism is needed: shape_ratio and exact_factor
-    are numerically identical under exact division, so any fallback restricted to
-    exact-dividing pairs would be structurally unable to distinguish them.
     """
-    successes: List[Tuple[RoundingProbe, List[float], bool]] = []
-    exact_set = set(exact_probes)
-    for source_length, probe_value in (*discriminating_probes, *exact_probes):
-        coords = [float(i) for i in range(source_length)]
+    discriminating_results = dict(zip(discriminating_probes, _run_probes(scaling_function, discriminating_probes)))
+    exact_results = dict(zip(exact_probes, _run_probes(scaling_function, exact_probes)))
+
+    try:
+        rounding, rounding_error = _detect_rounding(discriminating_results, rounding_to_implementation)
+    except ValueError:
+        some_rounding = next(iter(rounding_to_implementation.values()))
+        if all(output is not None and len(output) == some_rounding(probe) for probe, output in exact_results.items()):
+            # All the regular probes failed, but at least the scaling function accepted probes that need no rounding
+            rounding: RoundingMethod = "error_on_round"
+            rounding_error = math.inf
+        else:
+            raise
+
+    # Try discriminating first, then exact as fallback
+    all_successes = [(p, o) for p, o in (*discriminating_results.items(), *exact_results.items()) if o is not None]
+    # exact_results can't distinguish pixel_sizing "shape_ratio" from "exact_factor" (without shape rounding, both produce the same number)
+    pixel_sizing_tie_expected = rounding == "error_on_round"
+    characterization = _get_first_unambiguous_affine_characterization(
+        all_successes, factor_to_spacing, pixel_sizing_tie_expected
+    )
+
+    return replace(
+        characterization,
+        rounding=rounding,
+        rounding_error=rounding_error,
+    )
+
+
+def _run_probes(scaling_function, probes: Sequence[Probe]) -> List[Optional[List[float]]]:
+    results: List[Optional[List[float]]] = []
+    for probe in probes:
+        coords = [float(i) for i in range(probe.source_length)]
         try:
-            out = _as_1d_float_list(scaling_function(coords, probe_value))
+            results.append(_as_1d_float_list(scaling_function(coords, probe.factor)))
         except Exception:
-            continue
-        successes.append(((source_length, probe_value), out, (source_length, probe_value) in exact_set))
+            results.append(None)
+    return results
 
-    discriminating_successes = [s for s in successes if not s[2]]
 
-    # --- rounding ---
-    if len(discriminating_successes) >= 2:
-        total_error = {name: 0.0 for name, _ in length_rule_by_rounding}
-        for (source_length, probe_value), out, _ in discriminating_successes:
-            for name, rule in length_rule_by_rounding:
-                total_error[name] += abs(len(out) - rule(source_length, probe_value))
-        ranked = sorted(total_error.items(), key=lambda item: item[1])
-        if ranked[0][1] != 0.0:
-            raise ValueError(
-                f"Scaling function's output length does not exactly match any known rounding rule "
-                f"(closest: {ranked[0][0]!r}, total mismatch {ranked[0][1]:.3g} across "
-                f"{len(discriminating_successes)} probes). Rounding may be input-size-dependent "
-                "(e.g. a pooling method that discards a partial final window), or non-standard."
-            )
-        if ranked[1][1] == 0.0:
-            raise ValueError("Rounding characterization is ambiguous: multiple rounding rules match equally well.")
-        rounding, rounding_error = ranked[0][0], ranked[1][1]
-    elif _accepts_exact_scaling_only(successes, exact_probes, exact_length_rule):
-        # Not necessarily "rejects non-exact input" -- some methods (e.g. padding-style
-        # block-reduce) silently accept non-exact input instead of raising, in which case
-        # this branch is never reached and they're characterized normally below.
-        rounding: RoundingMethod
-        rounding, rounding_error = "error_on_round", math.inf
-    elif len(discriminating_successes) == 0:
+def _detect_rounding(
+    discriminating_results: Mapping[Probe, Optional[List[float]]],
+    rounding_to_implementation: RoundingRuleTable,
+) -> Tuple[RoundingMethod, float]:
+    """
+    Identify which rounding rule the scaling function's output length follows.
+
+    Needs >= 2 *discriminating* (deliberately non-exact) probe results: a single probe, or
+    any exact-dividing probe, can't distinguish floor/ceil/round/round_half_up -- they all
+    agree once division is exact.
+
+    With fewer than 2 discriminating results, falls back to checking whether the method
+    accepts only exact division (`_accepts_exact_division_only`). If so, reports
+    "error_on_round" rather than guessing: there's genuinely no rounding behaviour to observe.
+    """
+    successful_discriminating_results = {p: o for p, o in discriminating_results.items() if o is not None}
+    if len(successful_discriminating_results) == 0:
         raise ValueError("Scaling function rejected every rounding probe.")
-    else:
+    if len(successful_discriminating_results) == 1:
         raise ValueError("Scaling function accepted only one rounding probe; rounding cannot be characterized.")
 
-    # --- pixel-sizing + shift: walk probes (discriminating first) until one is unambiguous ---
-    accumulated_warnings: List[str] = []
-    for (source_length, probe_value), out, is_exact in (*discriminating_successes, *(s for s in successes if s[2])):
+    total_error = {name: 0 for name in rounding_to_implementation}
+    for probe, output in successful_discriminating_results.items():
+        for name, predict_length in rounding_to_implementation.items():
+            total_error[name] += abs(len(output) - predict_length(probe))
+
+    ranked = sorted(total_error.items(), key=lambda item: item[1])
+    best_rounding, best_error = ranked[0]
+    if best_error != 0:
+        raise ValueError(
+            f"Scaling function's output length does not exactly match any known rounding rule "
+            f"(closest: {best_rounding!r}, total mismatch {best_error:.3g} across "
+            f"{len(discriminating_results)} probes). Rounding may be input-size-dependent "
+            "(e.g. a pooling method that discards a partial final window), or non-standard."
+        )
+    _, runner_up_error = ranked[1]
+    if runner_up_error == 0:
+        raise ValueError("Rounding characterization is ambiguous: multiple rounding rules match equally well.")
+    return best_rounding, runner_up_error
+
+
+def _get_first_unambiguous_affine_characterization(
+    successes: Sequence[Tuple[Probe, Optional[List[float]]]],
+    factor_to_spacing: Callable[[float], float],
+    pixel_sizing_tie_expected: bool,
+) -> ScalingMethodCharacterization:
+    for probe, output in successes:
         try:
-            characterization, is_tied = _characterize(
-                out, source_length, exact_factor_spacing=spacing_for_factor(probe_value)
+            characterization, is_pixel_sizing_tied = _characterize_affine(
+                output,
+                probe.source_length,
+                exact_factor_spacing=factor_to_spacing(probe.factor),
             )
         except ValueError:
             continue
 
-        if not is_tied:
-            return replace(
-                characterization,
-                rounding=rounding,
-                rounding_error=rounding_error,
-                warnings=(*accumulated_warnings, *characterization.warnings),
-            )
-
-        if rounding == "error_on_round" and characterization.pixel_sizing in ("shape_ratio", "exact_factor"):
-            # Provably identical for a method whose only valid calls are exact-dividing
-            # (see docstring proof in ScalingMethodCharacterization) -- not a real ambiguity.
-            return replace(
-                characterization,
-                pixel_sizing="exact_factor",
-                rounding=rounding,
-                rounding_error=rounding_error,
-                warnings=(
-                    *accumulated_warnings,
-                    *characterization.warnings,
-                    "shape_ratio and exact_factor are provably identical for this exact-division-only "
-                    "method; exact_factor reported by convention, not by discriminating measurement.",
-                ),
-            )
-
-        accumulated_warnings.append(
-            f"Probe (n={source_length}, factor={probe_value}) could not distinguish pixel-sizing "
-            "candidates; tried next probe."
-        )
+        if not is_pixel_sizing_tied or pixel_sizing_tie_expected:
+            return characterization
 
     raise ValueError("No probe produced an unambiguous pixel-sizing/shift characterization.")
 
 
-def _accepts_exact_scaling_only(
-    successes: Sequence[Tuple[RoundingProbe, List[float], bool]],
-    exact_probes: Sequence[RoundingProbe],
-    exact_length_rule: RoundingBehavior,
-) -> bool:
-    """
-    Final check with two probes that require no rounding.
-    When all other rounding probes, this should confirm whether the method refuses to do
-    any rounding at all, or if it's plain broken and always errors.
-    """
-    exact_results = {(n, f): out for (n, f), out, is_exact in successes if is_exact}
-    if len(exact_results) < len(exact_probes):
-        return False
-    return all(len(exact_results[(n, f)]) == exact_length_rule(n, f) for n, f in exact_probes)
-
-
-def _characterize(
+def _characterize_affine(
     out: Sequence[float],
     source_length: int,
     *,
@@ -405,7 +398,7 @@ def _characterize(
     )
     pixel_sizing, winner_error = errors[0]
     pixel_sizing_error = max(winner_error, affine_error)
-    is_tied = len(errors) > 1 and errors[1][1] < tie_threshold
+    is_pixel_sizing_tie = len(errors) > 1 and errors[1][1] < tie_threshold
 
     base = Scale(shape=Shape(x=source_length), pixel_size=PixelSize(x=1.0))
     target = Scale(shape=Shape(x=target_length), pixel_size=PixelSize(x=spacing))
@@ -437,7 +430,7 @@ def _characterize(
         rounding_error=None,
         warnings=tuple(warning_msgs),
     )
-    return characterization, is_tied
+    return characterization, is_pixel_sizing_tie
 
 
 def _as_1d_float_list(values: Iterable[float]) -> list[float]:
