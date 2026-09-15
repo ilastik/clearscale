@@ -204,7 +204,7 @@ def characterize_shape_factor_scaling_method(
         exact_probes=_SHAPE_FACTOR_EXACT_PROBES,
         length_rule_by_rounding=_SHAPE_FACTOR_ROUNDING_RULES,
         exact_length_rule=_SHAPE_FACTOR_EXACT_LENGTH_RULE,
-        spacing_for_factor=lambda f: 1.0 / f,
+        factor_to_spacing=lambda f: 1.0 / f,
     )
 
 
@@ -227,7 +227,7 @@ def characterize_step_factor_scaling_method(
         exact_probes=_STEP_FACTOR_EXACT_PROBES,
         length_rule_by_rounding=_STEP_FACTOR_ROUNDING_RULES,
         exact_length_rule=_STEP_FACTOR_EXACT_LENGTH_RULE,
-        spacing_for_factor=lambda f: float(f),
+        factor_to_spacing=lambda f: float(f),
     )
 
 
@@ -238,7 +238,7 @@ def _characterize_factor_scaling_method(
     exact_probes: Sequence[RoundingProbe],
     length_rule_by_rounding: Sequence[Tuple[RoundingMethod, RoundingBehavior]],
     exact_length_rule: RoundingBehavior,
-    spacing_for_factor: Callable[[float], float],
+    factor_to_spacing: Callable[[float], float],
 ) -> ScalingMethodCharacterization:
     """
     Shared implementation for the two factor-parametrized characterize_* functions.
@@ -296,7 +296,7 @@ def _characterize_factor_scaling_method(
     for (source_length, probe_value), out, is_exact in (*discriminating_successes, *(s for s in successes if s[2])):
         try:
             characterization, is_tied = _characterize(
-                out, source_length, exact_factor_spacing=spacing_for_factor(probe_value)
+                out, source_length, exact_factor_spacing=factor_to_spacing(probe_value)
             )
         except ValueError:
             continue
