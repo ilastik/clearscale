@@ -262,16 +262,18 @@ def _characterize_factor_scaling_method(
             for name, rule in rounding_to_implementation.items():
                 total_error[name] += abs(len(out) - rule(source_length, probe_value))
         ranked = sorted(total_error.items(), key=lambda item: item[1])
-        if ranked[0][1] != 0.0:
+        best_rounding, best_error = ranked[0]
+        if best_error != 0.0:
             raise ValueError(
                 f"Scaling function's output length does not exactly match any known rounding rule "
-                f"(closest: {ranked[0][0]!r}, total mismatch {ranked[0][1]:.3g} across "
+                f"(closest: {best_rounding!r}, total mismatch {best_error:.3g} across "
                 f"{len(discriminating_successes)} probes). Rounding may be input-size-dependent "
                 "(e.g. a pooling method that discards a partial final window), or non-standard."
             )
-        if ranked[1][1] == 0.0:
+        _, runner_up_error = ranked[1]
+        if runner_up_error == 0.0:
             raise ValueError("Rounding characterization is ambiguous: multiple rounding rules match equally well.")
-        rounding, rounding_error = ranked[0][0], ranked[1][1]
+        rounding, rounding_error = best_rounding, runner_up_error
     elif _accepts_exact_scaling_only(successes, exact_probes, next(iter(rounding_to_implementation.values()))):
         # Not necessarily "rejects non-exact input" -- some methods (e.g. padding-style
         # block-reduce) silently accept non-exact input instead of raising, in which case
@@ -287,13 +289,13 @@ def _characterize_factor_scaling_method(
     accumulated_warnings: List[str] = []
     for (source_length, probe_value), out, is_exact in (*discriminating_successes, *(s for s in successes if s[2])):
         try:
-            characterization, is_tied = _characterize(
+            characterization, is_pixel_sizing_tie = _characterize(
                 out, source_length, exact_factor_spacing=factor_to_spacing(probe_value)
             )
         except ValueError:
             continue
 
-        if not is_tied:
+        if not is_pixel_sizing_tie:
             return replace(
                 characterization,
                 rounding=rounding,
@@ -405,7 +407,7 @@ def _characterize(
     )
     pixel_sizing, winner_error = errors[0]
     pixel_sizing_error = max(winner_error, affine_error)
-    is_tied = len(errors) > 1 and errors[1][1] < tie_threshold
+    is_pixel_sizing_tie = len(errors) > 1 and errors[1][1] < tie_threshold
 
     base = Scale(shape=Shape(x=source_length), pixel_size=PixelSize(x=1.0))
     target = Scale(shape=Shape(x=target_length), pixel_size=PixelSize(x=spacing))
@@ -437,7 +439,7 @@ def _characterize(
         rounding_error=None,
         warnings=tuple(warning_msgs),
     )
-    return characterization, is_tied
+    return characterization, is_pixel_sizing_tie
 
 
 def _as_1d_float_list(values: Iterable[float]) -> list[float]:
