@@ -166,7 +166,6 @@ def characterize_shape_factor_scaling_method(
         ("round", lambda n, s: round(n * s)),
         ("round_half_up", lambda n, s: math.floor(n * s + 0.5)),
     )
-    _SHAPE_FACTOR_EXACT_LENGTH_RULE: RoundingImplementation = lambda n, s: int(n * s)
     _SHAPE_FACTOR_ROUNDING_PROBES: Tuple[Probe, ...] = (
         (1003, 0.25),  # Distinguish ceil
         (1003, 0.75),  # vs floor for downscaling
@@ -185,7 +184,6 @@ def characterize_shape_factor_scaling_method(
         discriminating_probes=_SHAPE_FACTOR_ROUNDING_PROBES,
         exact_probes=_SHAPE_FACTOR_EXACT_PROBES,
         length_rule_by_rounding=_SHAPE_FACTOR_ROUNDING_RULES,
-        exact_length_rule=_SHAPE_FACTOR_EXACT_LENGTH_RULE,
         factor_to_spacing=lambda f: 1.0 / f,
     )
 
@@ -209,7 +207,6 @@ def characterize_step_factor_scaling_method(
         ("round", lambda n, s: round(n / s)),
         ("round_half_up", lambda n, s: math.floor(n / s + 0.5)),
     )
-    _STEP_FACTOR_EXACT_LENGTH_RULE: RoundingImplementation = lambda n, s: int(n / s)
     # Scaling functions that accept "step factors" (2 = downscale by 2) usually don't work with fractions < 1
     _STEP_FACTOR_ROUNDING_PROBES: Tuple[Probe, ...] = (
         (1025, 4),  # Distinguish ceil
@@ -223,7 +220,6 @@ def characterize_step_factor_scaling_method(
         discriminating_probes=_STEP_FACTOR_ROUNDING_PROBES,
         exact_probes=_STEP_FACTOR_EXACT_PROBES,
         length_rule_by_rounding=_STEP_FACTOR_ROUNDING_RULES,
-        exact_length_rule=_STEP_FACTOR_EXACT_LENGTH_RULE,
         factor_to_spacing=lambda f: float(f),
     )
 
@@ -234,7 +230,6 @@ def _characterize_factor_scaling_method(
     discriminating_probes: Sequence[Probe],
     exact_probes: Sequence[Probe],
     length_rule_by_rounding: Sequence[Tuple[RoundingMethod, RoundingImplementation]],
-    exact_length_rule: RoundingImplementation,
     factor_to_spacing: Callable[[float], float],
 ) -> ScalingMethodCharacterization:
     """
@@ -277,7 +272,7 @@ def _characterize_factor_scaling_method(
         if ranked[1][1] == 0.0:
             raise ValueError("Rounding characterization is ambiguous: multiple rounding rules match equally well.")
         rounding, rounding_error = ranked[0][0], ranked[1][1]
-    elif _accepts_exact_scaling_only(successes, exact_probes, exact_length_rule):
+    elif _accepts_exact_scaling_only(successes, exact_probes, next(iter(length_rule_by_rounding))[1]):
         # Not necessarily "rejects non-exact input" -- some methods (e.g. padding-style
         # block-reduce) silently accept non-exact input instead of raising, in which case
         # this branch is never reached and they're characterized normally below.
