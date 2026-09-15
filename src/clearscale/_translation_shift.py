@@ -1,7 +1,7 @@
 import math
 import warnings
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Mapping
 
 from clearscale._axis_values import Translation, PixelSize, RoundingMethod, Shape
 from clearscale._multiscale import Scale, TranslationShiftFunction, PixelSizingMethod
@@ -183,7 +183,7 @@ def characterize_shape_factor_scaling_method(
         scaling_function,
         discriminating_probes=_SHAPE_FACTOR_ROUNDING_PROBES,
         exact_probes=_SHAPE_FACTOR_EXACT_PROBES,
-        length_rule_by_rounding=_SHAPE_FACTOR_ROUNDING_RULES,
+        rounding_to_implementation=dict(_SHAPE_FACTOR_ROUNDING_RULES),
         factor_to_spacing=lambda f: 1.0 / f,
     )
 
@@ -219,7 +219,7 @@ def characterize_step_factor_scaling_method(
         scaling_function,
         discriminating_probes=_STEP_FACTOR_ROUNDING_PROBES,
         exact_probes=_STEP_FACTOR_EXACT_PROBES,
-        length_rule_by_rounding=_STEP_FACTOR_ROUNDING_RULES,
+        rounding_to_implementation=dict(_STEP_FACTOR_ROUNDING_RULES),
         factor_to_spacing=lambda f: float(f),
     )
 
@@ -229,7 +229,7 @@ def _characterize_factor_scaling_method(
     *,
     discriminating_probes: Sequence[Probe],
     exact_probes: Sequence[Probe],
-    length_rule_by_rounding: Sequence[Tuple[RoundingMethod, RoundingImplementation]],
+    rounding_to_implementation: Mapping[RoundingMethod, RoundingImplementation],
     factor_to_spacing: Callable[[float], float],
 ) -> ScalingMethodCharacterization:
     """
@@ -257,9 +257,9 @@ def _characterize_factor_scaling_method(
 
     # --- rounding ---
     if len(discriminating_successes) >= 2:
-        total_error = {name: 0.0 for name, _ in length_rule_by_rounding}
+        total_error = {name: 0.0 for name in rounding_to_implementation.keys()}
         for (source_length, probe_value), out, _ in discriminating_successes:
-            for name, rule in length_rule_by_rounding:
+            for name, rule in rounding_to_implementation.items():
                 total_error[name] += abs(len(out) - rule(source_length, probe_value))
         ranked = sorted(total_error.items(), key=lambda item: item[1])
         if ranked[0][1] != 0.0:
@@ -272,7 +272,7 @@ def _characterize_factor_scaling_method(
         if ranked[1][1] == 0.0:
             raise ValueError("Rounding characterization is ambiguous: multiple rounding rules match equally well.")
         rounding, rounding_error = ranked[0][0], ranked[1][1]
-    elif _accepts_exact_scaling_only(successes, exact_probes, next(iter(length_rule_by_rounding))[1]):
+    elif _accepts_exact_scaling_only(successes, exact_probes, next(iter(rounding_to_implementation.values()))):
         # Not necessarily "rejects non-exact input" -- some methods (e.g. padding-style
         # block-reduce) silently accept non-exact input instead of raising, in which case
         # this branch is never reached and they're characterized normally below.
