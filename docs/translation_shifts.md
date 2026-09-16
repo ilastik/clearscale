@@ -4,12 +4,12 @@
 When clearscale derives a scaled `Scale`, the shape and pixel size can be calculated from the output shape, but the translation depends on how the scaled pixels were sampled from the original data.
 This cannot be inferred purely from existing metadata or the scaling blueprint.
 
-Pass a `translation_shift_func` to `blueprint.apply_to_scale()` when your scaling operation changes where the first scaled pixel belongs in physical space:
+Pass a `translating` function to `blueprint.apply_to_scale()` when your scaling operation changes where the first scaled pixel belongs in physical space:
 
 ```python
 multiscale = blueprint.apply_to_scale(
     base,
-    translation_shift_func=half_pixel_space_preservation,
+    translating=half_pixel_space_preservation,
 )
 ```
 
@@ -64,7 +64,7 @@ blueprint = BlueprintShapes.uniform_steps(
 
 multiscale = blueprint.apply_to_scale(
     base,
-    translation_shift_func=half_pixel_space_preservation,
+    translating=half_pixel_space_preservation,
 )
 
 assert multiscale["s1"].shape == Shape(y=512, x=768)
@@ -133,7 +133,7 @@ block_factors = BlueprintFactors(
 multiscale = block_factors.apply_to_scale(
     base,
     rounding="ceil",
-    translation_shift_func=discrete_bin_center,
+    translating=discrete_bin_center,
 )
 
 assert multiscale["s2"].shape == Shape(y=512, x=512)
@@ -187,7 +187,7 @@ stride_factors = BlueprintFactors(
 multiscale = stride_factors.apply_to_scale(
     base,
     rounding="ceil",
-    translation_shift_func=first_value_decimation,
+    translating=first_value_decimation,
 )
 
 assert multiscale["s2"].shape == Shape(y=512, x=512)

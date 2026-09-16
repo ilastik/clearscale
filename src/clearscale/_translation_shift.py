@@ -1,6 +1,6 @@
 import math
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Mapping, NamedTuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Mapping, NamedTuple, TypedDict
 
 from clearscale._axis_values import Translation, PixelSize, RoundingMethod, Shape
 from clearscale._multiscale import Scale, TranslationShiftFunction, PixelSizingMethod
@@ -93,6 +93,16 @@ known_shift_functions: Tuple[TranslationShiftFunction, ...] = (
 )
 
 
+class ScalingMethodKwargs(TypedDict):
+    """kwargs for `Blueprint*.apply_to_scale`: everything needed to ensure shape, pixel size and
+    translation are computed accurately for output Scales."""
+
+    # Unpack unavailable in py3.10 -- make sure these kwargs stay synchronised with the method signatures
+    pixel_sizing: PixelSizingMethod
+    translating: TranslationShiftFunction
+    rounding: Optional[RoundingMethod]
+
+
 @dataclass(frozen=True, slots=True)
 class ScalingMethodCharacterization:
     translating: TranslationShiftFunction
@@ -108,14 +118,15 @@ class ScalingMethodCharacterization:
     """Non-fatal concerns about the characterization's reliability (noisy/ambiguous fits etc).
     Non-empty means `translating`, `pixel_sizing` and/or `rounding` might be plain wrong."""
 
-    def to_kwargs(self) -> Dict[str, Any]:
+    def to_kwargs(self) -> ScalingMethodKwargs:
         """kwargs to `**`-splat into the matching `apply_to_scale` call.
-        `rounding is None` -> `BlueprintShapes.apply_to_scale(**kwargs)`.
-        `rounding is not None` -> `BlueprintFactors.apply_to_scale(**kwargs)`."""
-        kwargs: Dict[str, Any] = {"translating": self.translating, "pixel_sizing": self.pixel_sizing}
-        if self.rounding is not None:
-            kwargs["rounding"] = self.rounding
-        return kwargs
+        `rounding is None` -> `BlueprintShapes.apply_to_scale(scale, **kwargs)`.
+        `rounding is not None` -> `BlueprintFactors.apply_to_scale(scale, **kwargs)`."""
+        return ScalingMethodKwargs(
+            pixel_sizing=self.pixel_sizing,
+            translating=self.translating,
+            rounding=self.rounding,
+        )
 
 
 class Probe(NamedTuple):

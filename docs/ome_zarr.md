@@ -246,7 +246,7 @@ multiscale = Multiscale.from_single(
 If more metadata is available (pixel size, units, etc.), pass it to the `Scale`.
 
 If you're scaling the data, make a matching blueprint and add the `blueprint=your_blueprint` parameter to expand the single Scale to multiple scales matching your blueprint.
-Don't forget the appropriate `translation_shift_func`.
+Don't forget to supply how your scaling method handles `pixel_sizing`, `translating` and `rounding`.
 
 (Also cf. the other examples in [the top-level readme](../README.md))
 
@@ -264,7 +264,7 @@ new_multiscale = old_multiscale.derive("s3")
 # Multiscale({"s3": Scale(...)})
 ```
 
-If you also scale the processing output derived from that scale, provide the matching blueprint and the translation shift as for `from_single`.
+If you also scale the processing output derived from that scale, provide the matching blueprint and scaling method characteristics as for `from_single`.
 
 `derive` accepts an additional parameter `derived_by: Union[SpatialRelation, Sequence[SpatialRelation]]`.
 You can use it to specify *how* the new Multiscale was derived from the source Scale.

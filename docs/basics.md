@@ -19,7 +19,7 @@ If you've been coding for a bit already, you most likely just need to know:
 Potential gotchas:
 
 * When describing relative scaling, `Factor` is a _multiplier_ for `PixelSize` and a _divisor_ for `Shape`. `Factor(x=2)` means "downscale by factor 2" - doubling pixel size and halving image shape. `Shape / Factor` needs to know how your scaling method rounds uneven divisions, so must be called as `shape.scaled_by(factor, rounding="ceil")`. Note that many scaling methods like `scipy.ndimage.zoom` expect *shape multiplier* factors, so you'd need to pass `factor.inverted().to_tuple()`.
-* Scaling usually introduces a shift, or `Translation`, to the scaled image's origin in physical space. Methods that handle `Scale` objects (and hence `Scale.translation`) handle this via `translation_shift_func` (see [Which shift is the right one for my scaling method?](translation_shifts.md#which-shift-is-the-right-one-for-my-scaling-method))
+* Scaling usually introduces a shift, or `Translation`, to the scaled image's origin in physical space. Methods that handle `Scale` objects (and hence `Scale.translation`) handle this via a `TranslationShiftFunction` (see [Which shift is the right one for my scaling method?](translation_shifts.md#which-shift-is-the-right-one-for-my-scaling-method))
 
 ## Axis values: Dicts are better than tuples
 
@@ -261,7 +261,7 @@ assert multiscale["s2"].pixel_size == PixelSize(z=0.5, y=1.0, x=1.0)
 ```
 
 By default, applying a blueprint to a Scale keeps the base Scale's translation for all derived Scales.
-If your scaling operation changes where the first output pixel belongs in physical space (most commonly used scaling methods do), choose an explicit `translation_shift_func`.
+If your scaling operation changes where the first output pixel belongs in physical space (most commonly used scaling methods do), choose an explicit `translating` function.
 See [Which shift is the right one for my scaling method?](translation_shifts.md#which-shift-is-the-right-one-for-my-scaling-method) for the built-in shift conventions and detector.
 
 If your processing code naturally thinks in scaling factors instead of output shapes, use `BlueprintFactors`.

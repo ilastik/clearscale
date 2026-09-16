@@ -174,7 +174,7 @@ def test_blueprint_shapes_apply_to_scale_can_apply_half_pixel_shift():
         translation=Translation(y=10.0, x=-5.0),
     )
 
-    multiscale = blueprint.apply_to_scale(base, translation_shift_func=half_pixel_space_preservation)
+    multiscale = blueprint.apply_to_scale(base, translating=half_pixel_space_preservation)
 
     # Along y: 8 -> 4 px = factor 2. Pixel size 2.0 * 2 = 4.0
     #   s0 data space begins at 10.0-(2.0/2) = 9.0
@@ -194,7 +194,7 @@ def test_blueprint_shapes_apply_to_scale_can_apply_bin_center_shift():
         translation=Translation(y=10.0, x=-5.0),
     )
 
-    multiscale = blueprint.apply_to_scale(base, translation_shift_func=discrete_bin_center)
+    multiscale = blueprint.apply_to_scale(base, translating=discrete_bin_center)
 
     # Along y: 5 -> 2 px = factor 2.5 (Pixel size 0.6 * 2.5 = 1.5)
     #   Implicit bin size = ceil(2.5) = 3
@@ -213,7 +213,7 @@ def test_blueprint_shapes_apply_to_scale_rejects_malformed_shift_functions(shift
     base = Scale(shape=Shape(x=1))
 
     with pytest.raises(TypeError, match="See clearscale.half_pixel_shift for an example implementation"):
-        _ = bp.apply_to_scale(base, translation_shift_func=shift_func)  # noqa
+        _ = bp.apply_to_scale(base, translating=shift_func)  # noqa
 
 
 def test_proportional_blueprint_from_multiscale_template():
