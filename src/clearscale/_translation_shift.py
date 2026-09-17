@@ -1,6 +1,19 @@
 import math
 from dataclasses import dataclass, replace
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Mapping, NamedTuple, TypedDict
+from typing import (
+    Callable,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Mapping,
+    NamedTuple,
+    TypedDict,
+    Union,
+    Literal,
+    cast,
+)
 
 from clearscale._axis_values import Translation, PixelSize, RoundingMethod, Shape
 from clearscale._multiscale import Scale, TranslationShiftFunction, PixelSizingMethod
@@ -109,9 +122,11 @@ class ScalingMethodCharacterization:
     translating_error: float
     pixel_sizing: PixelSizingMethod
     pixel_sizing_error: float
-    rounding: Optional[RoundingMethod]
-    """Rounding method that correctly predicted output shape for *all* probes.
-    None only for `characterize_shape_scaling_method` (shape-parametrized calls = no shape-rounding)."""
+    rounding: Union[RoundingMethod, Literal["indeterminate"], None]
+    """One of:
+    - Rounding method that correctly predicted output shape for *all* probes.
+    - None for `characterize_shape_scaling_method` (shape-parametrized calls = no shape-rounding).
+    - "indeterminate" for methods that scale by factor, but showed inconsistent shape rounding behavior."""
     rounding_error: Optional[float]
     """Number of probes for which the runner-up rounding method (not `rounding` itself) was wrong."""
     warnings: Tuple[str, ...] = ()
@@ -122,16 +137,44 @@ class ScalingMethodCharacterization:
         """kwargs to `**`-splat into the matching `apply_to_scale` call.
         `rounding is None` -> `BlueprintShapes.apply_to_scale(scale, **kwargs)`.
         `rounding is not None` -> `BlueprintFactors.apply_to_scale(scale, **kwargs)`."""
+        if self.rounding == "indeterminate":
+            raise ValueError(
+                "The characterization could not determine rounding behavior of the supplied scaling method. "
+                "This means `BlueprintFactors.apply_to_scale` will predict incorrect output shapes. "
+                "You should instead first run the actual scaling, and record the shapes it produced along the way. "
+                "Construct `BlueprintShapes(zip(scale_keys, recorded_shapes))`, and use "
+                "`blueprint.apply_to_scale(scale, **characterization.to_shapes_kwargs())`."
+            )
+        rounding = cast(Optional[RoundingMethod], self.rounding)
         return ScalingMethodKwargs(
             pixel_sizing=self.pixel_sizing,
             translating=self.translating,
-            rounding=self.rounding,
+            rounding=rounding,
+        )
+
+    def to_shapes_kwargs(self) -> ScalingMethodKwargs:
+        if self.rounding != "indeterminate":
+            raise AssertionError(
+                "This is convenience for scaling methods whose rounding behavior cannot be determined."
+            )
+        return ScalingMethodKwargs(
+            pixel_sizing=self.pixel_sizing,
+            translating=self.translating,
+            rounding=None,
         )
 
 
 class Probe(NamedTuple):
     source_length: int
     factor: float
+
+
+class FailedUnevenScalingError(ValueError):
+    pass
+
+
+class IndeterminateRoundingError(ValueError):
+    pass
 
 
 RoundingRule = Callable[[Probe], int]
@@ -249,16 +292,23 @@ def _characterize_factor_scaling_method(
     discriminating_results = dict(zip(discriminating_probes, _run_probes(scaling_function, discriminating_probes)))
     exact_results = dict(zip(exact_probes, _run_probes(scaling_function, exact_probes)))
 
+    rounding: Union[RoundingMethod, Literal["indeterminate"]]
     try:
         rounding, rounding_error = _detect_rounding(discriminating_results, rounding_to_implementation)
-    except ValueError:
+    except FailedUnevenScalingError:
         some_rounding = next(iter(rounding_to_implementation.values()))
         if all(output is not None and len(output) == some_rounding(probe) for probe, output in exact_results.items()):
             # All the regular probes failed, but at least the scaling function accepted probes that need no rounding
-            rounding: RoundingMethod = "error_on_round"
+            rounding = "error_on_round"
             rounding_error = math.inf
         else:
-            raise
+            raise ValueError(
+                "Scaling method failed to execute more than one attempted parameter combination. Attempts with rounding: "
+                f"{discriminating_results!r}. Attempts without rounding: {exact_results!r}"
+            )
+    except IndeterminateRoundingError:
+        rounding = "indeterminate"
+        rounding_error = math.inf
 
     # Try discriminating first, then exact as fallback
     all_successes = [(p, o) for p, o in (*discriminating_results.items(), *exact_results.items()) if o is not None]
@@ -290,22 +340,15 @@ def _detect_rounding(
     discriminating_results: Mapping[Probe, Optional[List[float]]],
     rounding_to_implementation: RoundingRuleTable,
 ) -> Tuple[RoundingMethod, float]:
-    """
-    Identify which rounding rule the scaling function's output length follows.
-
-    Needs >= 2 *discriminating* (deliberately non-exact) probe results: a single probe, or
-    any exact-dividing probe, can't distinguish floor/ceil/round/round_half_up -- they all
-    agree once division is exact.
-
-    With fewer than 2 discriminating results, falls back to checking whether the method
-    accepts only exact division (`_accepts_exact_division_only`). If so, reports
-    "error_on_round" rather than guessing: there's genuinely no rounding behaviour to observe.
-    """
     successful_discriminating_results = {p: o for p, o in discriminating_results.items() if o is not None}
     if len(successful_discriminating_results) == 0:
-        raise ValueError("Scaling function rejected every rounding probe.")
+        raise FailedUnevenScalingError(
+            "Scaling function failed to execute all attempts that require rounding output shape."
+        )
     if len(successful_discriminating_results) == 1:
-        raise ValueError("Scaling function accepted only one rounding probe; rounding cannot be characterized.")
+        raise FailedUnevenScalingError(
+            "Scaling function executed only one attempt with shape rounding successfully; not enough information to determine rounding behavior."
+        )
 
     total_error = {name: 0 for name in rounding_to_implementation}
     for probe, output in successful_discriminating_results.items():
@@ -315,20 +358,21 @@ def _detect_rounding(
     ranked = sorted(total_error.items(), key=lambda item: item[1])
     best_rounding, best_error = ranked[0]
     if best_error != 0:
-        raise ValueError(
-            f"Scaling function's output length does not exactly match any known rounding rule "
-            f"(closest: {best_rounding!r}, total mismatch {best_error:.3g} across "
-            f"{len(discriminating_results)} probes). Rounding may be input-size-dependent "
-            "(e.g. a pooling method that discards a partial final window), or non-standard."
+        # Common e.g. for convolutions, where output shape depends on multiple params (kernel size, stride, ...)
+        raise IndeterminateRoundingError(
+            "Scaling function's rounding behavior does not exactly match any known rounding rule (closest: "
+            f"{best_rounding!r}, but {best_error}/{len(discriminating_results)} probes did not match this rule)."
         )
     _, runner_up_error = ranked[1]
     if runner_up_error == 0:
-        raise ValueError("Rounding characterization is ambiguous: multiple rounding rules match equally well.")
+        raise IndeterminateRoundingError(
+            "Rounding characterization is ambiguous: multiple rounding rules match equally well."
+        )
     return best_rounding, runner_up_error
 
 
 def _get_first_unambiguous_affine_characterization(
-    successes: Sequence[Tuple[Probe, Optional[List[float]]]],
+    successes: Sequence[Tuple[Probe, List[float]]],
     factor_to_spacing: Callable[[float], float],
     pixel_sizing_tie_expected: bool,
 ) -> ScalingMethodCharacterization:

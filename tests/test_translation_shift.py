@@ -283,7 +283,7 @@ class TestCharacterizeShapeFactorScaler:
         assert characterization.pixel_sizing == "exact_factor"
         assert characterization.pixel_sizing_error < 1e-9
 
-    def test_raises_on_inconsistent_rounding_behaviour(self):
+    def test_detects_inconsistent_rounding_behaviour(self):
         """Simulates erratic/non-deterministic-looking output: the same nominal rule doesn't
         hold across different probe sizes. This is the actual safety net for both genuine
         inconsistency and (to the extent it manifests as inconsistency across differing
@@ -296,8 +296,11 @@ class TestCharacterizeShapeFactorScaler:
             spacing = 1.0 / factor
             return _linear_scale_values(first_coordinate=0.0, spacing=spacing, length=target_length)
 
-        with pytest.raises(ValueError, match="does not exactly match"):
-            characterize_shape_factor_scaling_method(erratic_scaling_function)
+        characterization = characterize_shape_factor_scaling_method(erratic_scaling_function)
+
+        assert characterization.rounding == "indeterminate"
+        assert characterization.pixel_sizing == "exact_factor"
+        assert characterization.pixel_sizing_error < 1e-9
 
     def test_raises_when_only_one_probe_succeeds(self):
         def picky_scaling_function(source, factor):
@@ -306,7 +309,7 @@ class TestCharacterizeShapeFactorScaler:
                 raise ValueError("only supports this exact probe")
             return [0.0, 1.0, 2.0]
 
-        with pytest.raises(ValueError, match="only one rounding probe"):
+        with pytest.raises(ValueError, match="failed to execute more than one attempted parameter combination"):
             characterize_shape_factor_scaling_method(picky_scaling_function)
 
 
@@ -357,7 +360,7 @@ class TestCharacterizeExactDivisionOnlyFunction:
 
         assert characterization.rounding == "error_on_round"
         assert characterization.rounding_error == math.inf
-        assert characterization.pixel_sizing == "exact_factor"
+        assert characterization.pixel_sizing == "shape_ratio"
         assert characterization.translating is first_value_decimation
 
     def test_characterize_step_factor_scaling_method_identifies_exact_division_requirement(self):
@@ -374,12 +377,12 @@ class TestCharacterizeExactDivisionOnlyFunction:
 
         assert characterization.rounding == "error_on_round"
         assert characterization.rounding_error == math.inf
-        assert characterization.pixel_sizing == "exact_factor"
+        assert characterization.pixel_sizing == "shape_ratio"
         assert characterization.translating is first_value_decimation
 
     def test_characterize_shape_factor_scaling_method_still_raises_when_genuinely_broken(self):
         def always_broken(_source, _factor):
             raise RuntimeError("wrong signature, or just broken")
 
-        with pytest.raises(ValueError, match="rejected every rounding probe"):
+        with pytest.raises(ValueError, match="failed to execute more than one attempted parameter combination"):
             characterize_shape_factor_scaling_method(always_broken)
