@@ -191,7 +191,15 @@ def characterize_shape_scaling_method(
     Feed the result to `BlueprintShapes.apply_to_scale(scale, **characterization.to_kwargs())`.
     """
     source_length = 1025
-    out = _as_1d_float_list(scaling_function([float(i) for i in range(source_length)], 257))
+    # 263 is prime to avoid special behaviours, and leads to distinguishable spacings and translations under all known conventions:
+    # pixel_sizing:
+    #    shape_ratio: 1025 / 263 = 3.89733...
+    #    corner_ratio: (1025-1) / (263-1) = 3.90839...
+    # translating:
+    #    half_pixel_space_preservation: 0.5 * (<3.89733 or 3.90839> - 1) = <1.44866 or 1.45419>
+    #    discrete_bin_center: 0.5 * (ceil(<3.89733 or 3.90839>) - 1) = 1.5
+    #    first_value_decimation: 0.0
+    out = _as_1d_float_list(scaling_function([float(i) for i in range(source_length)], 263))
     characterization, is_tied = _characterize_affine(out, source_length, exact_factor_spacing=None)
     assert not is_tied, "unreachable: no exact_factor candidate and source != target"
     return characterization
@@ -215,15 +223,16 @@ def characterize_shape_factor_scaling_method(
         "round": lambda p: round(p.source_length * p.factor),
         "round_half_up": lambda p: math.floor(p.source_length * p.factor + 0.5),
     }
+    # Order of probes doesn't matter for rounding detection, but affine characterization uses the first successful one
     discriminating_probes = (
+        Probe(1025, 0.37),  # Preferably use not-a-power-of-2
+        Probe(1025, 1.37),  # and check upscaling.
         Probe(1003, 0.25),  # Distinguish ceil
         Probe(1003, 0.75),  # vs floor for downscaling
         Probe(1003, 1.25),  # and for upscaling.
         Probe(1003, 1.75),
         Probe(1001, 0.5),  # Distinguish round (500) from round_half_up (501);
         Probe(1001, 1.5),  # confirm true round, which here == round_half_up (both 1502); covers upscaling too.
-        Probe(1025, 0.37),  # Check special handling around powers of 2,
-        Probe(1025, 1.37),  # also for upscaling.
         Probe(1002, 0.25),  # And an even input length.
     )
     # Two probes used to confirm a method at least accepts factors that scale the input exactly (no rounding allowed)
@@ -257,8 +266,11 @@ def characterize_step_factor_scaling_method(
         "round": lambda p: round(p.source_length / p.factor),
         "round_half_up": lambda p: math.floor(p.source_length / p.factor + 0.5),
     }
-    # Scaling functions that accept "step factors" (2 = downscale by 2) usually don't work with fractions < 1
+    # Order of probes doesn't matter for rounding detection, but affine characterization uses the first successful one.
+    # Scaling functions that accept "step factors" (2 = downscale by 2) usually don't work with fractions
     discriminating_probes = (
+        Probe(1025, 3.7),  # Worth a try anyway,
+        Probe(1025, 0.67),  # also upscaling.
         Probe(1025, 4),  # Distinguish ceil
         Probe(999, 4),  # vs floor
         Probe(1001, 2),  # vs round / round_half_up.
@@ -321,25 +333,28 @@ def _characterize_factor_scaling_method(
     return replace(
         characterization,
         rounding=rounding,
-        rounding_error=rounding_error,
+        rounding_error=float(rounding_error),
     )
 
 
-def _run_probes(scaling_function, probes: Sequence[Probe]) -> List[Optional[List[float]]]:
+def _run_probes(
+    scaling_function: Callable[[Sequence[float], float], Iterable[float]], probes: Sequence[Probe]
+) -> List[Optional[List[float]]]:
     results: List[Optional[List[float]]] = []
     for probe in probes:
         coords = [float(i) for i in range(probe.source_length)]
         try:
-            results.append(_as_1d_float_list(scaling_function(coords, probe.factor)))
+            scaled = scaling_function(coords, probe.factor)
         except Exception:
-            results.append(None)
+            scaled = None
+        results.append(None if scaled is None else _as_1d_float_list(scaled))
     return results
 
 
 def _detect_rounding(
     discriminating_results: Mapping[Probe, Optional[List[float]]],
     rounding_to_implementation: RoundingRuleTable,
-) -> Tuple[RoundingMethod, float]:
+) -> Tuple[RoundingMethod, int]:
     successful_discriminating_results = {p: o for p, o in discriminating_results.items() if o is not None}
     if len(successful_discriminating_results) == 0:
         raise FailedUnevenScalingError(
@@ -368,6 +383,7 @@ def _detect_rounding(
         raise IndeterminateRoundingError(
             "Rounding characterization is ambiguous: multiple rounding rules match equally well."
         )
+    assert best_rounding in ("ceil", "floor", "round", "round_half_up")
     return best_rounding, runner_up_error
 
 
@@ -377,14 +393,11 @@ def _get_first_unambiguous_affine_characterization(
     pixel_sizing_tie_expected: bool,
 ) -> ScalingMethodCharacterization:
     for probe, output in successes:
-        try:
-            characterization, is_pixel_sizing_tied = _characterize_affine(
-                output,
-                probe.source_length,
-                exact_factor_spacing=factor_to_spacing(probe.factor),
-            )
-        except ValueError:
-            continue
+        characterization, is_pixel_sizing_tied = _characterize_affine(
+            output,
+            probe.source_length,
+            exact_factor_spacing=factor_to_spacing(probe.factor),
+        )
 
         if not is_pixel_sizing_tied or pixel_sizing_tie_expected:
             return characterization
@@ -431,6 +444,9 @@ def _characterize_affine(
     sxx = sum((x - mean_x) ** 2 for x in xs)
     sxy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
     spacing = sxy / sxx
+    if spacing <= 0:
+        # Sanity check, but also guards against trying to construct PixelSize(x=( <=0 )) further down
+        raise ValueError("Scaling function produced zero or negative spacing.")
     offset = mean_y - spacing * mean_x
     affine_error = math.sqrt(sum((y - (spacing * x + offset)) ** 2 for x, y in zip(xs, ys)) / n)
 
@@ -476,6 +492,7 @@ def _characterize_affine(
             f"error {translating_error:.3g}, spacing {spacing:.3g})."
         )
 
+    assert pixel_sizing in ("shape_ratio", "corner_ratio", "exact_factor")
     characterization = ScalingMethodCharacterization(
         translating=translating,
         translating_error=translating_error,

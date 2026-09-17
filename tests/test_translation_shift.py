@@ -1,4 +1,5 @@
 import math
+from typing import List
 
 import pytest
 
@@ -7,7 +8,6 @@ from clearscale import (
     Scale,
     Shape,
     Translation,
-    ScalingMethodCharacterization,
     characterize_shape_scaling_method,
     characterize_shape_factor_scaling_method,
     characterize_step_factor_scaling_method,
@@ -24,18 +24,6 @@ def _scale(pixel_size_items):
     ps = PixelSize(pixel_size_items)
     sh = Shape.all_singletons(ps)
     return Scale(shape=sh, pixel_size=ps)
-
-
-def _linear_scale_values(*, first_coordinate, spacing, length):
-    return [first_coordinate + spacing * index for index in range(length)]
-
-
-def _linear_scale_values_starting_at(*, first_coordinate, target_length, source_length):
-    """Mock scaling implementation with an artificial offset. Spacing == source/target,
-    i.e. exactly the shape_ratio convention."""
-    return _linear_scale_values(
-        first_coordinate=first_coordinate, spacing=source_length / target_length, length=target_length
-    )
 
 
 class TestShiftFunctions:
@@ -97,28 +85,81 @@ class TestShiftFunctions:
             shift_function(base, target)
 
 
+def _linear_values(*, start: float, spacing: float, length: int) -> List[float]:
+    return [start + spacing * index for index in range(length)]
+
+
 class TestCharacterizeShapeScaler:
+    @staticmethod
+    def _linear_values_spaced_by_shape_ratio(*, start: float, source_length: int, target_length: int) -> List[float]:
+        return _linear_values(start=start, spacing=source_length / target_length, length=target_length)
+
+    @staticmethod
+    def _linear_values_spaced_by_corner_ratio(*, start: float, source_length: int, target_length: int) -> List[float]:
+        return _linear_values(start=start, spacing=(source_length - 1) / (target_length - 1), length=target_length)
+
     @pytest.mark.parametrize(
-        ("expected_function", "first_coordinate_of"),
+        "expected_pixel_sizing, value_generator, expected_translating, first_coordinate_of",
         [
-            (half_pixel_space_preservation, lambda src, tgt: 0.5 * (src / tgt - 1.0)),
-            (discrete_bin_center, lambda src, tgt: 0.5 * (math.ceil(src / tgt) - 1)),
-            (first_value_decimation, lambda src, tgt: 0.0),
+            pytest.param(
+                "shape_ratio",
+                _linear_values_spaced_by_shape_ratio,
+                half_pixel_space_preservation,
+                lambda src, tgt: 0.5 * (src / tgt - 1.0),
+                id="shape_ratio__space_preservation",
+            ),
+            pytest.param(
+                "shape_ratio",
+                _linear_values_spaced_by_shape_ratio,
+                discrete_bin_center,
+                lambda src, tgt: 0.5 * (math.ceil(src / tgt) - 1),
+                id="shape_ratio__bin_center",
+            ),
+            pytest.param(
+                "shape_ratio",
+                _linear_values_spaced_by_shape_ratio,
+                first_value_decimation,
+                lambda src, tgt: 0.0,
+                id="shape_ratio__none",
+            ),
+            pytest.param(
+                "corner_ratio",
+                _linear_values_spaced_by_corner_ratio,
+                half_pixel_space_preservation,
+                lambda src, tgt: 0.5 * ((src - 1) / (tgt - 1) - 1.0),
+                id="corner_ratio__space_preservation",
+            ),
+            pytest.param(
+                "corner_ratio",
+                _linear_values_spaced_by_corner_ratio,
+                discrete_bin_center,
+                lambda src, tgt: 0.5 * (math.ceil((src - 1) / (tgt - 1)) - 1),
+                id="corner_ratio__bin_center",
+            ),
+            pytest.param(
+                "corner_ratio",
+                _linear_values_spaced_by_corner_ratio,
+                first_value_decimation,
+                lambda src, tgt: 0.0,
+                id="corner_ratio__none",
+            ),
         ],
     )
-    def test_matches_known_translating_conventions(self, expected_function, first_coordinate_of):
+    def test_matches_known_translating_conventions(
+        self, expected_pixel_sizing, value_generator, expected_translating, first_coordinate_of
+    ):
         def scaling_function(source, target_length):
-            return _linear_scale_values_starting_at(
-                first_coordinate=first_coordinate_of(len(source), target_length),
-                target_length=target_length,
+            return value_generator(
+                start=first_coordinate_of(len(source), target_length),
                 source_length=len(source),
+                target_length=target_length,
             )
 
         characterization = characterize_shape_scaling_method(scaling_function)
 
-        assert characterization.translating is expected_function
+        assert characterization.translating is expected_translating
         assert characterization.translating_error < 1e-9
-        assert characterization.pixel_sizing == "shape_ratio"
+        assert characterization.pixel_sizing == expected_pixel_sizing
         assert characterization.pixel_sizing_error < 1e-9
         assert characterization.rounding is None
         assert characterization.rounding_error is None
@@ -127,8 +168,8 @@ class TestCharacterizeShapeScaler:
         def scaling_function(source, target_length):
             source_length = len(source)
             first_coordinate = 0.5 * (source_length / target_length - 1.0)
-            values = _linear_scale_values_starting_at(
-                first_coordinate=first_coordinate, target_length=target_length, source_length=source_length
+            values = self._linear_values_spaced_by_shape_ratio(
+                start=first_coordinate, source_length=source_length, target_length=target_length
             )
             margin = target_length // 4
             for index in range(margin):
@@ -142,23 +183,23 @@ class TestCharacterizeShapeScaler:
         assert characterization.translating is half_pixel_space_preservation
         assert characterization.translating_error < 1e-9
 
-    def test_reports_error_from_closest_known_convention(self):
+    def test_reports_error_from_closest_known_translating_convention(self):
         # characterize_shape_scaling_method uses input-len 1025, target-len 257
-        # shape ratio = 3.9883268482490272373540856031128
+        # shape ratio = 3.98832...
         # predictions:
-        #   half-pixel: shape ratio - 1 * 0.5 = 1.4941634241245136186770428015564
+        #   half-pixel: shape ratio - 1 * 0.5         = 1.49416...
         #   bin-center: (ceil(shape ratio) - 1) * 0.5 = 1.5
         #   decimation: 0
-        # Error tolerance between half-pixel and bin-center = (1.5 - 1.49416...) / 2 = 0.00291...
+        # Error margin between half-pixel and bin-center = (1.5 - 1.49416...) / 2 = 0.00291...
         artificial_error = 0.0025
 
         def scaling_function(source, target_length):
             source_length = len(source)
             correct_first_coordinate = 0.5 * (source_length / target_length - 1.0)
-            return _linear_scale_values_starting_at(
-                first_coordinate=correct_first_coordinate + artificial_error,
-                target_length=target_length,
+            return self._linear_values_spaced_by_shape_ratio(
+                start=correct_first_coordinate + artificial_error,
                 source_length=source_length,
+                target_length=target_length,
             )
 
         characterization = characterize_shape_scaling_method(scaling_function)
@@ -206,7 +247,7 @@ class TestCharacterizeShapeScaler:
 def _mock_factor_scaling_function(*, rounding_rule, pixel_sizing, shift_fn, divisor_convention):
     """
     rounding_rule: (n, factor) -> target_length, using the convention's own direction
-      (n*factor for multiplier, n/factor for divisor).
+        (n*factor for shape multiplier, n/factor for step factor / shape divisor).
     pixel_sizing: "shape_ratio" | "corner_ratio" | "exact_factor"
     divisor_convention: True for step/divisor (factor>1 shrinks), False for multiplier.
     """
@@ -223,15 +264,13 @@ def _mock_factor_scaling_function(*, rounding_rule, pixel_sizing, shift_fn, divi
         base = _scale([("x", 1.0)])
         target = _scale([("x", spacing)])
         first_coordinate = shift_fn(base, target)["x"]
-        return _linear_scale_values(first_coordinate=first_coordinate, spacing=spacing, length=target_length)
+        return _linear_values(start=first_coordinate, spacing=spacing, length=target_length)
 
     return scaling_function
 
 
 class TestCharacterizeShapeFactorScaler:
-    def test_detects_exact_factor_and_rounding(self):
-        # Uses the full official probe set, so this incidentally exercises both the
-        # downsampling (factor<1) and upsampling (factor>1) rounding probes at once.
+    def test_detects_exact_factor_and_ceil(self):
         scaling_function = _mock_factor_scaling_function(
             rounding_rule=lambda n, s: math.ceil(n * s),
             pixel_sizing="exact_factor",
@@ -242,7 +281,7 @@ class TestCharacterizeShapeFactorScaler:
         characterization = characterize_shape_factor_scaling_method(scaling_function)
 
         assert characterization.rounding == "ceil"
-        assert characterization.rounding_error >= 1
+        assert characterization.rounding_error is not None and characterization.rounding_error >= 1
         assert characterization.pixel_sizing == "exact_factor"
         assert characterization.pixel_sizing_error < 1e-9
         assert characterization.translating is first_value_decimation
@@ -262,9 +301,7 @@ class TestCharacterizeShapeFactorScaler:
         assert characterization.pixel_sizing == "shape_ratio"
         assert characterization.translating is half_pixel_space_preservation
 
-    def test_falls_back_when_primary_probe_factor_rejected(self):
-        """Method rejects the literal probe factor 0.37 (but accepts the 0.375 fallback, and
-        accepts every rounding probe except the one that happens to also use 0.37)."""
+    def test_tolerates_failing_primary_probe(self):
         base_mock = _mock_factor_scaling_function(
             rounding_rule=lambda n, s: math.ceil(n * s),
             pixel_sizing="exact_factor",
@@ -284,17 +321,11 @@ class TestCharacterizeShapeFactorScaler:
         assert characterization.pixel_sizing_error < 1e-9
 
     def test_detects_inconsistent_rounding_behaviour(self):
-        """Simulates erratic/non-deterministic-looking output: the same nominal rule doesn't
-        hold across different probe sizes. This is the actual safety net for both genuine
-        inconsistency and (to the extent it manifests as inconsistency across differing
-        probe inputs) non-determinism -- we can't detect true call-to-call non-determinism
-        for identical inputs, since each probe uses distinct (n, factor) pairs."""
-
         def erratic_scaling_function(source, factor):
             n = len(source)
             target_length = math.ceil(n * factor) if n % 2 == 0 else math.floor(n * factor)
             spacing = 1.0 / factor
-            return _linear_scale_values(first_coordinate=0.0, spacing=spacing, length=target_length)
+            return _linear_values(start=0.0, spacing=spacing, length=target_length)
 
         characterization = characterize_shape_factor_scaling_method(erratic_scaling_function)
 
@@ -311,6 +342,22 @@ class TestCharacterizeShapeFactorScaler:
 
         with pytest.raises(ValueError, match="failed to execute more than one attempted parameter combination"):
             characterize_shape_factor_scaling_method(picky_scaling_function)
+
+    @pytest.mark.parametrize(
+        ("scaling_function", "expected_error"),
+        [
+            (lambda source, factor: [[0.0] * 10], "must return a one-dimensional array"),
+            (
+                lambda source, factor: [float(index) for index in range(len(source))],
+                "Scaling function did not change the array length",
+            ),
+            (lambda source, factor: [0.0] * 150, "produced zero or negative spacing"),
+            (lambda source, factor: [float(index) for index in range(149)], "need at least 150 to fit"),
+        ],
+    )
+    def test_rejects_invalid_scaling_function_outputs(self, scaling_function, expected_error):
+        with pytest.raises(ValueError, match=expected_error):
+            characterize_shape_factor_scaling_method(scaling_function)
 
 
 class TestCharacterizeStepFactorScaler:
@@ -354,7 +401,7 @@ class TestCharacterizeExactDivisionOnlyFunction:
             n = len(source)
             if (n * factor) % 1 != 0:
                 raise ValueError("only supports exact division")
-            return _linear_scale_values(first_coordinate=0.0, spacing=1.0 / factor, length=int(n * factor))
+            return _linear_values(start=0.0, spacing=1.0 / factor, length=int(n * factor))
 
         characterization = characterize_shape_factor_scaling_method(exact_division_only)
 
@@ -371,7 +418,7 @@ class TestCharacterizeExactDivisionOnlyFunction:
             if n % factor != 0:
                 raise ValueError("only supports exact division")
             target_length = n // factor
-            return _linear_scale_values(first_coordinate=0.0, spacing=float(factor), length=target_length)
+            return _linear_values(start=0.0, spacing=float(factor), length=target_length)
 
         characterization = characterize_step_factor_scaling_method(exact_division_only)
 
