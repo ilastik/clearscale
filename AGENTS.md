@@ -9,7 +9,7 @@
 - `_transforms` contains the new concepts from OME-Zarr 0.6. `_base.py` defines the transformation graph, transform base class, IdentityTransform and TransformSequence (which still interacts with the graph). `_transform_types.py` implements the payload-specific Transform subclasses according to the OME-Zarr 0.6 spec. The public API for users to interact with Transforms is the SpatialRelation.
 - `_multiscale.py` defines the primary user-value objects (Scale, Multiscale, BlueprintShapes and BlueprintFactors)
 - `services` breaks out static helpers, mostly for `_multiscale.py`. `matrices.py` is for `_transforms` (Rotation, Affine)
-- `_translation_shifts.py` defines public helpers for diagnosing and calculating coordinate offsets introduced by scaling functions (related to `_multiscale.py`)
+- `characterization.py` public helpers for characterizing scaling methods (mainly intended for learning during dev, not to run in production)
 - `_scene.py` defines the Scene concept of OME-Zarr 0.6
 - `_collections.py` serves as the primary entrypoint to discover OME-Zarr contents of arbitrary zarr attrs 
 - `ome_zarr.py` lives outside of this hierarchy; it provides user-facing helpers for `Multiscale`

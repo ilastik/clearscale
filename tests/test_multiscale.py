@@ -10,10 +10,12 @@ from clearscale import (
     Shape,
     Translation,
     Unit,
-    discrete_bin_center,
-    half_pixel_space_preservation,
     BlueprintFactors,
     Factor,
+)
+from clearscale.characterization import (
+    discrete_bin_center,
+    half_pixel_space_preservation,
 )
 from clearscale._transforms import (
     CoordinateSystem,

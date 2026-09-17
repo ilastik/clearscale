@@ -118,6 +118,8 @@ class ScalingMethodKwargs(TypedDict):
 
 @dataclass(frozen=True, slots=True)
 class ScalingMethodCharacterization:
+    """Characteristics of a scaling method, determined by one of the `characterize_*` functions."""
+
     translating: TranslationShiftFunction
     translating_error: float
     pixel_sizing: PixelSizingMethod
@@ -513,3 +515,13 @@ def _as_1d_float_list(values: Iterable[float]) -> list[float]:
         return [float(value) for value in values]
     except (TypeError, ValueError) as e:
         raise ValueError(f"Scaling function must return a one-dimensional array. Received: {values!r}") from e
+
+
+__all__ = [
+    discrete_bin_center,
+    half_pixel_space_preservation,
+    first_value_decimation,
+    characterize_shape_scaling_method,
+    characterize_shape_factor_scaling_method,
+    characterize_step_factor_scaling_method,
+]

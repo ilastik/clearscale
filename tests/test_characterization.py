@@ -8,6 +8,9 @@ from clearscale import (
     Scale,
     Shape,
     Translation,
+)
+from clearscale.characterization import (
+    known_shift_functions,
     characterize_shape_scaling_method,
     characterize_shape_factor_scaling_method,
     characterize_step_factor_scaling_method,
@@ -15,7 +18,6 @@ from clearscale import (
     first_value_decimation,
     half_pixel_space_preservation,
 )
-from clearscale._translation_shift import known_shift_functions
 
 
 def _scale(pixel_size_items):
