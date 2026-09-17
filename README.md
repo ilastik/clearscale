@@ -1,6 +1,6 @@
 # clearscale
 
-`clearscale` is a small pure-Python package for clear multi-scale image metadata manipulation.
+`clearscale` is a small dependency-free Python package for clear multi-scale image metadata manipulation.
 
 Fits in any Python environment. Works with existing code. Handles all OME-Zarr versions.
 
@@ -11,32 +11,29 @@ Ideally, to ensure data and metadata are in sync, the pipeline first specifies t
 ```python
 from clearscale import Shape, PixelSize, Unit, BlueprintShapes, Scale, Multiscale, OmeZarrGroup
 
-# 1. Annotate
-shape      = Shape(zip("tzyx", my_data.shape))
-pixel_size = PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
-unit       = Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
-
-# 2. Define operation plan
+# 1. Define operation plan
+shape = Shape(zip("tzyx", my_data.shape))
 scaling_blueprint = BlueprintShapes.downscale_powers_of_2_xyz(
     base_shape=shape,
     rounding="ceil",
     limit_all=Shape(z=8, y=128, x=128),
 )
 
-# 3. Scale data according to the blueprint
+# 2. Scale data according to the blueprint
 for scale_key, target_shape in scaling_blueprint.items():
     scaled_data = do_my_scaling(my_data, target_shape.to_tuple())
     zarr_group.create_array(scale_key, data=scaled_data)
 
-# 4. Expand and write metadata
-base = Scale(shape, pixel_size, unit)
-ms = Multiscale.from_single(base, blueprint=scaling_blueprint)
+# 3. Annotate
+pixel_size = PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
+unit       = Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
+
+# 4. Write metadata: Scale -> Multiscale -> Group -> attrs
+base       = Scale(shape, pixel_size, unit)
+ms         = Multiscale.from_single(base, blueprint=scaling_blueprint)
 group_meta = OmeZarrGroup.from_single(ms).to_attrs(version="0.6.rc0")
 zarr_group.attrs.update(group_meta)
 ```
-
-It may sometimes be simpler to instead describe the data processing post-hoc, and derive matching metadata (as in the numpy example further down).
-Proceed whichever way best fits your project.
 
 `clearscale` is independent of the actual data-handling packages in your environment.
 For example, if you use `numpy`, `scikit-image` and `zarr-python`, the placeholders above could look like:
@@ -54,11 +51,13 @@ zarr_group = zarr.open_group(os.path.expanduser("~/cltest.ome.zarr"), mode="w")
 ## Features
 
 * Zero dependencies, runs with Python 3.10+
-* Reads Neuroglancer Precomputed and OME-Zarr metadata (all versions)
-* Writes OME-Zarr versions 0.4, 0.5 and 0.6.rc0
-* Saves you learning about the metadata format(s)
-* Helps you write expressive code
-* Metadata manipulation lives alongside data manipulation
+* Read Neuroglancer Precomputed and OME-Zarr metadata (all versions)
+* Write OME-Zarr versions 0.4, 0.5 and 0.6.rc0
+* Virtually no knowledge about OME-Zarr or its versions required
+* Create, manipulate, save and load multiscale metadata
+* Make sure metadata are correct for any scaling method
+* Find out how exactly your scaling method scales
+* Save multiscale transformations into alternate coordinate systems
 
 ## Install
 
