@@ -95,199 +95,191 @@ def test_multiscale_accepts_increasing_scale_shapes_from_ome_zarr():
     assert tuple(ms["s0"].shape.values()) < tuple(ms["s1"].shape.values())
 
 
-def test_with_sizes_broadcasts_single_shape_to_all_scales():
-    shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+class TestBlueprintWithSizes:
+    def test_broadcasts_single_shape_to_all_scales(self):
+        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
 
-    result = shapes.with_sizes({"x": 100})
-    assert result == BlueprintShapes({"s0": Shape(x=100, y=20), "s1": Shape(x=100, y=40)})
+        result = shapes.with_sizes({"x": 100})
+        assert result == BlueprintShapes({"s0": Shape(x=100, y=20), "s1": Shape(x=100, y=40)})
 
+    def test_updates_only_specified_scales(self):
+        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
 
-def test_with_sizes_updates_only_specified_scales():
-    shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+        result = shapes.with_sizes({"s1": {"y": 99}})
+        assert result == BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=99)})
 
-    result = shapes.with_sizes({"s1": {"y": 99}})
-    assert result == BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=99)})
+    def test_updates_multiple_scales_independently(self):
+        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
 
+        result = shapes.with_sizes({"s0": {"x": 1}, "s1": {"y": 2}})
+        assert result == BlueprintShapes({"s0": Shape(x=1, y=20), "s1": Shape(x=30, y=2)})
 
-def test_with_sizes_updates_multiple_scales_independently():
-    shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+    def test_ignores_unknown_scale_keys(self):
+        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
 
-    result = shapes.with_sizes({"s0": {"x": 1}, "s1": {"y": 2}})
-    assert result == BlueprintShapes({"s0": Shape(x=1, y=20), "s1": Shape(x=30, y=2)})
+        result = shapes.with_sizes({"unknown": {"z": 1}})
+        assert result == shapes
 
+    def test_only_axes_limits_broadcast_update(self):
+        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
 
-def test_with_sizes_ignores_unknown_scale_keys():
-    shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+        result = shapes.with_sizes({"x": 5, "y": 6}, only_axes="x")
+        assert result == BlueprintShapes({"s0": Shape(x=5, y=20), "s1": Shape(x=5, y=40)})
 
-    result = shapes.with_sizes({"unknown": {"z": 1}})
-    assert result == shapes
+    def test_only_axes_limits_nested_update(self):
+        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
 
+        result = shapes.with_sizes({"s0": {"x": 5, "y": 6}}, only_axes="x")
+        assert result == BlueprintShapes({"s0": Shape(x=5, y=20), "s1": Shape(x=30, y=40)})
 
-def test_with_sizes_only_axes_limits_broadcast_update():
-    shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+    def test_with_factors_works_like_with_sizes(self):
+        shapes = BlueprintFactors({"s0": Factor(x=1.0, y=2.0), "s1": Factor(x=3.0, y=4.0)})
 
-    result = shapes.with_sizes({"x": 5, "y": 6}, only_axes="x")
-    assert result == BlueprintShapes({"s0": Shape(x=5, y=20), "s1": Shape(x=5, y=40)})
-
-
-def test_with_sizes_only_axes_limits_nested_update():
-    shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
-
-    result = shapes.with_sizes({"s0": {"x": 5, "y": 6}}, only_axes="x")
-    assert result == BlueprintShapes({"s0": Shape(x=5, y=20), "s1": Shape(x=30, y=40)})
-
-
-def test_with_factors_works_like_with_sizes():
-    shapes = BlueprintFactors({"s0": Factor(x=1.0, y=2.0), "s1": Factor(x=3.0, y=4.0)})
-
-    result = shapes.with_factors({"s0": {"x": 10.0, "y": 11.0}}, only_axes="x")
-    assert result == BlueprintFactors({"s0": Factor(x=10.0, y=2.0), "s1": Factor(x=3.0, y=4.0)})
+        result = shapes.with_factors({"s0": {"x": 10.0, "y": 11.0}}, only_axes="x")
+        assert result == BlueprintFactors({"s0": Factor(x=10.0, y=2.0), "s1": Factor(x=3.0, y=4.0)})
 
 
-def test_blueprint_shapes_apply_to_scale_derives_scale_metadata_from_base():
-    blueprint = BlueprintShapes({"s0": Shape(c=3, y=8, x=12), "s1": Shape(c=3, y=4, x=3)})
-    base = Scale(
-        shape=Shape(c=3, y=8, x=12),
-        pixel_size=PixelSize(c=1.0, y=0.5, x=2.0),
-        unit=Unit(c="", y="um", x="um"),
-        translation=Translation(c=0.0, y=1.0, x=2.0),
-    )
+class TestBlueprintApply:
+    def test_derives_scale_metadata_from_base(self):
+        blueprint = BlueprintShapes({"s0": Shape(c=3, y=8, x=12), "s1": Shape(c=3, y=4, x=3)})
+        base = Scale(
+            shape=Shape(c=3, y=8, x=12),
+            pixel_size=PixelSize(c=1.0, y=0.5, x=2.0),
+            unit=Unit(c="", y="um", x="um"),
+            translation=Translation(c=0.0, y=1.0, x=2.0),
+        )
 
-    multiscale = blueprint.apply_to_scale(base)
+        multiscale = blueprint.apply_to_scale(base)
 
-    assert multiscale == Multiscale(
-        {
-            "s0": base,
-            "s1": Scale(
-                shape=Shape(c=3, y=4, x=3),
-                pixel_size=PixelSize(c=1.0, y=1.0, x=8.0),
-                unit=base.unit,
-                translation=base.translation,
-            ),
-        }
-    )
+        assert multiscale == Multiscale(
+            {
+                "s0": base,
+                "s1": Scale(
+                    shape=Shape(c=3, y=4, x=3),
+                    pixel_size=PixelSize(c=1.0, y=1.0, x=8.0),
+                    unit=base.unit,
+                    translation=base.translation,
+                ),
+            }
+        )
 
+    def test_can_apply_half_pixel_shift(self):
+        blueprint = BlueprintShapes({"s0": Shape(y=8, x=8), "s1": Shape(y=4, x=2)})
+        base = Scale(
+            shape=Shape(y=8, x=8),
+            pixel_size=PixelSize(y=2.0, x=3.0),
+            translation=Translation(y=10.0, x=-5.0),
+        )
 
-def test_blueprint_shapes_apply_to_scale_can_apply_half_pixel_shift():
-    blueprint = BlueprintShapes({"s0": Shape(y=8, x=8), "s1": Shape(y=4, x=2)})
-    base = Scale(
-        shape=Shape(y=8, x=8),
-        pixel_size=PixelSize(y=2.0, x=3.0),
-        translation=Translation(y=10.0, x=-5.0),
-    )
+        multiscale = blueprint.apply_to_scale(base, translating=half_pixel_space_preservation)
 
-    multiscale = blueprint.apply_to_scale(base, translating=half_pixel_space_preservation)
+        # Along y: 8 -> 4 px = factor 2. Pixel size 2.0 * 2 = 4.0
+        #   s0 data space begins at 10.0-(2.0/2) = 9.0
+        #   s1 first pixel coordinate is at 9.0 + (4.0 / 2) = 11.0
+        # Along x: 8 -> 2 px = factor 4. Pixel size 3.0 * 4 = 12.0
+        #   s0 data space begins at -5.0-(3.0/2) = -6.5
+        #   s1 first pixel coordinate is at -6.5 + (12.0 / 2) = -0.5
+        assert multiscale["s1"].pixel_size == PixelSize(y=4.0, x=12.0)
+        assert multiscale["s1"].translation == Translation(y=11.0, x=-0.5)
 
-    # Along y: 8 -> 4 px = factor 2. Pixel size 2.0 * 2 = 4.0
-    #   s0 data space begins at 10.0-(2.0/2) = 9.0
-    #   s1 first pixel coordinate is at 9.0 + (4.0 / 2) = 11.0
-    # Along x: 8 -> 2 px = factor 4. Pixel size 3.0 * 4 = 12.0
-    #   s0 data space begins at -5.0-(3.0/2) = -6.5
-    #   s1 first pixel coordinate is at -6.5 + (12.0 / 2) = -0.5
-    assert multiscale["s1"].pixel_size == PixelSize(y=4.0, x=12.0)
-    assert multiscale["s1"].translation == Translation(y=11.0, x=-0.5)
+    def test_can_apply_bin_center_shift(self):
+        blueprint = BlueprintShapes({"s0": Shape(y=5, x=8), "s1": Shape(y=2, x=4)})
+        base = Scale(
+            shape=Shape(y=5, x=8),
+            pixel_size=PixelSize(y=0.6, x=2.0),
+            translation=Translation(y=10.0, x=-5.0),
+        )
 
+        multiscale = blueprint.apply_to_scale(base, translating=discrete_bin_center)
 
-def test_blueprint_shapes_apply_to_scale_can_apply_bin_center_shift():
-    blueprint = BlueprintShapes({"s0": Shape(y=5, x=8), "s1": Shape(y=2, x=4)})
-    base = Scale(
-        shape=Shape(y=5, x=8),
-        pixel_size=PixelSize(y=0.6, x=2.0),
-        translation=Translation(y=10.0, x=-5.0),
-    )
+        # Along y: 5 -> 2 px = factor 2.5 (Pixel size 0.6 * 2.5 = 1.5)
+        #   Implicit bin size = ceil(2.5) = 3
+        #   In this case first scaled pixel coordinate = middle bin coordinate = 10.0 + 0.6
+        #   (or: bin space start: 10.0 - 0.6/2 = 9.7; bin extent = 0.6 * 3 = 1.8; bin center = 9.7 + 1.8/2 = 10.6)
+        # Along x: 8 -> 4 px = factor 2 (Pixel size 2.0 * 2 = 4.0)
+        #   Implicit bin size = 2
+        #   First bin coordinates = -5.0 and -3.0; bin center = -4.0
+        assert multiscale["s1"].pixel_size == PixelSize(y=1.5, x=4.0)
+        assert multiscale["s1"].translation == Translation(y=10.6, x=-4.0)
 
-    multiscale = blueprint.apply_to_scale(base, translating=discrete_bin_center)
+    @pytest.mark.parametrize("shift_func", [(lambda param1: True), (lambda scale1, scale2: True)])
+    def test_rejects_malformed_shift_functions(self, shift_func):
+        bp = BlueprintShapes({"s0": Shape(x=2)})
+        base = Scale(shape=Shape(x=1))
 
-    # Along y: 5 -> 2 px = factor 2.5 (Pixel size 0.6 * 2.5 = 1.5)
-    #   Implicit bin size = ceil(2.5) = 3
-    #   In this case first scaled pixel coordinate = middle bin coordinate = 10.0 + 0.6
-    #   (or: bin space start: 10.0 - 0.6/2 = 9.7; bin extent = 0.6 * 3 = 1.8; bin center = 9.7 + 1.8/2 = 10.6)
-    # Along x: 8 -> 4 px = factor 2 (Pixel size 2.0 * 2 = 4.0)
-    #   Implicit bin size = 2
-    #   First bin coordinates = -5.0 and -3.0; bin center = -4.0
-    assert multiscale["s1"].pixel_size == PixelSize(y=1.5, x=4.0)
-    assert multiscale["s1"].translation == Translation(y=10.6, x=-4.0)
-
-
-@pytest.mark.parametrize("shift_func", [(lambda param1: True), (lambda scale1, scale2: True)])
-def test_blueprint_shapes_apply_to_scale_rejects_malformed_shift_functions(shift_func):
-    bp = BlueprintShapes({"s0": Shape(x=2)})
-    base = Scale(shape=Shape(x=1))
-
-    with pytest.raises(TypeError, match="See clearscale.half_pixel_shift for an example implementation"):
-        _ = bp.apply_to_scale(base, translating=shift_func)  # noqa
+        with pytest.raises(TypeError, match="See clearscale.half_pixel_shift for an example implementation"):
+            _ = bp.apply_to_scale(base, translating=shift_func)  # noqa
 
 
-def test_proportional_blueprint_from_multiscale_template():
-    ms = Multiscale(
-        {
-            "s0": Scale(
-                shape=Shape(c=3, y=8, x=12),
-                pixel_size=PixelSize(c=1.0, y=1.0, x=2.0),
-                unit=Unit(c="", y="nm", x="nm"),
-                translation=Translation.identity("cyx"),
-            ),
-            "s1": Scale(
-                shape=Shape(c=3, y=4, x=3),
-                pixel_size=PixelSize(c=1.0, y=2.0, x=8.0),
-                unit=Unit(c="", y="nm", x="nm"),
-                translation=Translation.identity("cyx"),
-            ),
-        }
-    )
+class TestProportionalBlueprint:
+    def test_from_multiscale_template(self):
+        ms = Multiscale(
+            {
+                "s0": Scale(
+                    shape=Shape(c=3, y=8, x=12),
+                    pixel_size=PixelSize(c=1.0, y=1.0, x=2.0),
+                    unit=Unit(c="", y="nm", x="nm"),
+                    translation=Translation.identity("cyx"),
+                ),
+                "s1": Scale(
+                    shape=Shape(c=3, y=4, x=3),
+                    pixel_size=PixelSize(c=1.0, y=2.0, x=8.0),
+                    unit=Unit(c="", y="nm", x="nm"),
+                    translation=Translation.identity("cyx"),
+                ),
+            }
+        )
 
-    target_shape = Shape(c=3, y=2, x=6)
-    bp = BlueprintShapes.from_multiscale_rescaled(ms, target_shape=target_shape, rounding="floor")
+        target_shape = Shape(c=3, y=2, x=6)
+        bp = BlueprintShapes.from_multiscale_rescaled(ms, target_shape=target_shape, rounding="floor")
 
-    assert bp == BlueprintShapes({"s0": target_shape, "s1": Shape(c=3, y=1, x=1)})
+        assert bp == BlueprintShapes({"s0": target_shape, "s1": Shape(c=3, y=1, x=1)})
 
+    def test_rebased_on_downscale(self):
+        ms = Multiscale(
+            {
+                "s0": Scale(
+                    shape=Shape(c=3, y=8, x=12),
+                    pixel_size=PixelSize(c=1.0, y=1.0, x=2.0),
+                    unit=Unit(c="", y="nm", x="nm"),
+                    translation=Translation.identity("cyx"),
+                ),
+                "s1": Scale(
+                    shape=Shape(c=3, y=4, x=3),
+                    pixel_size=PixelSize(c=1.0, y=2.0, x=8.0),
+                    unit=Unit(c="", y="nm", x="nm"),
+                    translation=Translation.identity("cyx"),
+                ),
+            }
+        )
 
-def test_proportional_blueprint_rebased_on_downscale():
-    ms = Multiscale(
-        {
-            "s0": Scale(
-                shape=Shape(c=3, y=8, x=12),
-                pixel_size=PixelSize(c=1.0, y=1.0, x=2.0),
-                unit=Unit(c="", y="nm", x="nm"),
-                translation=Translation.identity("cyx"),
-            ),
-            "s1": Scale(
-                shape=Shape(c=3, y=4, x=3),
-                pixel_size=PixelSize(c=1.0, y=2.0, x=8.0),
-                unit=Unit(c="", y="nm", x="nm"),
-                translation=Translation.identity("cyx"),
-            ),
-        }
-    )
+        target_shape = Shape(c=3, y=2, x=6)
+        bp = BlueprintShapes.from_multiscale_rescaled(ms, target_shape=target_shape, rounding="floor", source_key="s1")
 
-    target_shape = Shape(c=3, y=2, x=6)
-    bp = BlueprintShapes.from_multiscale_rescaled(ms, target_shape=target_shape, rounding="floor", source_key="s1")
+        assert bp == BlueprintShapes({"s0": Shape(c=3, y=4, x=24), "s1": target_shape})
 
-    assert bp == BlueprintShapes({"s0": Shape(c=3, y=4, x=24), "s1": target_shape})
+    def test_restricted_scaling_axes(self):
+        ms = Multiscale(
+            {
+                "s0": Scale(
+                    shape=Shape(c=3, y=8, x=12),
+                    pixel_size=PixelSize(c=1.0, y=1.0, x=2.0),
+                    unit=Unit(c="", y="nm", x="nm"),
+                    translation=Translation.identity("cyx"),
+                ),
+                "s1": Scale(
+                    shape=Shape(c=3, y=4, x=3),
+                    pixel_size=PixelSize(c=1.0, y=2.0, x=8.0),
+                    unit=Unit(c="", y="nm", x="nm"),
+                    translation=Translation.identity("cyx"),
+                ),
+            }
+        )
 
+        target_shape = Shape(c=3, y=2, x=6)
+        bp = BlueprintShapes.from_multiscale_rescaled(ms, target_shape=target_shape, rounding="floor", scaled_axes="y")
 
-def test_proportional_blueprint_restricted_scaling_axes():
-    ms = Multiscale(
-        {
-            "s0": Scale(
-                shape=Shape(c=3, y=8, x=12),
-                pixel_size=PixelSize(c=1.0, y=1.0, x=2.0),
-                unit=Unit(c="", y="nm", x="nm"),
-                translation=Translation.identity("cyx"),
-            ),
-            "s1": Scale(
-                shape=Shape(c=3, y=4, x=3),
-                pixel_size=PixelSize(c=1.0, y=2.0, x=8.0),
-                unit=Unit(c="", y="nm", x="nm"),
-                translation=Translation.identity("cyx"),
-            ),
-        }
-    )
-
-    target_shape = Shape(c=3, y=2, x=6)
-    bp = BlueprintShapes.from_multiscale_rescaled(ms, target_shape=target_shape, rounding="floor", scaled_axes="y")
-
-    assert bp == BlueprintShapes({"s0": target_shape, "s1": Shape(c=3, y=1, x=6)})
+        assert bp == BlueprintShapes({"s0": target_shape, "s1": Shape(c=3, y=1, x=6)})
 
 
 def _multiscale(axes="yx", size=4) -> Multiscale:
@@ -319,373 +311,355 @@ def _with_extra_system(ms: Multiscale, name: str) -> Multiscale:
     return Multiscale(ms.items(), _transform_graph=graph, _intrinsic_ref=ms._intrinsic_ref)
 
 
-def _with_path_bound_edge(ms: Multiscale, path: str) -> Multiscale:
-    """Attach a path-bound edge to `ms`, simulating a link to a label-Multiscale overlay."""
-    edge = IdentityTransform().bound(
-        source=ms._intrinsic_ref, target=_UnresolvedRef(name=path, file=FileRef.from_string(path))
-    )
-    graph = TransformGraph(transforms=ms._transform_graph.transforms + (edge,))
-    return Multiscale(ms.items(), _transform_graph=graph, _intrinsic_ref=ms._intrinsic_ref)
-
-
 def test_multiscale_coordinate_systems_does_not_contain_own_intrinsic():
     ms = _with_extra_system(_multiscale(), "world")
     assert ms.coordinate_systems == ("world",)
 
 
-def test_multiscale_as_derived_from_replaces_intrinsic():
-    source_ms = _with_extra_system(_multiscale(), "world")
+class TestMultiscaleAsDerivedFrom:
+    def test_replaces_intrinsic(self):
+        source_ms = _with_extra_system(_multiscale(), "world")
 
-    derived_ms = _multiscale()
-    result = derived_ms.as_derived_from(source_ms)
+        derived_ms = _multiscale()
+        result = derived_ms.as_derived_from(source_ms)
 
-    assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
-    assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
-    assert "world" in result.coordinate_systems
+        assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
+        assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
+        assert "world" in result.coordinate_systems
 
+    def test_does_not_accumulate_on_repetition(self):
+        source_ms = _with_extra_system(_multiscale(), "world")
 
-def test_multiscale_as_derived_from_does_not_accumulate_on_repetition():
-    source_ms = _with_extra_system(_multiscale(), "world")
+        middle_ms = _multiscale().as_derived_from(source_ms)
+        derived_ms = _multiscale().as_derived_from(middle_ms)
 
-    middle_ms = _multiscale().as_derived_from(source_ms)
-    derived_ms = _multiscale().as_derived_from(middle_ms)
+        assert source_ms._intrinsic_ref not in derived_ms._transform_graph.all_system_refs
+        assert middle_ms._intrinsic_ref not in derived_ms._transform_graph.all_system_refs
+        assert len(derived_ms._transform_graph.transforms) == len(middle_ms._transform_graph.transforms) == 1
+        assert "world" in derived_ms.coordinate_systems
 
-    assert source_ms._intrinsic_ref not in derived_ms._transform_graph.all_system_refs
-    assert middle_ms._intrinsic_ref not in derived_ms._transform_graph.all_system_refs
-    assert len(derived_ms._transform_graph.transforms) == len(middle_ms._transform_graph.transforms) == 1
-    assert "world" in derived_ms.coordinate_systems
+    def test_preserves_existing_systems_on_caller(self):
+        caller_ms = _with_extra_system(_multiscale(), "caller_space")
+        donor_ms = _with_extra_system(_multiscale(), "world")
 
+        result = caller_ms.as_derived_from(donor_ms)
 
-def test_multiscale_as_derived_from_preserves_existing_systems_on_caller():
-    caller_ms = _with_extra_system(_multiscale(), "caller_space")
-    donor_ms = _with_extra_system(_multiscale(), "world")
+        assert "caller_space" in result.coordinate_systems
+        assert "world" in result.coordinate_systems
 
-    result = caller_ms.as_derived_from(donor_ms)
+    def test_preserves_caller_on_noop(self):
+        caller_ms = _with_extra_system(_multiscale(), "only_space")
+        donor_ms = _multiscale()  # plain, isolated: nothing to contribute
 
-    assert "caller_space" in result.coordinate_systems
-    assert "world" in result.coordinate_systems
+        result = caller_ms.as_derived_from(donor_ms)  # no relation provided -> genuine noop
 
+        assert result == caller_ms
+        assert result is caller_ms
 
-def test_multiscale_as_derived_from_preserves_caller_on_noop():
-    caller_ms = _with_extra_system(_multiscale(), "only_space")
-    donor_ms = _multiscale()  # plain, isolated: nothing to contribute
+    def test_only_ports_coordinate_systems(self):
+        def _with_path_bound_edge(ms: Multiscale, path: str) -> Multiscale:
+            """Attach a path-bound edge to `ms`, simulating a link to a label-Multiscale overlay."""
+            edge = IdentityTransform().bound(
+                source=ms._intrinsic_ref, target=_UnresolvedRef(name=path, file=FileRef.from_string(path))
+            )
+            graph = TransformGraph(transforms=ms._transform_graph.transforms + (edge,))
+            return Multiscale(ms.items(), _transform_graph=graph, _intrinsic_ref=ms._intrinsic_ref)
 
-    result = caller_ms.as_derived_from(donor_ms)  # no relation provided -> genuine noop
+        source_ms = _with_extra_system(_multiscale(), "world")
+        source_ms = _with_path_bound_edge(source_ms, "labels")
 
-    assert result == caller_ms
-    assert result is caller_ms
+        derived_ms = _multiscale()
+        result = derived_ms.as_derived_from(source_ms)
 
+        assert "world" in result.coordinate_systems
+        assert len(result._transform_graph.transforms) == 1
+        non_coordinate_system_bound = [
+            t
+            for t in result._transform_graph.transforms
+            if (
+                t.source is None
+                or not _is_owner_coordinate_system(t.source)
+                or t.target is None
+                or not _is_owner_coordinate_system(t.target)
+            )
+        ]
+        assert not non_coordinate_system_bound
 
-def test_multiscale_as_derived_from_only_ports_coordinate_systems():
-    source_ms = _with_extra_system(_multiscale(), "world")
-    source_ms = _with_path_bound_edge(source_ms, "labels")
+    def test_transfers_t_scale_convention_even_when_graph_unchanged(self):
+        # caller pixel_size[t] == donor's global legacy t-scale. Satisfies that caller is really derived, so it should
+        # also follow donor's serialization convention.
+        caller_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4), pixel_size=PixelSize(t=0.5, y=1.0, x=1.0))})
+        donor_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4))}, _legacy_convention_global_t_scale=0.5)
 
-    derived_ms = _multiscale()
-    result = derived_ms.as_derived_from(source_ms)
+        result = caller_ms.as_derived_from(donor_ms)
 
-    assert "world" in result.coordinate_systems
-    assert len(result._transform_graph.transforms) == 1
-    non_coordinate_system_bound = [
-        t
-        for t in result._transform_graph.transforms
-        if (
-            t.source is None
-            or not _is_owner_coordinate_system(t.source)
-            or t.target is None
-            or not _is_owner_coordinate_system(t.target)
-        )
-    ]
-    assert not non_coordinate_system_bound
+        assert result is not caller_ms, "should not short-cut and return self"
+        assert caller_ms._legacy_convention_global_t_scale is None, "must not modify original"
+        assert result._legacy_convention_global_t_scale == 0.5
 
+    def test_ports_t_scale_convention_when_mismatching(self):
+        """
+        Calling as_derived_from() claims caller and donor share a space, so caller's
+        pixel_size["t"] != donor's global t-scale could be a red flag indicating this is wrong.
+        The user might have some reason why they didn't supply a Factor(t=0.9/0.5) as the relation though.
+        More important to carry forward the convention; but with the correct value in the derived multiscale.
+        """
+        caller_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4), pixel_size=PixelSize(t=0.9, y=1.0, x=1.0))})
+        donor_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4))}, _legacy_convention_global_t_scale=0.5)
 
-def test_multiscale_as_derived_from_transfers_t_scale_convention_even_when_graph_unchanged():
-    # caller pixel_size[t] == donor's global legacy t-scale. Satisfies that caller is really derived, so it should
-    # also follow donor's serialization convention.
-    caller_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4), pixel_size=PixelSize(t=0.5, y=1.0, x=1.0))})
-    donor_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4))}, _legacy_convention_global_t_scale=0.5)
+        result = caller_ms.as_derived_from(donor_ms)
 
-    result = caller_ms.as_derived_from(donor_ms)
+        assert result._legacy_convention_global_t_scale == 0.9
 
-    assert result is not caller_ms, "should not short-cut and return self"
-    assert caller_ms._legacy_convention_global_t_scale is None, "must not modify original"
-    assert result._legacy_convention_global_t_scale == 0.5
+    def test_with_system_transferred_by_identity_does_not_retain_other(self):
+        source_ms = _with_extra_system(_multiscale(), "world")
 
+        derived_ms = _multiscale()
+        result = derived_ms.as_derived_from(source_ms)
 
-def test_multiscale_as_derived_from_ports_t_scale_convention_when_mismatching():
-    """
-    Calling as_derived_from() claims caller and donor share a space, so caller's
-    pixel_size["t"] != donor's global t-scale could be a red flag indicating this is wrong.
-    The user might have some reason why they didn't supply a Factor(t=0.9/0.5) as the relation though.
-    More important to carry forward the convention; but with the correct value in the derived multiscale.
-    """
-    caller_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4), pixel_size=PixelSize(t=0.9, y=1.0, x=1.0))})
-    donor_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4))}, _legacy_convention_global_t_scale=0.5)
+        assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
+        assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
+        assert "world" in result.coordinate_systems
 
-    result = caller_ms.as_derived_from(donor_ms)
+    def test_with_system_transferred_by_derivation_retains_other(self):
+        source_ms = _with_extra_system(_multiscale(), "world")
 
-    assert result._legacy_convention_global_t_scale == 0.9
+        derived_ms = _multiscale()
+        result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
 
+        assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
+        assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
+        assert "world" in result.coordinate_systems
 
-def test_multiscale_as_derived_from_with_system_transferred_by_identity_does_not_retain_other():
-    source_ms = _with_extra_system(_multiscale(), "world")
+    def test_with_no_system_transferred_but_derivation_retains_other(self):
+        source_ms = _multiscale()
 
-    derived_ms = _multiscale()
-    result = derived_ms.as_derived_from(source_ms)
+        derived_ms = _multiscale()
+        result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
 
-    assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
-    assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
-    assert "world" in result.coordinate_systems
+        assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
+        assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
 
+    def test_with_derivation_renames_duplicate_intrinsic_system_name(self):
+        derived_ms = _with_intrinsic_system_name(_multiscale(), "physical")
+        source_ms = _with_intrinsic_system_name(_multiscale(), "physical")
 
-def test_multiscale_as_derived_from_with_system_transferred_by_derivation_retains_other():
-    source_ms = _with_extra_system(_multiscale(), "world")
+        result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
 
-    derived_ms = _multiscale()
-    result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
+        assert len(result._transform_graph.all_system_refs) == 2
+        assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
+        assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
+        assert result.coordinate_systems == ("physical-1",)
 
-    assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
-    assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
-    assert "world" in result.coordinate_systems
+    def test_retains_identically_named_but_distinct_external_systems(self):
+        caller_ms = _with_extra_system(_multiscale(), "world")
+        donor_ms = _with_extra_system(_multiscale(), "world")
 
+        result = caller_ms.as_derived_from(donor_ms)
 
-def test_multiscale_as_derived_from_with_no_system_transferred_but_derivation_retains_other():
-    source_ms = _multiscale()
+        assert "world" in result.coordinate_systems
+        assert "world-1" in result.coordinate_systems
+        assert donor_ms._intrinsic_ref not in result._transform_graph.all_system_refs
 
-    derived_ms = _multiscale()
-    result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
+    def test_rejects_differing_axes_without_derivation(self):
+        caller_ms = _multiscale("xy")
+        donor_ms = _multiscale("xyz")
 
-    assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
-    assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
+        with pytest.raises(
+            ValueError, match=re.escape("Cannot transfer coordinate systems from source with axes ('x', 'y', 'z')")
+        ):
+            caller_ms.as_derived_from(donor_ms)
 
+    def test_rejects_derivation_not_relation_instance(self):
+        caller_ms = _multiscale("xyz")
+        donor_ms = _multiscale("xyz")
 
-def test_multiscale_as_derived_from_with_derivation_renames_duplicate_intrinsic_system_name():
-    derived_ms = _with_intrinsic_system_name(_multiscale(), "physical")
-    source_ms = _with_intrinsic_system_name(_multiscale(), "physical")
+        with pytest.raises(
+            ValueError, match=re.escape("The derivation relationship must be expressed using SpatialRelations")
+        ):
+            caller_ms.as_derived_from(donor_ms, by="not a relation")  # type: ignore[arg-type]
 
-    result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
+    def test_rejects_mismatching_derivation(self):
+        caller_ms = _multiscale("xyz")
+        donor_ms = _multiscale("xyz")
 
-    assert len(result._transform_graph.all_system_refs) == 2
-    assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
-    assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
-    assert result.coordinate_systems == ("physical-1",)
+        with pytest.raises(ValueError, match="Incompatible axes/order"):
+            caller_ms.as_derived_from(donor_ms, by=Factor.identity("xy"))
 
-
-def test_multiscale_as_derived_from_retains_identically_named_but_distinct_external_systems():
-    caller_ms = _with_extra_system(_multiscale(), "world")
-    donor_ms = _with_extra_system(_multiscale(), "world")
-
-    result = caller_ms.as_derived_from(donor_ms)
-
-    assert "world" in result.coordinate_systems
-    assert "world-1" in result.coordinate_systems
-    assert donor_ms._intrinsic_ref not in result._transform_graph.all_system_refs
-
-
-def test_multiscale_as_derived_from_rejects_differing_axes_without_derivation():
-    caller_ms = _multiscale("xy")
-    donor_ms = _multiscale("xyz")
-
-    with pytest.raises(
-        ValueError, match=re.escape("Cannot transfer coordinate systems from source with axes ('x', 'y', 'z')")
-    ):
-        caller_ms.as_derived_from(donor_ms)
-
-
-def test_multiscale_as_derived_from_rejects_derivation_not_relation_instance():
-    caller_ms = _multiscale("xyz")
-    donor_ms = _multiscale("xyz")
-
-    with pytest.raises(
-        ValueError, match=re.escape("The derivation relationship must be expressed using SpatialRelations")
-    ):
-        caller_ms.as_derived_from(donor_ms, by="not a relation")  # type: ignore[arg-type]
-
-
-def test_multiscale_as_derived_from_rejects_mismatching_derivation():
-    caller_ms = _multiscale("xyz")
-    donor_ms = _multiscale("xyz")
-
-    with pytest.raises(ValueError, match="Incompatible axes/order"):
-        caller_ms.as_derived_from(donor_ms, by=Factor.identity("xy"))
-
-
-@pytest.mark.parametrize(
-    "derived_axes, relations, expected_derivation_transform",
-    [
-        pytest.param("zyx", [], IdentityTransform(), id="empty_list"),
-        pytest.param("zyx", [Factor.identity("zyx")], IdentityTransform(), id="single_entry_identity"),
-        pytest.param("zyx", [Factor(z=2.0, y=2.0, x=2.0)], ScaleTransform(scale=(0.5, 0.5, 0.5)), id="single_factor"),
-        pytest.param(
-            "zyx",
-            [Factor.identity("zyx"), Translation.identity("zyx")],
-            IdentityTransform(),
-            id="two_entry_identity",
-        ),
-        pytest.param(
-            "zyx",
-            [Factor(z=2.0, y=2.0, x=2.0), Translation(z=1.0, y=2.0, x=3.0)],
-            TransformSequence(
-                (ScaleTransform(scale=(0.5, 0.5, 0.5)), TranslationTransform(translation=(-1.0, -2.0, -3.0)))
+    @pytest.mark.parametrize(
+        "derived_axes, relations, expected_derivation_transform",
+        [
+            pytest.param("zyx", [], IdentityTransform(), id="empty_list"),
+            pytest.param("zyx", [Factor.identity("zyx")], IdentityTransform(), id="single_entry_identity"),
+            pytest.param(
+                "zyx", [Factor(z=2.0, y=2.0, x=2.0)], ScaleTransform(scale=(0.5, 0.5, 0.5)), id="single_factor"
             ),
-            id="factor_translation",
-        ),
-        pytest.param(
-            "tyxz",
-            [ProjectionTo("tzyx"), PermutationTo("tyxz")],
-            TransformSequence((ProjectAxisTransform(inserts=(0,)), MapAxisTransform(map_axis=(0, 2, 3, 1)))),
-            id="insertion_permutation",
-        ),
-    ],
-)
-def test_multiscale_as_derived_from_accepts_list_of_relations(
-    derived_axes: str, relations: List[SpatialRelation], expected_derivation_transform: Transform
-):
-    source_axes = "zyx"
-    # source_ms -> world is IdentityTransform
-    source_ms = _with_extra_system(_multiscale(source_axes), "world")
-    derived_ms = _multiscale(derived_axes)
+            pytest.param(
+                "zyx",
+                [Factor.identity("zyx"), Translation.identity("zyx")],
+                IdentityTransform(),
+                id="two_entry_identity",
+            ),
+            pytest.param(
+                "zyx",
+                [Factor(z=2.0, y=2.0, x=2.0), Translation(z=1.0, y=2.0, x=3.0)],
+                TransformSequence(
+                    (ScaleTransform(scale=(0.5, 0.5, 0.5)), TranslationTransform(translation=(-1.0, -2.0, -3.0)))
+                ),
+                id="factor_translation",
+            ),
+            pytest.param(
+                "tyxz",
+                [ProjectionTo("tzyx"), PermutationTo("tyxz")],
+                TransformSequence((ProjectAxisTransform(inserts=(0,)), MapAxisTransform(map_axis=(0, 2, 3, 1)))),
+                id="insertion_permutation",
+            ),
+        ],
+    )
+    def test_accepts_list_of_relations(
+        self, derived_axes: str, relations: List[SpatialRelation], expected_derivation_transform: Transform
+    ):
+        source_axes = "zyx"
+        # source_ms -> world is IdentityTransform
+        source_ms = _with_extra_system(_multiscale(source_axes), "world")
+        derived_ms = _multiscale(derived_axes)
 
-    result = derived_ms.as_derived_from(source_ms, by=relations)
+        result = derived_ms.as_derived_from(source_ms, by=relations)
 
-    assert "world" in result.coordinate_systems
-    world_refs = tuple(ref for ref in source_ms._transform_graph.all_system_refs if ref.name == "world")
-    assert len(world_refs) == 1, "names must be unique inside the graph"
-    world = next(iter(world_refs))
-    assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
-    assert world in result._transform_graph.all_system_refs
-    # We store `source_ms --derivation_t--> derived_ms` only if relations has contents
-    expected_n_transforms = 1 if not relations else 2
-    assert len(result._transform_graph.transforms) == expected_n_transforms
-    if relations:
+        assert "world" in result.coordinate_systems
+        world_refs = tuple(ref for ref in source_ms._transform_graph.all_system_refs if ref.name == "world")
+        assert len(world_refs) == 1, "names must be unique inside the graph"
+        world = next(iter(world_refs))
+        assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
+        assert world in result._transform_graph.all_system_refs
+        # We store `source_ms --derivation_t--> derived_ms` only if relations has contents
+        expected_n_transforms = 1 if not relations else 2
+        assert len(result._transform_graph.transforms) == expected_n_transforms
+        if relations:
+            assert (
+                expected_derivation_transform.bound(source=source_ms._intrinsic_ref, target=derived_ms._intrinsic_ref)
+                in result._transform_graph.transforms
+            ), f"expected {source_ms._intrinsic_ref.name}-->{derived_ms._intrinsic_ref.name}"
+        # Maybe slightly counterintuitive, but the expected
+        # `derived_ms -> world` is the derivation *inverted*:
+        # The derivation tells us how derived_ms was made from source_ms:
+        # `source_ms --derivation_t--> derived_ms`
+        # but source_ms has `source_ms -(identity)-> world`, hence
+        # `derived_ms -derivation_t.inverted-> source_ms -(identity)-> world`
+        # (with identity dropping out by composition).
+        # At least as long as the derivation itself is invertible.
+        expected_t_inverted = expected_derivation_transform.inverted()
         assert (
-            expected_derivation_transform.bound(source=source_ms._intrinsic_ref, target=derived_ms._intrinsic_ref)
+            expected_t_inverted.bound(source=derived_ms._intrinsic_ref, target=world)
             in result._transform_graph.transforms
-        ), f"expected {source_ms._intrinsic_ref.name}-->{derived_ms._intrinsic_ref.name}"
-    # Maybe slightly counterintuitive, but the expected
-    # `derived_ms -> world` is the derivation *inverted*:
-    # The derivation tells us how derived_ms was made from source_ms:
-    # `source_ms --derivation_t--> derived_ms`
-    # but source_ms has `source_ms -(identity)-> world`, hence
-    # `derived_ms -derivation_t.inverted-> source_ms -(identity)-> world`
-    # (with identity dropping out by composition).
-    # At least as long as the derivation itself is invertible.
-    expected_t_inverted = expected_derivation_transform.inverted()
-    assert (
-        expected_t_inverted.bound(source=derived_ms._intrinsic_ref, target=world) in result._transform_graph.transforms
-    ), f"expected {derived_ms._intrinsic_ref.name}-->{world.name}"
+        ), f"expected {derived_ms._intrinsic_ref.name}-->{world.name}"
+
+    def test_relation_list_order_matters(self):
+        source_ms = _multiscale("zyx")
+        derived_ms = _multiscale("tyxz")
+        # Same two relations, reversed: PermutationTo can't apply first, source has no "t" yet.
+        relations = [PermutationTo("tyxz"), ProjectionTo("tzyx")]
+
+        with pytest.raises(ValueError, match="PermutationTo cannot insert or drop axes, only reorder"):
+            derived_ms.as_derived_from(source_ms, by=relations)
+
+    def test_rejects_mismatching_relation_list(self):
+        caller_ms = _multiscale("tyxz")
+        donor_ms = _multiscale("zyx")
+        # Composed chain lands on tzyx, not caller's tyxz.
+        relations = [ProjectionTo("tzyx"), PermutationTo("tzyx")]
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "Provided relation chain would produce axes ('t', 'z', 'y', 'x') from ('z', 'y', 'x'), but this Multiscale has ('t', 'y', 'x', 'z')"
+            ),
+        ):
+            caller_ms.as_derived_from(donor_ms, by=relations)
 
 
-def test_multiscale_as_derived_from_relation_list_order_matters():
-    source_ms = _multiscale("zyx")
-    derived_ms = _multiscale("tyxz")
-    # Same two relations, reversed: PermutationTo can't apply first, source has no "t" yet.
-    relations = [PermutationTo("tyxz"), ProjectionTo("tzyx")]
+class TestMultiscaleWithCoordinateSystem:
+    def test_identity(self):
+        ms = _multiscale("zyx")
 
-    with pytest.raises(ValueError, match="PermutationTo cannot insert or drop axes, only reorder"):
-        derived_ms.as_derived_from(source_ms, by=relations)
+        result = ms.with_coordinate_system("world")
 
+        assert result is not ms
+        assert "world" in result.coordinate_systems
+        world_refs = [ref for ref in result._transform_graph.all_system_refs if ref.name == "world"]
+        assert len(world_refs) == 1
+        world = world_refs[0]
+        assert world.owner.axes == ms.axes
+        assert len(result._transform_graph.transforms) == 1
+        assert IdentityTransform().bound(source=ms._intrinsic_ref, target=world) in result._transform_graph.transforms
 
-def test_multiscale_as_derived_from_rejects_mismatching_relation_list():
-    caller_ms = _multiscale("tyxz")
-    donor_ms = _multiscale("zyx")
-    # Composed chain lands on tzyx, not caller's tyxz.
-    relations = [ProjectionTo("tzyx"), PermutationTo("tzyx")]
+    def test_accepts_single_relation(self):
+        ms = _multiscale("zyx")
+        relation = Factor(z=2.0, y=2.0, x=2.0)
 
-    with pytest.raises(
-        ValueError,
-        match=re.escape(
-            "Provided relation chain would produce axes ('t', 'z', 'y', 'x') from ('z', 'y', 'x'), but this Multiscale has ('t', 'y', 'x', 'z')"
-        ),
-    ):
-        caller_ms.as_derived_from(donor_ms, by=relations)
+        result = ms.with_coordinate_system("world", reached_by=relation)
 
+        world = next(ref for ref in result._transform_graph.all_system_refs if ref.name == "world")
+        # We've said we reach the "world" coordinate system by scaling `ms` by Factor(2.0),
+        # i.e. we 2x *downscale* `ms` to overlay it in "world".
+        # In other words, `ms` is a 0.5 *upscale* of "world": `ms --Scale(0.5)-> world`
+        # or looking at coordinates: ms[2, 2, 2] == world[1, 1, 1]
+        expected = ScaleTransform((0.5, 0.5, 0.5)).bound(source=ms._intrinsic_ref, target=world)
+        assert expected in result._transform_graph.transforms
 
-def test_multiscale_with_coordinate_system_identity():
-    ms = _multiscale("zyx")
+    def test_accepts_relation_sequence(self):
+        ms = _multiscale("zyx")
+        # This simulates a call where "`ms` was made from `world`" by translating, scaling, and inserting an axis.
+        # The relations when specifying "how to reach `world` from `ms`" then correspond to "how to undo what I did".
+        # If ms was "made from" world by [Translation(3, 4), Factor(2), Insert(z)],
+        # in other words, shifted (e.g. crop-offset) and then downscaled from world,
+        # then the relation to return from ms to world is [Drop(z), Factor(0.5), Translation(-3, -4)]
+        relations = [
+            AxisRearrangementTo("yx"),
+            Factor(y=0.5, x=0.5),
+            Translation(y=-3.0, x=-4.0),
+        ]
 
-    result = ms.with_coordinate_system("world")
+        result = ms.with_coordinate_system("world", reached_by=relations)
 
-    assert result is not ms
-    assert "world" in result.coordinate_systems
-    world_refs = [ref for ref in result._transform_graph.all_system_refs if ref.name == "world"]
-    assert len(world_refs) == 1
-    world = world_refs[0]
-    assert world.owner.axes == ms.axes
-    assert len(result._transform_graph.transforms) == 1
-    assert IdentityTransform().bound(source=ms._intrinsic_ref, target=world) in result._transform_graph.transforms
+        world = next(ref for ref in result._transform_graph.all_system_refs if ref.name == "world")
+        assert world.owner.axes == ("y", "x")
 
+        # When specifying rearrange->factor->translation, the translation is already at "world" scale.
+        # Coordinate ms[0, 0, 0] == world[3.0, 4.0] (ms is shifted relative to world origin)
+        # Coordinate ms[0, 1.0, 1.0] -> rearrange -> [1, 1] -> scale -> [2, 2] -> translate -> world[5.0, 6.0]
+        # Coordinate ms[0, 10.0, 10.0] == world[23.0, 24.0]
+        expected = TransformSequence(
+            (
+                ProjectAxisTransform(drops=(0,)),
+                ScaleTransform((2.0, 2.0)),
+                TranslationTransform((3.0, 4.0)),
+            )
+        ).bound(source=ms._intrinsic_ref, target=world)
+        assert expected in result._transform_graph.transforms
 
-def test_multiscale_with_coordinate_system_accepts_single_relation():
-    ms = _multiscale("zyx")
-    relation = Factor(z=2.0, y=2.0, x=2.0)
+    def test_preserves_existing_graph(self):
+        original = _multiscale("zyx")
+        with_first = original.with_coordinate_system("first")
+        with_both = with_first.with_coordinate_system("second", reached_by=Factor(z=2, y=2, x=2))
 
-    result = ms.with_coordinate_system("world", reached_by=relation)
+        assert "first" not in original.coordinate_systems
+        assert not original._transform_graph.transforms
+        assert set(with_both.coordinate_systems) == {"first", "second"}
+        assert len(with_both._transform_graph.transforms) == 2
+        assert with_first._transform_graph.transforms[0] in with_both._transform_graph.transforms
 
-    world = next(ref for ref in result._transform_graph.all_system_refs if ref.name == "world")
-    # We've said we reach the "world" coordinate system by scaling `ms` by Factor(2.0),
-    # i.e. we 2x *downscale* `ms` to overlay it in "world".
-    # In other words, `ms` is a 0.5 *upscale* of "world": `ms --Scale(0.5)-> world`
-    # or looking at coordinates: ms[2, 2, 2] == world[1, 1, 1]
-    expected = ScaleTransform((0.5, 0.5, 0.5)).bound(source=ms._intrinsic_ref, target=world)
-    assert expected in result._transform_graph.transforms
+    def test_rejects_duplicate_name(self):
+        ms = _multiscale("zyx").with_coordinate_system("world")
 
+        with pytest.raises(ValueError, match="Coordinate system name 'world' already exists"):
+            ms.with_coordinate_system("world")
 
-def test_multiscale_with_coordinate_system_accepts_relation_sequence():
-    ms = _multiscale("zyx")
-    # This simulates a call where "`ms` was made from `world`" by translating, scaling, and inserting an axis.
-    # The relations when specifying "how to reach `world` from `ms`" then correspond to "how to undo what I did".
-    # If ms was "made from" world by [Translation(3, 4), Factor(2), Insert(z)],
-    # in other words, shifted (e.g. crop-offset) and then downscaled from world,
-    # then the relation to return from ms to world is [Drop(z), Factor(0.5), Translation(-3, -4)]
-    relations = [
-        AxisRearrangementTo("yx"),
-        Factor(y=0.5, x=0.5),
-        Translation(y=-3.0, x=-4.0),
-    ]
+    def test_rejects_non_spatial_relations(self):
+        ms = _multiscale("zyx")
 
-    result = ms.with_coordinate_system("world", reached_by=relations)
-
-    world = next(ref for ref in result._transform_graph.all_system_refs if ref.name == "world")
-    assert world.owner.axes == ("y", "x")
-
-    # When specifying rearrange->factor->translation, the translation is already at "world" scale.
-    # Coordinate ms[0, 0, 0] == world[3.0, 4.0] (ms is shifted relative to world origin)
-    # Coordinate ms[0, 1.0, 1.0] -> rearrange -> [1, 1] -> scale -> [2, 2] -> translate -> world[5.0, 6.0]
-    # Coordinate ms[0, 10.0, 10.0] == world[23.0, 24.0]
-    expected = TransformSequence(
-        (
-            ProjectAxisTransform(drops=(0,)),
-            ScaleTransform((2.0, 2.0)),
-            TranslationTransform((3.0, 4.0)),
-        )
-    ).bound(source=ms._intrinsic_ref, target=world)
-    assert expected in result._transform_graph.transforms
-
-
-def test_multiscale_with_coordinate_system_preserves_existing_graph():
-    original = _multiscale("zyx")
-    with_first = original.with_coordinate_system("first")
-    with_both = with_first.with_coordinate_system("second", reached_by=Factor(z=2, y=2, x=2))
-
-    assert "first" not in original.coordinate_systems
-    assert not original._transform_graph.transforms
-    assert set(with_both.coordinate_systems) == {"first", "second"}
-    assert len(with_both._transform_graph.transforms) == 2
-    assert with_first._transform_graph.transforms[0] in with_both._transform_graph.transforms
-
-
-def test_multiscale_with_coordinate_system_rejects_duplicate_name():
-    ms = _multiscale("zyx").with_coordinate_system("world")
-
-    with pytest.raises(ValueError, match="Coordinate system name 'world' already exists"):
-        ms.with_coordinate_system("world")
-
-
-def test_multiscale_with_coordinate_system_rejects_non_spatial_relations():
-    ms = _multiscale("zyx")
-
-    with pytest.raises(
-        ValueError,
-        match="How the new coordinate system is reached must be expressed using SpatialRelations",
-    ):
-        ms.with_coordinate_system("world", reached_by="not a relation")  # type: ignore[arg-type]
+        with pytest.raises(
+            ValueError,
+            match="How the new coordinate system is reached must be expressed using SpatialRelations",
+        ):
+            ms.with_coordinate_system("world", reached_by="not a relation")  # type: ignore[arg-type]
