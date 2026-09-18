@@ -41,6 +41,9 @@ source = "vcs"
 [tool.hatch.build.hooks.vcs]
 version-file = "src/clearscale/_version.py"
 
+[tool.setuptools_scm]
+tag.strict = true
+
 [tool.black]
 line-length = 120
 target-version = ["py311"]
