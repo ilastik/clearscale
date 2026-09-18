@@ -332,6 +332,18 @@ def _characterize_factor_scaling_method(
         all_successes, factor_to_spacing, pixel_sizing_tie_expected
     )
 
+    if (
+        all(isinstance(probe.factor, int) or probe.factor.is_integer() for probe, _o in all_successes)
+        and characterization.translating is half_pixel_space_preservation
+    ):
+        # No probe with a fractional factor succeeded; the method only accepts integer scaling factors
+        assert (
+            characterization.translating_error == 0.0
+        ), "translating should be exact for scaling methods that only accept int step factors"
+        # half_pixel_space_preservation and discrete_bin_center are numerically *identical* in this case: 0.5 * (spacing - 1) == 0.5 * (ceil(spacing) - 1)
+        # But the more descriptive name is discrete_bin_center, because that's what the method is more likely to actually be doing if it only accepts int.
+        characterization = replace(characterization, translating=discrete_bin_center)
+
     return replace(
         characterization,
         rounding=rounding,
@@ -404,7 +416,7 @@ def _get_first_unambiguous_affine_characterization(
         if not is_pixel_sizing_tied or pixel_sizing_tie_expected:
             return characterization
 
-    raise ValueError("No probe produced an unambiguous pixel-sizing/shift characterization.")
+    raise ValueError("No probe produced an unambiguous pixel-sizing characterization.")
 
 
 def _characterize_affine(
