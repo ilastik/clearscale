@@ -26,8 +26,8 @@ from clearscale._transforms import (
 if TYPE_CHECKING:
     from clearscale._multiscale import Multiscale
 
-SUPPORTED_OME_ZARR_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6.rc0")
-SUPPORTED_OME_ZARR_VERSIONS_WRITE = ("0.4", "0.5", "0.6.rc0")
+SUPPORTED_OME_ZARR_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
+SUPPORTED_OME_ZARR_VERSIONS_WRITE = ("0.4", "0.5", "0.6")
 
 ####
 # Reading
@@ -201,7 +201,7 @@ class MultiscaleTransforms(TransformSequence):
         TransformSequence.__post_init__(self)
 
     def to_legacy_ome_zarr(self) -> List[Dict[str, Any]]:
-        """TransformSequence.to_ome_zarr is for 0.6.rc0 and upwards; this handles legacy 0.4/0.5"""
+        """TransformSequence.to_ome_zarr is for 0.6 and upwards; this handles legacy 0.4/0.5"""
         version = "0.5"  # Same format for 0.4 and 0.5, so doesn't matter which
         return [t.to_ome_zarr(version) for t in self.transforms]
 
@@ -223,7 +223,7 @@ class MultiscaleTransforms(TransformSequence):
     def from_list(cls, ome_transformations: Optional[OME_ZARR_TRANSFORMS]) -> Optional["MultiscaleTransforms"]:
         """
         Possibilities for ome_transformations:
-        0.6.rc0 multiscale[datasets][n][coordinateTransformations]:
+        0.6 multiscale[datasets][n][coordinateTransformations]:
         - List of one ScaleTransform
         - List of one IdentityTransform
         - List of one TransformSequence containing one ScaleTransform and one TranslationTransform

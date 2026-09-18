@@ -31,7 +31,7 @@ unit       = Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
 # 4. Write metadata: Scale -> Multiscale -> Group -> attrs
 base       = Scale(shape, pixel_size, unit)
 ms         = Multiscale.from_single(base, blueprint=scaling_blueprint)
-group_meta = OmeZarrGroup.from_single(ms).to_attrs(version="0.6.rc0")
+group_meta = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 zarr_group.attrs.update(group_meta)
 ```
 
@@ -52,7 +52,7 @@ zarr_group = zarr.open_group(os.path.expanduser("~/cltest.ome.zarr"), mode="w")
 
 * Zero dependencies, runs with Python 3.10+
 * Read Neuroglancer Precomputed and OME-Zarr metadata (all versions)
-* Write OME-Zarr versions 0.4, 0.5 and 0.6.rc0
+* Write OME-Zarr versions 0.4, 0.5 and 0.6
 * Virtually no knowledge about OME-Zarr or its versions required
 * Create, manipulate, save and load multiscale metadata
 * Make sure metadata are correct for any scaling method

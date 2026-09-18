@@ -63,11 +63,11 @@ def test_downscale_2_example():
     # 4. Expand and write metadata
     base = Scale(shape, pixel_size, unit)
     ms = Multiscale.from_single(base, blueprint=scaling_blueprint)
-    written = OmeZarrGroup.from_single(ms).to_attrs(version="0.6.rc0")
+    written = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 
     assert "ome" in written
     assert "multiscales" in written["ome"]
-    assert "version" in written["ome"] and written["ome"]["version"] == "0.6.rc0"
+    assert "version" in written["ome"] and written["ome"]["version"] == "0.6"
     assert len(written["ome"]["multiscales"]) == 1
     written_ms_dict = written["ome"]["multiscales"][0]
     assert len(written_ms_dict["coordinateSystems"]) == 1
@@ -131,7 +131,7 @@ def test_downscale_2_example():
                 "path": "s3",
             },
         ],
-        "version": "0.6.rc0",
+        "version": "0.6",
     }
 
     assert written_ms_dict == expected

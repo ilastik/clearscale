@@ -547,7 +547,7 @@ def all_invalid_scene_examples():
 def scene_to_group_attrs(scene_obj: Mapping[str, Any]) -> Dict[str, Any]:
     return {
         "ome": {
-            "version": "0.6.rc0",
+            "version": "0.6",
             "scene": scene_obj,
         }
     }

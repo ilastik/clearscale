@@ -66,7 +66,7 @@ python script.py --path https://someserver.org/public-data/00121
 Your zarr backend will tell you whether that path points to a zarr object at all.
 Assuming it does, the next thing you will want to know is, "Is this *zarr* object an *OME-Zarr* object?"
 
-clearscale recognises all valid OME-Zarr objects of all OME-Zarr versions, up to and including 0.6.rc0.
+clearscale recognises all valid OME-Zarr objects of all OME-Zarr versions, up to and including 0.6.
 
 ## "Is this zarr thing an OME-Zarr thing?"
 `clearscale.OmeZarrGroup` answers this question.
@@ -221,7 +221,7 @@ You need two things:
 * The `clearscale.Multiscale` that describes the actual zarr group and arrays you wrote, and
 * the OME-Zarr version you want to write.
 
-clearscale supports writing OME-Zarr metadata in the stable OME-Zarr versions `0.4` and `0.5`, and the "in-development" version `0.6.rc0`.
+clearscale supports writing OME-Zarr metadata in OME-Zarr versions `0.4` and `0.5`, and `0.6`.
 
 ## Making new Multiscales
 The two most important methods here are: `Multiscale.from_single` and `Multiscale.derive`.

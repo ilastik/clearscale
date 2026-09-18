@@ -37,7 +37,7 @@ def test_transform_name_round_trips():
     )
 
     assert transform._ome_zarr_name == "pixel-size"
-    assert transform.to_ome_zarr("0.6.rc0") == {
+    assert transform.to_ome_zarr("0.6") == {
         "type": "scale",
         "scale": [2.0],
         "name": "pixel-size",
@@ -216,7 +216,7 @@ def test_transform_from_ome_zarr_parses_all_transform_types(ome_dict, expected_t
     transform = Transform.from_ome_zarr(ome_dict)
 
     assert isinstance(transform, expected_type)
-    assert transform.to_ome_zarr("0.6.rc0") == expected_roundtrip
+    assert transform.to_ome_zarr("0.6") == expected_roundtrip
 
 
 def test_transform_graph_rejects_unbound_transforms():

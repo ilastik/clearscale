@@ -30,7 +30,7 @@ def test_registration_example():
 @pytest.mark.parametrize("meta", all_valid_scene_examples())
 def test_scene_public_examples_roundtrip(meta):
     # https://ngff.openmicroscopy.org/specifications/dev/examples/transformations/transformations.html
-    roundtrip = Scene.from_ome_zarr(meta).to_ome_zarr(version="0.6.rc0")
+    roundtrip = Scene.from_ome_zarr(meta).to_ome_zarr(version="0.6")
     assert "coordinateTransformations" in roundtrip
     assert "coordinateTransformations" in meta
     assert len(roundtrip["coordinateTransformations"]) == len(meta["coordinateTransformations"])

@@ -245,7 +245,7 @@ class OmeZarrGroup:
         """
         return cls.from_attrs(group.attrs, shape_source=shape_source or group)
 
-    def to_attrs(self, version: Literal["0.4", "0.5", "0.6.rc0"]) -> Dict[str, Any]:
+    def to_attrs(self, version: Literal["0.4", "0.5", "0.6"]) -> Dict[str, Any]:
         if version not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
             raise ValueError(f"Cannot write OME-Zarr with {version=}")
         if self.kind is None:
@@ -283,7 +283,7 @@ class OmeZarrGroup:
         ome["version"] = version
         return {"ome": ome}
 
-    def _validate_for_version(self, version: Literal["0.4", "0.5", "0.6.rc0"]):
+    def _validate_for_version(self, version: Literal["0.4", "0.5", "0.6"]):
         assert self.kind is not None, "should skip if empty"
         not_implemented_kinds = (GroupKind.BF2RAW, GroupKind.BF2RAW_OME)
         if self.kind in not_implemented_kinds:
@@ -294,7 +294,7 @@ class OmeZarrGroup:
         supported_kinds = {
             "0.4": base_kinds,
             "0.5": base_kinds,
-            "0.6.rc0": base_kinds + (GroupKind.SCENE,),
+            "0.6": base_kinds + (GroupKind.SCENE,),
         }
         is_multi_multiscale = (
             self.kind is GroupKind.COLLECTION and len(self.multiscales) > 1 and not self.scenes and not self.children

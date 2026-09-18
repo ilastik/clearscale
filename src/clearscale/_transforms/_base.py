@@ -29,7 +29,7 @@ from clearscale._axis_values import (
 )
 from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscaleError
 
-RelativePath = str  # 0.6.rc0: scene["coordinateTransformations"][]["input"]["path"]
+RelativePath = str  # 0.6: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]
 NodesByPath = Mapping[RelativePath, "TransformGraphNode"]
 TransformGraphNodeT = TypeVar("TransformGraphNodeT", bound="TransformGraphNode", covariant=True)
@@ -38,7 +38,7 @@ _TransformSequenceSelf = TypeVar("_TransformSequenceSelf", bound="TransformSeque
 _RefT = TypeVar("_RefT")
 
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
-PRE_COLLECTIONS_VERSIONS = PRE_TRANSFORMS_VERSIONS + ("0.6.rc0",)
+PRE_COLLECTIONS_VERSIONS = PRE_TRANSFORMS_VERSIONS + ("0.6",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -396,7 +396,7 @@ class NodeRef(Generic[TransformGraphNodeT]):
     def __repr__(self):
         return f"NodeRef(name='{self.name}', owner={type(self.owner).__name__}<id={id(self.owner)}, axes={self.owner.axes})>"
 
-    def to_ome_zarr(self, version: str = "0.6.rc0", path: Optional[str] = None) -> Dict[str, Any]:
+    def to_ome_zarr(self, version: str = "0.6", path: Optional[str] = None) -> Dict[str, Any]:
         if path and isinstance(path, str):
             return {"name": self.name, "path": FileRef.from_string(path).to_ome_zarr(version)}
         return {"name": self.name}
@@ -417,7 +417,7 @@ class _UnresolvedRef:
         if not self.name and not self.file:
             raise ValueError("_UnresolvedRef requires at least one of: name, path")
 
-    def to_ome_zarr(self, version: str = "0.6.rc0", path: Optional[FileRef] = None) -> Dict[str, Any]:
+    def to_ome_zarr(self, version: str = "0.6", path: Optional[FileRef] = None) -> Dict[str, Any]:
         d = {}
         if self.file is not None:
             d["path"] = self.file.to_ome_zarr(version)
@@ -950,7 +950,7 @@ class TransformSequence(Transform):
 
     def to_ome_zarr(self, version: str, *, nodes_by_path: Optional[NodesByPath] = None) -> Dict[str, Any]:
         if version in PRE_TRANSFORMS_VERSIONS:
-            raise ValueError("TransformSequence cannot be serialized to OME-Zarr older than 0.6.rc0")
+            raise ValueError("TransformSequence cannot be serialized to OME-Zarr older than 0.6")
         return super(TransformSequence, self).to_ome_zarr(version, nodes_by_path=nodes_by_path)
 
     def __post_init__(self):
@@ -1219,15 +1219,15 @@ class TransformGraph:
         graph = TransformGraph(transforms, system_refs=tuple(named_systems))
         return graph
 
-    def to_ome_zarr(self, version="0.6.rc0", nodes_by_path: Optional[NodesByPath] = None) -> Dict[str, Any]:
+    def to_ome_zarr(self, version="0.6", nodes_by_path: Optional[NodesByPath] = None) -> Dict[str, Any]:
         """
         Returns dict like {
             "coordinateSystems": List[Dict] (maybe)
             "coordinateTransformations: List[Dict] (required)
         }
         """
-        if version != "0.6.rc0":
-            raise ValueError(f"Unsupported OME-Zarr version {version!r}. Graphs can only be written to '0.6.rc0'.")
+        if version != "0.6":
+            raise ValueError(f"Unsupported OME-Zarr version {version!r}. Graphs can only be written to '0.6'.")
         systems = [
             ref.owner.to_ome_zarr(name=ref.name, version=version)
             for ref in self.all_system_refs

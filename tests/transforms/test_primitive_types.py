@@ -38,7 +38,7 @@ def test_path_backed_scale_round_trips_and_no_ndim():
     assert isinstance(scale, ScaleTransform)
     assert scale._ndim_by_payload().delta == 0
     assert not scale.is_invertible
-    assert scale.to_ome_zarr("0.6.rc0") == {"type": "scale", "path": "coordinateTransformations/scale"}
+    assert scale.to_ome_zarr("0.6") == {"type": "scale", "path": "coordinateTransformations/scale"}
 
 
 def test_scale_bound_rejects_axis_count_mismatch():
@@ -190,7 +190,7 @@ def test_path_backed_translation_round_trips_and_no_ndim():
     assert isinstance(translation, TranslationTransform)
     assert translation._ndim_by_payload().delta == 0
     assert not translation.is_invertible
-    assert translation.to_ome_zarr("0.6.rc0") == {
+    assert translation.to_ome_zarr("0.6") == {
         "type": "translation",
         "path": "coordinateTransformations/translation",
     }
@@ -300,7 +300,7 @@ def test_path_backed_rotation_round_trips_and_no_ndim():
     assert isinstance(rotation, RotationTransform)
     assert rotation._ndim_by_payload().delta == 0
     assert not rotation.is_invertible
-    assert rotation.to_ome_zarr("0.6.rc0") == {
+    assert rotation.to_ome_zarr("0.6") == {
         "type": "rotation",
         "path": "coordinateTransformations/rotation",
     }
@@ -411,7 +411,7 @@ def test_path_backed_affine_round_trips_and_no_ndim():
     assert isinstance(affine, AffineTransform)
     assert affine._ndim_by_payload().is_unconstrained()
     assert not affine.is_invertible
-    assert affine.to_ome_zarr("0.6.rc0") == {
+    assert affine.to_ome_zarr("0.6") == {
         "type": "affine",
         "path": "coordinateTransformations/affine",
     }

@@ -26,7 +26,7 @@ class TestOmeZarrAxis:
 
     def test_to_ome_zarr_full_0_6(self):
         axis = ome_zarr.Axis(name="c", type="channel", unit="", discrete=True, long_name="Channel")
-        d = axis.to_ome_zarr(version="0.6.rc0")
+        d = axis.to_ome_zarr(version="0.6")
         assert d == {"name": "c", "type": "channel", "longName": "Channel", "discrete": True}
 
     @pytest.mark.parametrize("version", ["0.4", "0.5"])
@@ -43,7 +43,7 @@ class TestOmeZarrAxis:
         assert axis.unit == "micrometer"
         assert axis.discrete is False
         assert axis.long_name == "Z"
-        assert axis.to_ome_zarr(version="0.6.rc0") == raw
+        assert axis.to_ome_zarr(version="0.6") == raw
 
 
 class TestOmeZarrAxes:

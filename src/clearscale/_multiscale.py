@@ -1872,11 +1872,11 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     def to_ome_zarr(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         *,
-        version: Literal["0.4", "0.5", "0.6.rc0"],
+        version: Literal["0.4", "0.5", "0.6"],
         name: Optional[str] = None,
     ) -> Dict[str, Any]:
         if version not in ome_zarr.SUPPORTED_OME_ZARR_VERSIONS_WRITE:
-            raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.rc0.")
+            raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.")
         ome_zarr.validate_multiscale(self)
         result: Dict[str, Any] = {"version": version, "datasets": []}
         if self.ome:
