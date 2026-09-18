@@ -19,7 +19,10 @@ If you've been coding for a bit already, you most likely just need to know:
 Potential gotchas:
 
 * When describing relative scaling, `Factor` is a _multiplier_ for `PixelSize` and a _divisor_ for `Shape`. `Factor(x=2)` means "downscale by factor 2" - doubling pixel size and halving image shape. `Shape / Factor` needs to know how your scaling method rounds uneven divisions, so must be called as `shape.scaled_by(factor, rounding="ceil")`. Note that many scaling methods like `scipy.ndimage.zoom` expect *shape multiplier* factors, so you'd need to pass `factor.inverted().to_tuple()`.
-* Scaling usually introduces a shift, or `Translation`, to the scaled image's origin in physical space. Methods that handle `Scale` objects (and hence `Scale.translation`) handle this via a `TranslationShiftFunction` (see [Which shift is the right one for my scaling method?](translation_shifts.md#which-shift-is-the-right-one-for-my-scaling-method))
+* Scaled pixel size cannot be trivially determined. By default, `shape_ratio` is assumed (`output_spacing = input_spacing * input_shape / output_shape`), but some methods use `"corner_ratio"` or `"exact_factor"`.
+* Scaling usually introduces a shift, or `Translation`, to the scaled image's origin in physical space. Methods that handle `Scale` objects (and hence `Scale.translation`) compute this using a `TranslationShiftFunction`
+
+All three characteristics can be determined for your particular method using `clearscale`'s [scaling method characterization](characterization.md).
 
 ## Axis values: Dicts are better than tuples
 
@@ -260,13 +263,12 @@ assert multiscale["s2"].shape == Shape(z=40, y=128, x=128)
 assert multiscale["s2"].pixel_size == PixelSize(z=0.5, y=1.0, x=1.0)
 ```
 
-By default, applying a blueprint to a Scale keeps the base Scale's translation for all derived Scales.
-If your scaling operation changes where the first output pixel belongs in physical space (most commonly used scaling methods do), choose an explicit `translating` function.
-See [Which shift is the right one for my scaling method?](translation_shifts.md#which-shift-is-the-right-one-for-my-scaling-method) for the built-in shift conventions and detector.
+By default, applying a blueprint to a Scale keeps the base Scale's translation for all derived Scales, and multiplies the pixel size by the `input_shape / output_shape` ratio.
+
+This may or may not be accurate.
+You can automatically determine the appropriate additional parameters (`pixel_sizing`, `translating`) for your specific scaling method using [scaling method characterization](characterization.md).
 
 If your processing code naturally thinks in scaling factors instead of output shapes, use `BlueprintFactors`.
-In this case, you need to specify how your data scaling handles rounding when factors unevenly divide shapes.
-This is necessary for accurate metadata calculation.
 
 You can directly build the blueprint and apply to the same `base` Scale:
 
@@ -283,6 +285,9 @@ factors = BlueprintFactors(
 
 multiscale = Multiscale.from_single(base, blueprint=factors, rounding="ceil")
 ```
+
+In this case, you need to specify how your data scaling handles rounding when factors unevenly divide shapes.
+If you are unsure how your method rounds, [scaling method characterization](characterization.md) can help.
 
 The number of scales you want to output will probably depend on the input image shape though.
 In practice, you might want to go through `BlueprintShapes` anyway.
@@ -311,7 +316,7 @@ assert multiscale["s2"].shape == Shape(z=40, y=128, x=128)
 assert multiscale["s2"].pixel_size == PixelSize(z=0.5, y=1.0, x=1.0)
 ```
 
-Take note though that Factors in clearscale are *divisors for shape*:
+Take note that Factors in clearscale are *divisors for shape*:
 `1024 pixels downscaled by factor 2 = 1024 / 2 = 512 pixels`. Scaling functions that accept factors as parameters may expect the inverse.
 For example, to downscale by 2, you could use `skimage.transform.rescale(image, 0.5)` or `scipy.ndimage.zoom(image, 0.5)`.
 In this case you would use `scale_factor.inverted().to_tuple()`.

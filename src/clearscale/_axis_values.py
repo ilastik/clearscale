@@ -261,6 +261,9 @@ def _normalize_rounding(rounding: RoundingMethod) -> RoundingFunction:
     if rounding == "round":
         return round
     if rounding == "round_half_up":
+        # Strictly *up*. Negative numbers also round up: -0.5 -> 0. -1.5 -> 1.
+        # Should be irrelevant since this is supposed to be about rounding shapes, which are never negative, but could surprise.
+        # Add round_half_away_from_zero if we ever need it.
         return lambda v: math.floor(v + 0.5)
     if rounding == "error_on_round":
         return error_on_round

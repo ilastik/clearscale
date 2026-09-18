@@ -164,7 +164,7 @@ multiscale["s2"] == Scale(
 )
 ```
 
-More detail on `.translation` in  [`translation_shifts.md`](translation_shifts.md) (depends on scaling method, relevant for correct positioning when displaying data from different scales on top of each other).
+More detail on `.translation` in  [scaling method characterization](characterization.md) (relevant for correct positioning when displaying data from different scales on top of each other).
 
 ## Handling the non-OME case
 
