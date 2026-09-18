@@ -310,7 +310,3 @@ class OmeZarrGroup:
                 "the OME-Zarr tool ecosystem. Please consider storing each Multiscale in a separate OmeZarrGroup.",
                 UserWarning,
             )
-        if version == "0.6.rc0":
-            warnings.warn(
-                f"Version {version} is not a stable version. Written metadata may be ignored or invalid in the future."
-            )

@@ -1227,10 +1227,7 @@ class TransformGraph:
         }
         """
         if version != "0.6.rc0":
-            warnings.warn(
-                f"Unsupported OME-Zarr version {version!r}. "
-                f"This method only targets 0.6.rc0 as of 07/2026. Metadata may be invalid."
-            )
+            raise ValueError(f"Unsupported OME-Zarr version {version!r}. Graphs can only be written to '0.6.rc0'.")
         systems = [
             ref.owner.to_ome_zarr(name=ref.name, version=version)
             for ref in self.all_system_refs

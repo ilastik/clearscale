@@ -16,6 +16,7 @@ def test_ome_zarr_group_to_attrs_empty(version):
     [
         ("0.4", {"multiscales": [{"ms": "meta"}]}),
         ("0.5", {"ome": {"version": "0.5", "multiscales": [{"ms": "meta"}]}}),
+        ("0.6.rc0", {"ome": {"version": "0.6.rc0", "multiscales": [{"ms": "meta"}]}}),
     ],
 )
 def test_ome_zarr_group_to_attrs_multiscale(version, expected):
@@ -23,17 +24,6 @@ def test_ome_zarr_group_to_attrs_multiscale(version, expected):
     multiscale.to_ome_zarr.return_value = {"ms": "meta"}
     group = OmeZarrGroup(multiscales=(multiscale,))
     result = group.to_attrs(version)
-    assert result == expected
-    multiscale.to_ome_zarr.assert_called_once_with(version=version)
-
-
-def test_ome_zarr_group_to_attrs_multiscale_0_6_rc0():
-    version, expected = ("0.6.rc0", {"ome": {"version": "0.6.rc0", "multiscales": [{"ms": "meta"}]}})
-    multiscale = Mock(spec=Multiscale)
-    multiscale.to_ome_zarr.return_value = {"ms": "meta"}
-    group = OmeZarrGroup(multiscales=(multiscale,))
-    with pytest.warns(UserWarning, match="not a stable version"):
-        result = group.to_attrs(version)
     assert result == expected
     multiscale.to_ome_zarr.assert_called_once_with(version=version)
 
@@ -54,8 +44,7 @@ def test_ome_zarr_group_to_attrs_scene():
     scene = Mock(spec=Scene)
     scene.to_ome_zarr.return_value = {"scene": "meta"}
     group = OmeZarrGroup(scenes=(scene,))
-    with pytest.warns(UserWarning, match="not a stable version"):
-        result = group.to_attrs("0.6.rc0")
+    result = group.to_attrs("0.6.rc0")
     assert result == {"ome": {"version": "0.6.rc0", "scene": {"scene": "meta"}}}
     scene.to_ome_zarr.assert_called_once_with(version="0.6.rc0")
 
@@ -115,8 +104,7 @@ def test_ome_zarr_group_to_attrs_multiple_multiscales_0_6():
     multiscale_1.to_ome_zarr.return_value = {"id": 1}
     group = OmeZarrGroup(multiscales=(multiscale_0, multiscale_1))
     with pytest.warns(UserWarning, match="multiple multiscales"):
-        with pytest.warns(UserWarning, match="not a stable version"):
-            result = group.to_attrs(version)
+        result = group.to_attrs(version)
     assert result == expected
     multiscale_0.to_ome_zarr.assert_called_once_with(version=version)
     multiscale_1.to_ome_zarr.assert_called_once_with(version=version)
@@ -138,7 +126,7 @@ def test_ome_zarr_group_to_attrs_collection_rejects_unsupported_combinations(kwa
         group.to_attrs(version)
 
 
-@pytest.mark.parametrize("version", ["0.3", "0.6", "", "1.0"])
+@pytest.mark.parametrize("version", ["0.3", "", "1.0"])
 def test_ome_zarr_group_to_attrs_rejects_unsupported_version(version):
     with pytest.raises(ValueError, match="Cannot write OME-Zarr"):
         OmeZarrGroup().to_attrs(version)
