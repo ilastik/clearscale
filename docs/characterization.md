@@ -55,7 +55,7 @@ characterization = characterize_shape_scaling_method(
     )
 )
 
-# Use characterization.to_kwargs() when constructing your multiscale.
+# Use characterization.to_shape_kwargs() when constructing your multiscale.
 assert characterization.rounding is None, "shape-based scaling methods don't round"
 assert characterization.pixel_sizing == "shape_ratio"
 assert characterization.pixel_sizing_error < 1e-13
@@ -74,6 +74,7 @@ characterization = characterize_shape_factor_scaling_method(
     )
 )
 
+# Use characterization.to_factor_kwargs() when constructing your multiscale.
 assert characterization.rounding == "round"
 assert characterization.pixel_sizing == "corner_ratio"
 assert characterization.pixel_sizing_error < 1e-13

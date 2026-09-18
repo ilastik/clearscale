@@ -140,8 +140,7 @@ class TestBlueprintWithSizes:
 
 
 class TestBlueprintApply:
-    def test_derives_scale_metadata_from_base(self):
-        blueprint = BlueprintShapes({"s0": Shape(c=3, y=8, x=12), "s1": Shape(c=3, y=4, x=3)})
+    def test_shapes_derives_scale_metadata_from_base(self):
         base = Scale(
             shape=Shape(c=3, y=8, x=12),
             pixel_size=PixelSize(c=1.0, y=0.5, x=2.0),
@@ -149,6 +148,7 @@ class TestBlueprintApply:
             translation=Translation(c=0.0, y=1.0, x=2.0),
         )
 
+        blueprint = BlueprintShapes({"s0": Shape(c=3, y=8, x=12), "s1": Shape(c=3, y=4, x=3)})
         multiscale = blueprint.apply_to_scale(base)
 
         assert multiscale == Multiscale(
@@ -163,7 +163,7 @@ class TestBlueprintApply:
             }
         )
 
-    def test_can_apply_half_pixel_shift(self):
+    def test_shapes_can_apply_half_pixel_shift(self):
         blueprint = BlueprintShapes({"s0": Shape(y=8, x=8), "s1": Shape(y=4, x=2)})
         base = Scale(
             shape=Shape(y=8, x=8),
@@ -182,7 +182,7 @@ class TestBlueprintApply:
         assert multiscale["s1"].pixel_size == PixelSize(y=4.0, x=12.0)
         assert multiscale["s1"].translation == Translation(y=11.0, x=-0.5)
 
-    def test_can_apply_bin_center_shift(self):
+    def test_shapes_can_apply_bin_center_shift(self):
         blueprint = BlueprintShapes({"s0": Shape(y=5, x=8), "s1": Shape(y=2, x=4)})
         base = Scale(
             shape=Shape(y=5, x=8),
@@ -203,12 +203,162 @@ class TestBlueprintApply:
         assert multiscale["s1"].translation == Translation(y=10.6, x=-4.0)
 
     @pytest.mark.parametrize("shift_func", [(lambda param1: True), (lambda scale1, scale2: True)])
-    def test_rejects_malformed_shift_functions(self, shift_func):
+    def test_shapes_rejects_malformed_shift_functions(self, shift_func):
         bp = BlueprintShapes({"s0": Shape(x=2)})
         base = Scale(shape=Shape(x=1))
 
-        with pytest.raises(TypeError, match="See clearscale.half_pixel_shift for an example implementation"):
+        with pytest.raises(
+            TypeError, match="See clearscale.half_pixel_space_preservation for an example implementation"
+        ):
             _ = bp.apply_to_scale(base, translating=shift_func)  # noqa
+
+    def test_shapes_can_use_corner_ratio_pixel_sizing(self):
+        blueprint = BlueprintShapes({"s0": Shape(y=5, x=9), "s1": Shape(y=5, x=3)})
+        base = Scale(shape=Shape(y=5, x=9), pixel_size=PixelSize(y=2.0, x=1.5))
+
+        multiscale = blueprint.apply_to_scale(base, pixel_sizing="corner_ratio")
+
+        # x: corner_ratio factor = (9-1)/(3-1) = 4.0 -> pixel size 1.5 * 4.0 = 6.0
+        # y: unscaled (5 -> 5) -> factor 1.0 -> pixel size unchanged
+        assert multiscale["s1"].pixel_size == PixelSize(y=2.0, x=6.0)
+
+    def test_shapes_corner_ratio_falls_back_to_shape_ratio_for_collapsed_axes(self):
+        blueprint = BlueprintShapes({"s0": Shape(y=5, x=9), "s1": Shape(y=2, x=1)})
+        base = Scale(shape=Shape(y=5, x=9), pixel_size=PixelSize(y=2.0, x=1.5))
+
+        multiscale = blueprint.apply_to_scale(base, pixel_sizing="corner_ratio")
+
+        # x collapses to a single output pixel: (input_len - 1) / (output_len - 1) would be div-by-0
+        # falls back to shape_ratio (9/1 = 9.0) -> pixel size 1.5 * 9.0 = 13.5
+        # y: ordinary corner_ratio, (5-1)/(2-1) = 4.0 -> pixel size 2.0 * 4.0 = 8.0
+        assert multiscale["s1"].pixel_size == PixelSize(y=8.0, x=13.5)
+
+    def test_shapes_rejects_exact_factor_pixel_sizing(self):
+        blueprint = BlueprintShapes({"s0": Shape(x=4), "s1": Shape(x=2)})
+        base = Scale(shape=Shape(x=4))
+
+        with pytest.raises(ValueError, match="only BlueprintFactors.apply_to_scale can compute"):
+            blueprint.apply_to_scale(base, pixel_sizing="exact_factor")
+
+    def test_factors_derives_scale_metadata_from_base(self):
+        base = Scale(
+            shape=Shape(y=8, x=12),
+            pixel_size=PixelSize(y=0.5, x=2.0),
+            unit=Unit(y="um", x="um"),
+            translation=Translation(y=1.0, x=2.0),
+        )
+
+        blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=4.0)})
+        multiscale = blueprint.apply_to_scale(base, rounding="ceil")
+
+        assert multiscale == Multiscale(
+            {
+                "s0": base,
+                "s1": Scale(
+                    shape=Shape(y=8, x=3),
+                    pixel_size=PixelSize(y=0.5, x=8.0),
+                    unit=base.unit,
+                    translation=base.translation,
+                ),
+            }
+        )
+
+    @pytest.mark.parametrize(
+        "rounding, source_length, factor, expected_length",
+        [
+            ("floor", 11, 4.0, 2),
+            ("ceil", 11, 4.0, 3),
+            ("round", 11, 4.0, 3),
+            ("round_half_up", 11, 4.0, 3),
+            ("round", 10, 4.0, 2),
+            ("round_half_up", 10, 4.0, 3),
+            ("error_on_round", 12, 4.0, 3),
+        ],
+    )
+    def test_factors_respects_rounding(self, source_length, rounding, factor, expected_length):
+        blueprint = BlueprintFactors({"s0": Factor(x=factor)})
+        base = Scale(shape=Shape(x=source_length))
+
+        multiscale = blueprint.apply_to_scale(base, rounding=rounding)
+
+        assert multiscale["s0"].shape == Shape(x=expected_length)
+
+    def test_factors_error_on_round_rejects_uneven_division(self):
+        blueprint = BlueprintFactors({"s0": Factor(x=4.0)})
+        base = Scale(shape=Shape(x=11))  # does not divide evenly - requires rounding
+
+        with pytest.raises(ValueError, match="requires integer values"):
+            blueprint.apply_to_scale(base, rounding="error_on_round")
+
+    def test_factors_exact_factor_uses_nominal_factor_not_realized_shape_ratio(self):
+        """
+        When rounding, the realized shape ratio (11/3) differs from the nominal factor (4.0).
+        A scaling method that genuinely multiplies pixel spacing by the factor (block_reduce, striding, zoom)
+        needs pixel_sizing="exact_factor" to reflect that literal factor, not the post-rounding shape ratio.
+        """
+        blueprint = BlueprintFactors({"s0": Factor(x=4.0)})
+        base = Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0))  # 11/4.0 = 2.75 -> ceil -> 3
+
+        exact_factor_result = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="exact_factor")
+
+        assert exact_factor_result["s0"].shape == Shape(x=3)
+        assert exact_factor_result["s0"].pixel_size == PixelSize(x=4.0)  # literal factor, not 11/3
+
+        shape_ratio_result = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="shape_ratio")
+
+        assert shape_ratio_result["s0"].shape == Shape(x=3)
+        assert shape_ratio_result["s0"].pixel_size == PixelSize(x=11 / 3)  # default behaviour
+
+    def test_factors_exact_factor_uses_each_scale_keys_own_factor(self):
+        blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=4.0), "s2": Factor(x=8.0)})
+        base = Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0))
+
+        multiscale = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="exact_factor")
+
+        assert multiscale["s0"].pixel_size == PixelSize(x=1.0)
+        assert multiscale["s1"].pixel_size == PixelSize(x=4.0)
+        assert multiscale["s2"].pixel_size == PixelSize(x=8.0)
+
+    def test_factors_exact_factor_still_applies_translating(self):
+        blueprint = BlueprintFactors({"s0": Factor(x=4.0)})
+        base = Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0))
+
+        multiscale = blueprint.apply_to_scale(
+            base, rounding="ceil", pixel_sizing="exact_factor", translating=half_pixel_space_preservation
+        )
+
+        # exact_factor pixel size = 4.0; half-pixel shift = 0.5 * (4.0 - 1.0) = 1.5
+        assert multiscale["s0"].pixel_size == PixelSize(x=4.0)
+        assert multiscale["s0"].translation == Translation(x=1.5)
+
+    def test_factors_forwards_shape_ratio_and_corner_ratio_pixel_sizing(self):
+        blueprint = BlueprintFactors({"s0": Factor(x=4.0)})
+        base = Scale(shape=Shape(x=9), pixel_size=PixelSize(x=1.0))  # 9/4.0 = 2.25 -> ceil -> 3
+
+        shape_ratio_result = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="shape_ratio")
+
+        assert shape_ratio_result["s0"].pixel_size == PixelSize(x=3.0)  # 9/3
+
+        corner_ratio_result = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="corner_ratio")
+
+        assert corner_ratio_result["s0"].pixel_size == PixelSize(x=4.0)  # (9-1)/(3-1)
+
+    def test_factors_keeps_all_scale_keys_even_with_duplicate_shapes(self):
+        blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=100.0), "s2": Factor(x=200.0)})
+        base = Scale(shape=Shape(x=4))  # both s1 and s2 round down to shape x=1
+
+        multiscale = blueprint.apply_to_scale(base, rounding="floor")
+
+        assert list(multiscale.keys()) == ["s0", "s1", "s2"], "apply_to_scale must keep all requested scale levels"
+        assert multiscale["s1"].shape == Shape(x=1)
+        assert multiscale["s2"].shape == Shape(x=1)
+
+    def test_factors_rejects_missing_rounding(self):
+        factors = BlueprintFactors({"s0": Factor(x=4.0)})
+        base = Scale(shape=Shape(x=12))
+
+        with pytest.raises(AssertionError, match="requires a `rounding` method"):
+            factors.apply_to_scale(base, rounding=None)  # type: ignore[reportArgumentType]
 
 
 class TestProportionalBlueprint:

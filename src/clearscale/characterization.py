@@ -12,7 +12,6 @@ from typing import (
     TypedDict,
     Union,
     Literal,
-    cast,
 )
 
 from clearscale._axis_values import Translation, PixelSize, RoundingMethod, Shape
@@ -106,14 +105,22 @@ known_shift_functions: Tuple[TranslationShiftFunction, ...] = (
 )
 
 
-class ScalingMethodKwargs(TypedDict):
-    """kwargs for `Blueprint*.apply_to_scale`: everything needed to ensure shape, pixel size and
+class ShapeScalingKwargs(TypedDict):
+    """kwargs for `BlueprintShapes.apply_to_scale`: everything needed to ensure shape, pixel size and
     translation are computed accurately for output Scales."""
 
     # Unpack unavailable in py3.10 -- make sure these kwargs stay synchronised with the method signatures
     pixel_sizing: PixelSizingMethod
     translating: TranslationShiftFunction
-    rounding: Optional[RoundingMethod]
+
+
+# Splitting doesn't buy us a huge amount right now (could just Optional `rounding` on BlueprintShapes.apply_to_scale and use one kwargs interface),
+# but if we want to cover convolutional scaling at some point, more params would end up involved, and we'd need separate Kwargs then.
+class FactorScalingKwargs(ShapeScalingKwargs):
+    """kwargs for `BlueprintFactors.apply_to_scale`: everything needed to ensure shape, pixel size and
+    translation are computed accurately for output Scales."""
+
+    rounding: RoundingMethod
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,34 +142,26 @@ class ScalingMethodCharacterization:
     """Non-fatal concerns about the characterization's reliability (noisy/ambiguous fits etc).
     Non-empty means `translating`, `pixel_sizing` and/or `rounding` might be plain wrong."""
 
-    def to_kwargs(self) -> ScalingMethodKwargs:
-        """kwargs to `**`-splat into the matching `apply_to_scale` call.
-        `rounding is None` -> `BlueprintShapes.apply_to_scale(scale, **kwargs)`.
-        `rounding is not None` -> `BlueprintFactors.apply_to_scale(scale, **kwargs)`."""
+    def to_shape_kwargs(self) -> ShapeScalingKwargs:
+        """kwargs to `**`-splat into `BlueprintShapes.apply_to_scale(scale, **shape_kwargs)`."""
+        return ShapeScalingKwargs(pixel_sizing=self.pixel_sizing, translating=self.translating)
+
+    def to_factor_kwargs(self) -> FactorScalingKwargs:
+        """kwargs to `**`-splat into `BlueprintFactors.apply_to_scale(scale, **factor_kwargs)`."""
         if self.rounding == "indeterminate":
             raise ValueError(
                 "The characterization could not determine rounding behavior of the supplied scaling method. "
                 "This means `BlueprintFactors.apply_to_scale` will predict incorrect output shapes. "
                 "You should instead first run the actual scaling, and record the shapes it produced along the way. "
                 "Construct `BlueprintShapes(zip(scale_keys, recorded_shapes))`, and use "
-                "`blueprint.apply_to_scale(scale, **characterization.to_shapes_kwargs())`."
+                "`blueprint.apply_to_scale(scale, **characterization.to_shape_kwargs())`."
             )
-        rounding = cast(Optional[RoundingMethod], self.rounding)
-        return ScalingMethodKwargs(
+        if self.rounding is None:
+            raise ValueError("This characterization describes a shape-scaling method. Use `.to_shape_kwargs`.")
+        return FactorScalingKwargs(
             pixel_sizing=self.pixel_sizing,
             translating=self.translating,
-            rounding=rounding,
-        )
-
-    def to_shapes_kwargs(self) -> ScalingMethodKwargs:
-        if self.rounding != "indeterminate":
-            raise AssertionError(
-                "This is convenience for scaling methods whose rounding behavior cannot be determined."
-            )
-        return ScalingMethodKwargs(
-            pixel_sizing=self.pixel_sizing,
-            translating=self.translating,
-            rounding=None,
+            rounding=self.rounding,
         )
 
 
@@ -190,7 +189,7 @@ def characterize_shape_scaling_method(
     """
     Characterize a scaling implementation that accepts target shape as its scaling parameter
     (e.g. `skimage.transform.resize(x, output_shape=...)`).
-    Feed the result to `BlueprintShapes.apply_to_scale(scale, **characterization.to_kwargs())`.
+    Feed the result to `BlueprintShapes.apply_to_scale(scale, **characterization.to_shape_kwargs())`.
     """
     source_length = 1025
     # 263 is prime to avoid special behaviours, and leads to distinguishable spacings and translations under all known conventions:
@@ -214,7 +213,7 @@ def characterize_shape_factor_scaling_method(
     Characterize a scaling implementation that accepts a shape *multiplier*
     (scipy.ndimage.zoom / skimage.transform.rescale convention: factor < 1 for downscaling,
     factor > 1 for upscaling).
-    Feed the result to `BlueprintFactors.apply_to_scale(scale, **characterization.to_kwargs())`.
+    Feed the result to `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())`.
 
     Note that clearscale.Factor is a shape *divisor*, so when calling such a scaling function
     to execute the blueprint, pass `factor.inverted().to_tuple()`.
@@ -256,7 +255,7 @@ def characterize_step_factor_scaling_method(
     Characterize a scaling implementation that accepts a shape *divisor*
     (skimage.measure.block_reduce convention, manual striding, and similar:
     factor > 1 for downscaling, factor < 1 for upscaling).
-    Feed the result to `BlueprintFactors.apply_to_scale(scale, **characterization.to_kwargs())`.
+    Feed the result to `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())`.
 
     Since clearscale.Factor is itself a shape divisor, you can directly pass the blueprint's
     factors into such a scaling function, usually like `factor.to_tuple()`.
@@ -530,10 +529,10 @@ def _as_1d_float_list(values: Iterable[float]) -> list[float]:
 
 
 __all__ = [
-    discrete_bin_center,
-    half_pixel_space_preservation,
-    first_value_decimation,
-    characterize_shape_scaling_method,
-    characterize_shape_factor_scaling_method,
-    characterize_step_factor_scaling_method,
+    "discrete_bin_center",
+    "half_pixel_space_preservation",
+    "first_value_decimation",
+    "characterize_shape_scaling_method",
+    "characterize_shape_factor_scaling_method",
+    "characterize_step_factor_scaling_method",
 ]

@@ -916,7 +916,6 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         *,
         pixel_sizing: PixelSizingMethod = "shape_ratio",
         translating: Optional[TranslationShiftFunction] = None,
-        rounding=None,  # irrelevant here; just for consistency with ScalingMethodKwargs
     ) -> "Multiscale":
         if list(self.first_value.keys()) != list(base.shape.keys()):
             raise ValueError(
@@ -927,18 +926,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
 
         scales = []
         for scale_key, target_shape in self.items():
-            factor = base.shape.scaling_to(target_shape)
-            new_pixel_size = base.pixel_size.scaled_by(factor)
-
-            if translating is not None:
-                target_scale_pre_shift = Scale(
-                    shape=target_shape, pixel_size=new_pixel_size, unit=base.unit, translation=base.translation
-                )
-                shift = self._compute_and_validate_shift(translating, base, target_scale_pre_shift)
-                new_translation = base.translation + shift
-            else:
-                new_translation = base.translation
-
+            new_pixel_size = self._compute_pixel_size_from_shapes(base, target_shape, pixel_sizing)
             scales.append(
                 (
                     scale_key,
@@ -946,36 +934,66 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
                         shape=target_shape,
                         pixel_size=new_pixel_size,
                         unit=base.unit,
-                        translation=new_translation,
+                        translation=self._compute_translation(base, target_shape, new_pixel_size, translating),
                         ome_zarr_axes=base.ome_zarr_axes,
                     ),
                 )
             )
-
         return Multiscale(scales)
 
     @staticmethod
-    def _compute_and_validate_shift(translation_shift_func, base, target_scale_pre_shift):
+    def _compute_pixel_size_from_shapes(base: Scale, target_shape: Shape, pixel_sizing: PixelSizingMethod) -> PixelSize:
+        if pixel_sizing == "exact_factor":
+            raise ValueError(
+                "pixel_sizing='exact_factor' indicates that only BlueprintFactors.apply_to_scale can compute the correct output pixel size"
+            )
+        if pixel_sizing == "shape_ratio":
+            factor = base.shape.scaling_to(target_shape)
+        elif pixel_sizing == "corner_ratio":
+            factor = Factor(
+                {
+                    axis: (
+                        (base.shape[axis] - 1) / (target_shape[axis] - 1)
+                        if target_shape[axis] > 1
+                        else base.shape[axis]  # Scaled to 1px - its size is base_shape * base_pixel_size
+                    )
+                    for axis in base.shape.keys()
+                }
+            )
+        else:
+            raise ValueError(f"Unknown pixel_sizing: {pixel_sizing!r}")
+        return base.pixel_size.scaled_by(factor)
+
+    @staticmethod
+    def _compute_translation(
+        base: Scale, target_shape: Shape, new_pixel_size: PixelSize, translating: Optional[TranslationShiftFunction]
+    ) -> Translation:
+        if translating is None:
+            return base.translation
+
+        target_scale_pre_shift = Scale(shape=target_shape, pixel_size=new_pixel_size, unit=base.unit)
+
         try:
-            shift = translation_shift_func(base, target_scale_pre_shift)
+            shift = translating(base, target_scale_pre_shift)
         except TypeError as e:
             if "argument" in str(e):
                 raise TypeError(
                     "translating must accept two positional arguments (base and target scale). "
-                    "See clearscale.half_pixel_shift for an example implementation."
+                    "See clearscale.half_pixel_space_preservation for an example implementation."
                 ) from e
             raise e
         if not isinstance(shift, Translation):
             raise TypeError(
                 f"translating must return a Translation, got {type(shift).__name__}. "
-                "See clearscale.half_pixel_shift for an example implementation."
+                "See clearscale.half_pixel_space_preservation for an example implementation."
             )
         if list(shift.keys()) != list(target_scale_pre_shift.shape.keys()):
             raise ValueError(
                 f"translating returned Translation with axes {list(shift.keys())}, "
                 f"but target scale has axes {list(target_scale_pre_shift.shape.keys())}."
             )
-        return shift
+
+        return base.translation + shift
 
 
 class BlueprintFactors(_ScaledAxisValues[Factor]):
@@ -1230,9 +1248,39 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         pixel_sizing: PixelSizingMethod = "shape_ratio",
         translating: Optional[TranslationShiftFunction] = None,
     ) -> "Multiscale":
+        if rounding is None:
+            raise AssertionError(
+                "BlueprintFactors.apply_to_scale requires a `rounding` method to predict output shapes "
+                "from factors, received None. Did you pass a characterization from characterize_shape_scaling_method"
+                " here by mistake? Use BlueprintShapes instead in that case."
+            )
+
         # KEEP_ALL: The blueprint is authoritative on the scales it wants to generate.
         shapes = self.to_shapes(scale.shape, rounding=rounding, on_duplicate=DuplicatePolicy.KEEP_ALL)
-        return shapes.apply_to_scale(scale, translating=translating)
+
+        if pixel_sizing != "exact_factor":
+            # For shape_ratio/corner_ratio, the correct meta depends only on the shapes -> forward
+            return shapes.apply_to_scale(scale, translating=translating, pixel_sizing=pixel_sizing)
+
+        # exact_factor needs this blueprint's own nominal Factors
+        scales = []
+        for scale_key, target_shape in shapes.items():
+            new_pixel_size = scale.pixel_size.scaled_by(self[scale_key])
+            scales.append(
+                (
+                    scale_key,
+                    Scale(
+                        shape=target_shape,
+                        pixel_size=new_pixel_size,
+                        unit=scale.unit,
+                        translation=BlueprintShapes._compute_translation(
+                            scale, target_shape, new_pixel_size, translating
+                        ),
+                        ome_zarr_axes=scale.ome_zarr_axes,
+                    ),
+                )
+            )
+        return Multiscale(scales)
 
     def with_identity(self, axes: Axes) -> "BlueprintFactors":
         return self._with_values([factor.with_identity(axes) for factor in self.values()])
@@ -1394,7 +1442,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         base: Optional[Scale] = None,
         pixel_sizing: PixelSizingMethod = "shape_ratio",
         translating: Optional[TranslationShiftFunction] = None,
-        rounding=None,  # irrelevant here; just for consistency with ScalingMethodKwargs
     ):
         bp = BlueprintShapes(blueprint)
         base = base or Scale(shape=bp.first_value)
