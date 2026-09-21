@@ -1617,6 +1617,27 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             grouped[scale.shape].append(key)
         return {shape: tuple(keys) for shape, keys in grouped.items()}
 
+    @cached_property
+    def lowest_lossless_ome_zarr_version(self) -> Literal["0.6", "0.4"]:
+        """
+        The lowest OME-Zarr version that can reproduce this Multiscale through write/read cycles,
+        i.e. the lowest `version` for which
+        `Multiscale.from_ome_zarr(self.to_ome_zarr(version=version)) == self`
+
+        Side note: Never returns 0.5, because it added no new multiscale features over 0.4
+        """
+        candidate_versions: Tuple[Literal["0.6", "0.4"], ...] = ("0.4", "0.6")
+        written = None
+        for version in candidate_versions:
+            written = self.to_ome_zarr(version=version)
+            round_tripped = Multiscale.from_ome_zarr(written, shape_source=lambda key: self[key].shape)
+            if round_tripped == self:
+                return version
+        raise AssertionError(
+            "0.6 failed to round-trip losslessly. This indicates a bug in clearscale. "
+            f"Self: {self!r}.\nself.to_ome_zarr: {written}"
+        )
+
     def with_coordinate_system(
         self,
         name: str,

@@ -1,4 +1,5 @@
 import re
+from dataclasses import replace
 from typing import List
 
 import pytest
@@ -12,6 +13,7 @@ from clearscale import (
     Unit,
     BlueprintFactors,
     Factor,
+    ome_zarr,
 )
 from clearscale.characterization import (
     discrete_bin_center,
@@ -813,3 +815,93 @@ class TestMultiscaleWithCoordinateSystem:
             match="How the new coordinate system is reached must be expressed using SpatialRelations",
         ):
             ms.with_coordinate_system("world", reached_by="not a relation")  # type: ignore[arg-type]
+
+
+class TestLosslessOmeZarrVersion:
+    def test_lowest_lossless_version_plain_multiscale(self):
+        ms = Multiscale.from_single(Scale(shape=Shape(y=10, x=10), pixel_size=PixelSize(y=0.5, x=0.5)))
+        assert ms.lowest_lossless_ome_zarr_version() == "0.4"
+
+    @pytest.mark.parametrize(
+        "relation",
+        [
+            None,
+            Factor(y=0.5, x=0.5),
+            Translation(y=-4.0, x=-2.0),
+            [Factor(y=0.5, x=0.5), Translation(y=-4.0, x=-2.0)],
+            [Translation(y=-4.0, x=-2.0), Factor(y=0.5, x=0.5)],
+        ],
+    )
+    def test_lowest_lossless_version_single_external_system(self, relation):
+        """identity, scale and scale(+translation) can be expressed in 0.4"""
+        ms = Multiscale.from_single(
+            Scale(shape=Shape(y=10, x=10), pixel_size=PixelSize(y=0.5, x=0.5))
+        ).with_coordinate_system("world", reached_by=relation)
+        assert ms.lowest_lossless_ome_zarr_version() == "0.4"
+
+    @pytest.mark.xfail(reason="Multiscale.eq needs to compare graphs for this")
+    def test_lowest_lossless_version_two_external_systems(self):
+        ms = (
+            Multiscale.from_single(Scale(shape=Shape(y=10, x=10)))
+            .with_coordinate_system("world-a", reached_by=Translation(y=1.0, x=1.0))
+            .with_coordinate_system("world-b", reached_by=Translation(y=2.0, x=2.0))
+        )
+        assert ms.lowest_lossless_ome_zarr_version() == "0.6"
+
+    @pytest.mark.xfail(reason="Multiscale.eq needs to compare graphs for this")
+    def test_lowest_lossless_version_single_external_system_with_unsupported_transform(self):
+        ms = Multiscale.from_single(Scale(shape=Shape(z=1, y=10, x=10))).with_coordinate_system(
+            "reordered", reached_by=PermutationTo("xyz")
+        )
+        assert ms.lowest_lossless_ome_zarr_version() == "0.6"
+
+    @pytest.mark.xfail(reason="Multiscale.eq needs to compare graphs for this")
+    def test_lowest_lossless_version_unresolved_ref(self):
+        base = Multiscale.from_single(Scale(shape=Shape(y=10, x=10)))
+        dangling = IdentityTransform(source=base._intrinsic_ref, target=_UnresolvedRef(name="nowhere"))
+        ms = Multiscale(
+            base.items(),
+            _transform_graph=TransformGraph(transforms=(dangling,)),
+            _intrinsic_ref=base._intrinsic_ref,
+        )
+        assert ms.lowest_lossless_ome_zarr_version() == "0.6"
+
+    def test_lowest_lossless_version_axis_properties(self):
+        """discrete and long_name were only added in 0.6"""
+        scale1 = Scale(shape=Shape(y=10, x=10), ome_zarr_axes={"y": ome_zarr.Axis(type="space", unit="nanometer")})
+        ms1 = Multiscale.from_single(scale1)
+        assert ms1.lowest_lossless_ome_zarr_version() == "0.4"
+
+        scale2 = Scale(shape=Shape(y=10, x=10), ome_zarr_axes={"y": ome_zarr.Axis(long_name="row")})
+        ms2 = Multiscale.from_single(scale2)
+        assert ms2.lowest_lossless_ome_zarr_version() == "0.6"
+
+        scale3 = Scale(shape=Shape(c=3, y=10, x=10), ome_zarr_axes={"c": ome_zarr.Axis(type="channel", discrete=True)})
+        ms3 = Multiscale.from_single(scale3)
+        assert ms3.lowest_lossless_ome_zarr_version() == "0.6"
+
+    def test_lowest_lossless_version_legacy_t_scale_flag(self):
+        """Would be reached via Multiscale.from_ome_zarr with json that follows the legacy t-scale convention"""
+        base = Multiscale.from_single(Scale(shape=Shape(t=5, y=10, x=10), pixel_size=PixelSize(t=2.0, y=0.5, x=0.5)))
+        ms = Multiscale(
+            base.items(),
+            _transform_graph=base._transform_graph,
+            _intrinsic_ref=base._intrinsic_ref,
+            _legacy_convention_global_t_scale=2.0,
+        )
+        assert ms.lowest_lossless_ome_zarr_version() == "0.4"
+
+    def test_lowest_lossless_version_transform_name(self):
+        """Would be reached via Multiscale.from_ome_zarr with json that supplies
+        `json[...]["coordinateTransformations"][]["name"]`"""
+        ms = Multiscale.from_single(Scale(shape=Shape(y=10, x=10))).with_coordinate_system(
+            "world", reached_by=Translation(y=1.0, x=1.0)
+        )
+        (transform,) = ms._transform_graph.transforms
+        named = replace(transform, _ome_zarr_name="my-label")
+        ms_named = Multiscale(
+            ms.items(),
+            _transform_graph=TransformGraph(transforms=(named,)),
+            _intrinsic_ref=ms._intrinsic_ref,
+        )
+        assert ms_named.lowest_lossless_ome_zarr_version() == "0.4"
