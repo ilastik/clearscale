@@ -1387,6 +1387,22 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         self.ome = ome if isinstance(ome, ome_zarr.MultiscaleProperties) else ome_zarr.MultiscaleProperties()
 
     def __eq__(self, other):
+        if isinstance(other, Multiscale):
+            rename_self = {"self": self._intrinsic_ref}
+            self_synthetic = self._transform_graph.get_system_ref(
+                ome_zarr.synthetic_system_name(self._intrinsic_ref.name)
+            )
+            if self_synthetic is not None:
+                rename_self["_synthetic_external"] = self_synthetic
+            rename_other = {"self": other._intrinsic_ref}
+            other_synthetic = other._transform_graph.get_system_ref(
+                ome_zarr.synthetic_system_name(other._intrinsic_ref.name)
+            )
+            if other_synthetic is not None:
+                rename_other["_synthetic_external"] = other_synthetic
+            selfsig = self._transform_graph.structural_signature(rename_self)
+            othersig = other._transform_graph.structural_signature(rename_other)
+            return self._mapping == other._mapping and selfsig == othersig
         return _ScaleMapping.__eq__(self, other)
 
     def __hash__(self):

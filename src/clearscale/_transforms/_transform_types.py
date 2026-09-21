@@ -1239,6 +1239,9 @@ class BijectionTransform(Transform):
             delta=forward_ndim.delta if forward_ndim.delta is not None else inverse_ndim_inverted.delta,
         )
 
+    def unbound(self) -> "BijectionTransform":
+        return replace(self, forward=self.forward.unbound(), inverse=self.inverse.unbound(), source=None, target=None)
+
     @classmethod
     def from_ome_zarr(cls, ome_dict: Mapping[str, Any]) -> "BijectionTransform":
         source, target = cls._parse_source_and_target(ome_dict)
@@ -1552,6 +1555,10 @@ class ByDimensionTransform(Transform):
             target_min=target_ndim,
             target_max=target_ndim,
         )
+
+    def unbound(self) -> "ByDimensionTransform":
+        children = tuple(replace(c, transform=c.transform.unbound()) for c in self.transforms)
+        return replace(self, transforms=children, source=None, target=None)
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Mapping[str, Any]) -> "ByDimensionTransform":

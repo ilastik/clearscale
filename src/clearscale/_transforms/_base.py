@@ -19,6 +19,7 @@ from typing import (
     Generic,
     TypeGuard,
     cast,
+    FrozenSet,
 )
 
 from clearscale._axis_values import (
@@ -318,6 +319,10 @@ class TransformGraphNode(ABC):
         but "Multiscale.as_ref" could raise consumer question marks."""
         ...
 
+    def _to_eq_comparable(self) -> Union["TransformGraphNode", OmeZarrAxes]:
+        """If this node type implements identity-eq, override and return an equivalent eq-comparable value object."""
+        return self
+
 
 @dataclass(frozen=True, slots=True)
 class FileRef:
@@ -401,6 +406,12 @@ class NodeRef(Generic[TransformGraphNodeT]):
             return {"name": self.name, "path": FileRef.from_string(path).to_ome_zarr(version)}
         return {"name": self.name}
 
+    def to_signature(self, rename: Mapping[str, "NodeRef"]):
+        for new_name, ref in rename.items():
+            if self is ref:
+                return NodeSignature(name=new_name, owner=self.owner._to_eq_comparable())
+        return NodeSignature(name=self.name, owner=self.owner._to_eq_comparable())
+
 
 @dataclass(frozen=True, slots=True)
 class _UnresolvedRef:
@@ -424,6 +435,31 @@ class _UnresolvedRef:
         if self.name:
             d["name"] = self.name
         return d
+
+    def to_signature(self, rename: Mapping[str, "NodeRef"]) -> "_UnresolvedRef":
+        """UnresolvedRefs can directly act as a signature"""
+        return self
+
+
+@dataclass(frozen=True, slots=True)
+class NodeSignature:
+    """Eq-comparable equivalent to a NodeRef.
+    CoordinateSystem uses identity-based eq, so it needs to be replaced by an equivalent value object."""
+
+    name: CoordinateSystemName
+    owner: Union[TransformGraphNode, OmeZarrAxes]  # Should never be CoordinateSystem due to identity-eq
+
+
+@dataclass(frozen=True, slots=True)
+class TransformSignature:
+    """Eq-comparable equivalent to a Transform.
+    Transform.source/target can be NodeRef[CoordinateSystem], whose identity-based eq would degrade comparing
+    it to other Transforms by type and values."""
+
+    source: Union[NodeSignature, _UnresolvedRef]
+    target: Union[NodeSignature, _UnresolvedRef]
+    transform: "Transform"
+    """The original Transform, unbound so it can be eq-compared"""
 
 
 ResolvedRef = NodeRef[TransformGraphNode]
@@ -459,6 +495,10 @@ class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
     def _as_ref(self, name: CoordinateSystemName) -> NodeRef["CoordinateSystem"]:
         """For CoordinateSystem, making a ref means giving the coordinate system a name."""
         return NodeRef(str(name), self)
+
+    def _to_eq_comparable(self) -> Union[TransformGraphNode, OmeZarrAxes]:
+        """Since CoordinateSystem.__eq__ uses identity, convert to a value-comparable object here."""
+        return OmeZarrAxes(self)
 
     @classmethod
     def fromkeys(cls, axes: OrderedAxes) -> "CoordinateSystem":
@@ -620,6 +660,9 @@ class Transform(ABC):
     def bound(self: _TransformSelf, source: Optional[AnyRef], target: Optional[AnyRef]) -> _TransformSelf:
         # binding required to use the Transform in a TransformGraph
         return replace(self, source=source, target=target)
+
+    def unbound(self: _TransformSelf) -> _TransformSelf:
+        return replace(self, source=None, target=None)
 
     def with_resolved(self: _TransformSelf, path_nodes: Optional[NodesByPath]) -> _TransformSelf:
         """Resolve path-addressed _UnresolvedRef endpoints against the provided graph nodes."""
@@ -873,6 +916,17 @@ class Transform(ABC):
     def _composed_target(self, earlier: "Transform") -> Optional[AnyRef]:
         return self.target if self.target is not None else earlier.target
 
+    def to_signature(self, rename: Mapping[str, "NodeRef"]) -> "TransformSignature":
+        assert (
+            self.source is not None
+        ), "should only be used in context of a TransformGraph, where all Transforms are fully bound"
+        source_sig = self.source.to_signature(rename)
+        assert (
+            self.target is not None
+        ), "should only be used in context of a TransformGraph, where all Transforms are fully bound"
+        target_sig = self.target.to_signature(rename)
+        return TransformSignature(source_sig, target_sig, self.unbound())
+
 
 @dataclass(frozen=True, slots=True)
 class IdentityTransform(Transform):
@@ -1027,6 +1081,9 @@ class TransformSequence(Transform):
             new_transforms = (first,) + self.transforms[1:-1] + (last,)
         return replace(self, source=source, target=target, transforms=new_transforms)
 
+    def unbound(self: _TransformSequenceSelf) -> _TransformSequenceSelf:
+        return replace(self, transforms=tuple(c.unbound() for c in self.transforms), source=None, target=None)
+
     def collapsed(self, *, raise_uncollapsed: bool = False) -> "Transform | TransformSequence":
         """
         Reduce the sequence's length by composing the contained transforms.
@@ -1162,6 +1219,21 @@ class TransformGraph:
         return tuple(
             t for t in self.transforms if isinstance(t.source, _UnresolvedRef) or isinstance(t.target, _UnresolvedRef)
         )
+
+    def get_system_ref(self, name: str) -> Optional[NodeRef[CoordinateSystem]]:
+        found = next(iter(ref for ref in self.all_system_refs if ref.name == name), None)
+        return found
+
+    def structural_signature(
+        self, rename: Mapping[str, "NodeRef"]
+    ) -> FrozenSet[Union[NodeSignature, TransformSignature]]:
+        """Identity-cleared representation of this graph, for structural comparisons."""
+        edges = tuple(t.to_signature(rename) for t in self.transforms)
+        # Need all_system_refs: system_refs may include CoordinateSystems not referenced by any Transform,
+        # but it may also include an arbitrary subset of the CoordinateSystems that *are* referenced.
+        # The signature is therefore the total set of systems.
+        systems = tuple(r.to_signature(rename) for r in self.all_system_refs)
+        return frozenset(chain(systems, edges))
 
     def __init__(
         self,

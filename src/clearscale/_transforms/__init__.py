@@ -7,6 +7,8 @@ from clearscale._transforms._base import (
     NodeRef,
     _UnresolvedRef,
     AnyRef,
+    NodeSignature,
+    TransformSignature,
     Transform,
     TransformGraph,
     IdentityTransform,

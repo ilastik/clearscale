@@ -159,10 +159,6 @@ def _0_4_metadata_with_s0_transforms(transformations):
             id="multiscale-transform-scale-wrong-dimensionality",
         ),
         pytest.param(
-            _0_4_metadata_with(coordinateTransformations=[{"type": "scale", "scale": [1.0, -1.0]}]),
-            id="multiscale-transform-negative-scale",
-        ),
-        pytest.param(
             _0_4_metadata_with(
                 coordinateTransformations=[
                     {"type": "scale", "scale": [1.0, 1.0]},
@@ -345,26 +341,18 @@ def _0_6_metadata_with_labels_transform_with(**updates):
             id="multiscale-transform-scale-wrong-dimensionality",
         ),
         pytest.param(
-            _0_6_metadata_with_labels_transform_with(type="scale", scale=[1.0, -1.0]),
-            id="multiscale-transform-negative-scale",
-        ),
-        pytest.param(
             _0_6_metadata_with_labels_transform_with(
                 type="sequence",
                 transformations=[{"type": "scale", "scale": [1.0, 1.0]}, {"type": "translation", "translation": [0.0]}],
             ),
             id="multiscale-transform-translation-wrong-dimensionality",
         ),
-        pytest.param(
-            _0_6_metadata_with_labels_transform_with(
-                type="displacements", path="coordinateTransformations/displacements1"
-            ),
-            id="multiscale-transform-type-not-supported-by-clearscale",
-        ),
     ],
 )
 @pytest.mark.filterwarnings(IGNORE_INVALID)
 def test_from_ome_zarr_ignores_invalid_transforms_metadata_version_0_6(metadata):
+    # Note regarding cases with multiscale-transforms / label-transforms: Only cases where these transforms are
+    # *invalid* end up eq to the expected plain Multiscale in this test.
     read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
     expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
     assert read == expected

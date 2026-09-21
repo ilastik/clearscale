@@ -11,7 +11,6 @@ from clearscale._axis_values import ShapeLike, Translation, PixelSize, AxisKey, 
 from clearscale._services.matrices import is_identity_scale, DETERMINANT_SINGULARITY_TOLERANCE
 from clearscale._transforms import (
     TransformSequence,
-    IdentityTransform,
     ScaleTransform,
     TranslationTransform,
     TransformGraph,
@@ -21,6 +20,7 @@ from clearscale._transforms import (
     _UnresolvedRef,
     PRE_TRANSFORMS_VERSIONS,
     Transform,
+    TransformSignature,
 )
 
 if TYPE_CHECKING:
@@ -190,6 +190,10 @@ class MultiscaleTransforms(TransformSequence):
         sup = super(MultiscaleTransforms, self).inverted()
         return InvertedMultiscaleTransforms(transforms=sup.transforms).bound(source=self.target, target=self.source)
 
+    def to_signature(self, rename: Mapping[str, "NodeRef"]) -> "TransformSignature":
+        """For structural comparisons, this should be treated like a regular TransformSequence"""
+        return TransformSequence(self.transforms).to_signature(rename)
+
     def __post_init__(self):
         if len(self.transforms) not in (1, 2):
             raise ValueError("MultiscaleTransforms requires one or two transforms.")
@@ -355,6 +359,10 @@ class InvertedMultiscaleTransforms(TransformSequence):
         sup = super(InvertedMultiscaleTransforms, self).inverted()
         return MultiscaleTransforms(transforms=sup.transforms).bound(source=self.target, target=self.source)
 
+    def to_signature(self, rename: Mapping["NodeRef", str]) -> "TransformSignature":
+        """For structural comparisons, this should be treated like a regular TransformSequence"""
+        return TransformSequence(self.transforms).to_signature(rename)
+
     def composed_with(self, earlier: "Transform") -> Optional["InvertedMultiscaleTransforms"]:
         return None  # Avoid folding into other TransformSequences
 
@@ -504,6 +512,16 @@ def global_t_scale_if_matches_legacy_convention(
     return global_scale[t_index]
 
 
+def synthetic_system_name(intrinsic_system_name: str) -> str:
+    """Two purposes:
+    1. Every CoordinateSystem must have a name inside a graph, but in 0.4/0.5 legacy metadata, if transforms
+    to an external reference are included, they are anonymous. So we have to synthesise a placeholder name.
+    That name should *not* coincide with a potential real name like "external" that someone might genuinely use
+    in 0.6 metadata.
+    2. Indicator that "this CoordinateSystem's name doesn't matter" for the purpose of Multiscale.__eq__"""
+    return f"external-{intrinsic_system_name}"
+
+
 def multiscale_graph_from_legacy(
     multiscale: OME_ZARR_MULTISCALE, *, name: str
 ) -> Tuple[TransformGraph, NodeRef[CoordinateSystem], Optional[Tuple[float, Optional[TranslationTransform]]]]:
@@ -540,7 +558,7 @@ def multiscale_graph_from_legacy(
             ), f"dev error: {global_transforms.scale_transform.scale} doesn't actually use global-t convention"
             return graph, intrinsic_system_ref, (global_t_scale, global_transforms.translation_transform)
         own_axes = intrinsic_system.axes
-        synthetic_external = CoordinateSystem.fromkeys(own_axes)._as_ref(f"external-{name}")
+        synthetic_external = CoordinateSystem.fromkeys(own_axes)._as_ref(synthetic_system_name(name))
         try:
             bound_transform = global_transforms.bound(source=intrinsic_system_ref, target=synthetic_external)
             assert isinstance(bound_transform, MultiscaleTransforms), "should not change type"

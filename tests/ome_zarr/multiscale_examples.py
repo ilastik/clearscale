@@ -1,6 +1,6 @@
 import copy
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import pytest
 from clearscale.ome_zarr import SUPPORTED_OME_ZARR_VERSIONS_READ
@@ -339,12 +339,16 @@ def _copied_example(example: MultiscaleMetadataExample) -> MultiscaleMetadataExa
     return MultiscaleMetadataExample(example.id, copy.deepcopy(example.metadata), ndim=example.ndim)
 
 
-def minimal_multiscale_examples():
-    return [_copied_example(example) for example in _MINIMAL_MULTISCALE_EXAMPLES]
+def minimal_multiscale_examples(version: Optional[str] = None):
+    return [
+        _copied_example(example) for example in _MINIMAL_MULTISCALE_EXAMPLES if version is None or example.id == version
+    ]
 
 
-def maximal_multiscale_examples():
-    return [_copied_example(example) for example in _MAXIMAL_MULTISCALE_EXAMPLES]
+def maximal_multiscale_examples(version: Optional[str] = None):
+    return [
+        _copied_example(example) for example in _MAXIMAL_MULTISCALE_EXAMPLES if version is None or example.id == version
+    ]
 
 
 def maximal_multiscale_example(version: str) -> MultiscaleMetadataExample:
@@ -354,9 +358,9 @@ def maximal_multiscale_example(version: str) -> MultiscaleMetadataExample:
     raise ValueError(f"No maximal multiscale example for OME-Zarr version {version!r}")
 
 
-def minimal_multiscale_examples_params():
-    return [pytest.param(example, id=example.id) for example in minimal_multiscale_examples()]
+def minimal_multiscale_examples_params(version: Optional[str] = None):
+    return [pytest.param(example, id=example.id) for example in minimal_multiscale_examples(version)]
 
 
-def maximal_multiscale_examples_params():
-    return [pytest.param(example, id=example.id) for example in maximal_multiscale_examples()]
+def maximal_multiscale_examples_params(version: Optional[str] = None):
+    return [pytest.param(example, id=example.id) for example in maximal_multiscale_examples(version)]
