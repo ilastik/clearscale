@@ -41,8 +41,16 @@ source = "vcs"
 [tool.hatch.build.hooks.vcs]
 version-file = "src/clearscale/_version.py"
 
-[tool.setuptools_scm]
-tag.strict = true
+[tool.hatch.version.raw-options]
+git_describe_command = [
+    "git",
+    "describe",
+    "--dirty",
+    "--tags",
+    "--long",
+    "--match",
+    "v[0-9]*",
+]
 
 [tool.black]
 line-length = 120
