@@ -1386,6 +1386,37 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         self.has_shapes = has_shapes
         self.ome = ome if isinstance(ome, ome_zarr.MultiscaleProperties) else ome_zarr.MultiscaleProperties()
 
+    def __repr__(self):
+        parts = ["  {"]
+        parts.extend(f"    {key!r}: {scale!r}," for key, scale in self.items())
+        parts.append("  },")
+        if self.ome:
+            parts.append(f"  ome={self.ome!r},")
+        if not self.has_shapes:
+            parts.append("  has_shapes=False,")
+        if self._transform_graph.transforms or len(self._transform_graph.system_refs) > 1:
+
+            def label(ref):
+                return "<self>" if ref == self._intrinsic_ref else f"{ref.name!r}{ref.owner.axes}"
+
+            parts.append("  graph=(")
+            parts.extend(
+                f"    {ref.name!r}={ref.owner!r},"
+                for ref in self._transform_graph.system_refs
+                if ref != self._intrinsic_ref
+            )
+            parts.extend(
+                f"    ({label(t.source)} -> {label(t.target)})=Transform({t.unbound().to_ome_zarr('0.6')}),"
+                for t in self._transform_graph.transforms
+            )
+            parts.append("  )")
+        return f"{type(self).__name__}(\n" + "\n".join(parts) + "\n)"
+
+    def __str__(self):
+        systems = f" -> {', '.join(self.coordinate_systems)}" if self.coordinate_systems else ""
+        scales = "\n".join(f"  {scale.to_display_string(key)}" for key, scale in self.items())
+        return f"{type(self).__name__}(\n{scales}\n){systems}"
+
     def __eq__(self, other):
         if isinstance(other, Multiscale):
             rename_self = {"self": self._intrinsic_ref}
