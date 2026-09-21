@@ -1,6 +1,15 @@
 import pytest
 
-from clearscale import Multiscale, PixelSize, Shape, Scale
+from clearscale import Multiscale, PixelSize, Shape, Scale, FileRef, Factor, Translation, AxisRearrangementTo
+from clearscale._services.ome_zarr import synthetic_system_name
+from clearscale._transforms import (
+    TransformSequence,
+    TransformGraph,
+    _UnresolvedRef,
+    ScaleTransform,
+    TranslationTransform,
+    CoordinateSystem,
+)
 from clearscale.ome_zarr import make_all_singleton_shapes, SUPPORTED_OME_ZARR_VERSIONS_READ
 
 from tests.ome_zarr.multiscale_examples import (
@@ -53,6 +62,75 @@ def _0_4_metadata_with(**updates):
     }
     meta.update(updates)
     return meta
+
+
+def _0_4_metadata_with_global_transforms(transforms):
+    return _0_4_metadata_with(coordinateTransformations=transforms)
+
+
+def test_from_ome_zarr_parses_valid_0_4_global_scale_as_coordinate_system():
+    """
+    Naively, a global scale should be equal to
+    `Multiscale().with_coordinate_system("external", reached_by=Factor())`.
+    But this is not the case.
+    A single scale parses as Sequence((Scale,)), because that's what legacy metadata describes.
+    `with_coordinate_system` instead creates a single Scale, which is also correct, but not the same.
+    Legacy metadata and `with_coordinate_system` are equivalent, but not equal.
+    We don't offer a public API to recreate an *exact* equal - `reached_by=[Factor()]` still just makes one Scale,
+    because it's the simplest (canonical) representation.
+    """
+    input_metadata = _0_4_metadata_with_global_transforms([{"type": "scale", "scale": [0.5, 0.5]}])
+
+    read = Multiscale.from_ome_zarr(input_metadata, shape_source=lambda path: (1, 2))
+
+    assert read.coordinate_systems == (synthetic_system_name(read._intrinsic_ref.name),)
+
+    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
+    expected_name = synthetic_system_name(expected_base._intrinsic_ref.name)
+    dangling = TransformSequence(
+        # equal to what _0_4_metadata_with_global_transforms produces
+        source=expected_base._intrinsic_ref,
+        target=CoordinateSystem.fromkeys("yx")._as_ref(expected_name),
+        transforms=(ScaleTransform((0.5, 0.5)),),
+    )
+    expected = Multiscale(
+        expected_base.items(),
+        _transform_graph=TransformGraph(transforms=(dangling,)),
+        _intrinsic_ref=expected_base._intrinsic_ref,
+    )
+
+    assert read == expected
+
+
+def test_from_ome_zarr_parses_valid_0_4_global_translation_as_coordinate_system():
+    """
+    Same reasoning as test above:
+    `Multiscale().with_coordinate_system("external", reached_by=[Factor(1.0), Translation(...)])`
+    creates a single TranslationTransform, but reading the legacy meta creates Sequence((Scale, Translation)).
+    """
+    input_metadata = _0_4_metadata_with_global_transforms(
+        [{"type": "scale", "scale": [1.0, 1.0]}, {"type": "translation", "translation": [0.2, 0.3]}]
+    )
+
+    read = Multiscale.from_ome_zarr(input_metadata, shape_source=lambda path: (1, 2))
+
+    assert read.coordinate_systems == (synthetic_system_name(read._intrinsic_ref.name),)
+
+    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
+    expected_name = synthetic_system_name(expected_base._intrinsic_ref.name)
+    dangling = TransformSequence(
+        # equal to what _0_4_metadata_with_global_transforms produces
+        source=expected_base._intrinsic_ref,
+        target=CoordinateSystem.fromkeys("yx")._as_ref(expected_name),
+        transforms=(ScaleTransform((1.0, 1.0)), TranslationTransform((0.2, 0.3))),
+    )
+    expected = Multiscale(
+        expected_base.items(),
+        _transform_graph=TransformGraph(transforms=(dangling,)),
+        _intrinsic_ref=expected_base._intrinsic_ref,
+    )
+
+    assert read == expected
 
 
 def _0_4_metadata_without_axes():
@@ -275,6 +353,69 @@ def _0_6_metadata_with_labels_transform_with(**updates):
     transform = {"input": {"name": "physical", "path": "labels/nuclei"}, "output": {"name": "physical"}}
     transform.update(updates)
     return _0_6_metadata_with(coordinateTransformations=[transform])
+
+
+def _0_6_metadata_with_coord_sys_transform_with(**updates):
+    transform = {"input": {"name": "physical"}, "output": {"name": "additional"}}
+    transform.update(updates)
+    return _0_6_metadata_with(
+        coordinateSystems=[
+            {"name": "physical", "axes": [{"name": "y"}, {"name": "x"}]},
+            {"name": "additional", "axes": [{"name": "y"}, {"name": "x"}]},
+        ],
+        coordinateTransformations=[transform],
+    )
+
+
+@pytest.mark.parametrize(
+    "metadata, expected_relation",
+    [
+        pytest.param(_0_6_metadata_with_coord_sys_transform_with(type="identity"), None, id="identity"),
+        pytest.param(
+            _0_6_metadata_with_coord_sys_transform_with(type="scale", scale=[0.5, 0.5]),
+            Factor(y=2.0, x=2.0),
+            id="factor",
+        ),
+        pytest.param(
+            _0_6_metadata_with_coord_sys_transform_with(type="translation", translation=[0.2, 0.3]),
+            Translation(y=-0.2, x=-0.3),
+            id="translation",
+        ),
+    ],
+)
+def test_from_ome_zarr_parses_valid_0_6_multiscale_transforms_as_coordinate_systems(metadata, expected_relation):
+    read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
+    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))}).with_coordinate_system(
+        "additional", reached_by=expected_relation
+    )
+    assert read == expected
+
+
+def test_from_ome_zarr_parses_valid_label_transform():
+    """Transforms to labels are the only case within multiscale json where transforms are allowed to reference a path.
+    We have no public API to access such transforms yet, since it's not clear whether anyone will need this.
+    Until then, they should be parsed and roundtrip, but otherwise they are not readable or writable
+    (which makes this test slightly awkward)."""
+    input_metadata = _0_6_metadata_with_labels_transform_with(
+        type="sequence",
+        transformations=[{"type": "scale", "scale": [2.0, 1.0]}, {"type": "translation", "translation": [0.0, 3.0]}],
+    )
+    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
+    dangling = TransformSequence(
+        # equal to what _0_6_metadata_with_labels_transform_with produces
+        source=_UnresolvedRef(name="physical", file=FileRef.from_string("labels/nuclei")),
+        target=expected_base._intrinsic_ref,
+        transforms=(ScaleTransform((2.0, 1.0)), TranslationTransform((0.0, 3.0))),
+    )
+    expected = Multiscale(
+        expected_base.items(),
+        _transform_graph=TransformGraph(transforms=(dangling,)),
+        _intrinsic_ref=expected_base._intrinsic_ref,
+    )
+
+    read = Multiscale.from_ome_zarr(input_metadata, shape_source=lambda path: (1, 2))
+
+    assert read == expected
 
 
 @pytest.mark.parametrize(
