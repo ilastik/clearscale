@@ -1220,10 +1220,6 @@ class TransformGraph:
             t for t in self.transforms if isinstance(t.source, _UnresolvedRef) or isinstance(t.target, _UnresolvedRef)
         )
 
-    def get_system_ref(self, name: str) -> Optional[NodeRef[CoordinateSystem]]:
-        found = next(iter(ref for ref in self.all_system_refs if ref.name == name), None)
-        return found
-
     def structural_signature(
         self, rename: Mapping[str, "NodeRef"]
     ) -> FrozenSet[Union[NodeSignature, TransformSignature]]:

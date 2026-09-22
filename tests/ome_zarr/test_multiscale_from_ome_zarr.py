@@ -1,7 +1,7 @@
 import pytest
 
-from clearscale import Multiscale, PixelSize, Shape, Scale, FileRef, Factor, Translation, AxisRearrangementTo
-from clearscale._services.ome_zarr import synthetic_system_name
+from clearscale import Multiscale, PixelSize, Shape, Scale, FileRef, Factor, Translation
+from clearscale._services.ome_zarr import SYNTHETIC_EXTERNAL_NAME
 from clearscale._transforms import (
     TransformSequence,
     TransformGraph,
@@ -83,14 +83,13 @@ def test_from_ome_zarr_parses_valid_0_4_global_scale_as_coordinate_system():
 
     read = Multiscale.from_ome_zarr(input_metadata, shape_source=lambda path: (1, 2))
 
-    assert read.coordinate_systems == (synthetic_system_name(read._intrinsic_ref.name),)
+    assert read.coordinate_systems == (SYNTHETIC_EXTERNAL_NAME,)
 
     expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
-    expected_name = synthetic_system_name(expected_base._intrinsic_ref.name)
     dangling = TransformSequence(
         # equal to what _0_4_metadata_with_global_transforms produces
         source=expected_base._intrinsic_ref,
-        target=CoordinateSystem.fromkeys("yx")._as_ref(expected_name),
+        target=CoordinateSystem.fromkeys("yx")._as_ref(SYNTHETIC_EXTERNAL_NAME),
         transforms=(ScaleTransform((0.5, 0.5)),),
     )
     expected = Multiscale(
@@ -114,14 +113,13 @@ def test_from_ome_zarr_parses_valid_0_4_global_translation_as_coordinate_system(
 
     read = Multiscale.from_ome_zarr(input_metadata, shape_source=lambda path: (1, 2))
 
-    assert read.coordinate_systems == (synthetic_system_name(read._intrinsic_ref.name),)
+    assert read.coordinate_systems == (SYNTHETIC_EXTERNAL_NAME,)
 
     expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
-    expected_name = synthetic_system_name(expected_base._intrinsic_ref.name)
     dangling = TransformSequence(
         # equal to what _0_4_metadata_with_global_transforms produces
         source=expected_base._intrinsic_ref,
-        target=CoordinateSystem.fromkeys("yx")._as_ref(expected_name),
+        target=CoordinateSystem.fromkeys("yx")._as_ref(SYNTHETIC_EXTERNAL_NAME),
         transforms=(ScaleTransform((1.0, 1.0)), TranslationTransform((0.2, 0.3))),
     )
     expected = Multiscale(
