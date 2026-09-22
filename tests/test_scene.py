@@ -120,7 +120,8 @@ def test_scene_from_tiles_translations_multiple_multiscales():
     world_ref = p1[0].target
     assert world_ref != ms1._intrinsic_ref, "central reference system should be copy, not the exact object"
     assert isinstance(world_ref, NodeRef), "for pyright"
-    assert world_ref.owner != ms1._intrinsic_ref.owner, "central reference system should be copy, not the exact object"
+    assert world_ref.owner == ms1._intrinsic_ref.owner, "central reference system should be copy"
+    assert world_ref.owner is not ms1._intrinsic_ref.owner, "central reference system should be copy, not same instance"
     assert p2[0].target == world_ref
     assert p3[0].target == world_ref
 

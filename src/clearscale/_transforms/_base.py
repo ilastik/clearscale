@@ -1,5 +1,4 @@
 import functools
-import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque, OrderedDict
 from collections.abc import Mapping as MappingABC
@@ -211,7 +210,7 @@ def _ensure_axis_keys_and_names_synced(mapping: "OrderedDict[AxisKey, OmeZarrAxi
 
 class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
     # Candidate for being moved out of _transforms along with OmeZarrAxis if
-    # CoordinateSystem and OmeZarrAxes ever needs to become structurally different.
+    # CoordinateSystem and OmeZarrAxes ever need different value types.
     # At that point, CoordinateSystem.from/to_ome_zarr would need some adapter logic.
     """Dict-like equivalent to OME-Zarr's `axes` list within multiscale (0.4, 0.5), respectively coordinateSystem (0.6) objects.
 
@@ -319,10 +318,6 @@ class TransformGraphNode(ABC):
         but "Multiscale.as_ref" could raise consumer question marks."""
         ...
 
-    def _to_eq_comparable(self) -> Union["TransformGraphNode", OmeZarrAxes]:
-        """If this node type implements identity-eq, override and return an equivalent eq-comparable value object."""
-        return self
-
 
 @dataclass(frozen=True, slots=True)
 class FileRef:
@@ -391,6 +386,9 @@ class NodeRef(Generic[TransformGraphNodeT]):
             raise ValueError("Coordinate systems must always be referenced at least by name.")
 
     def __eq__(self, other):
+        """Identity-based equality and hash.
+        Two transform endpoints in a TransformGraph are only the same endpoint if they reference the same object
+        instance by the same name (or reference the same name within the object)."""
         if type(self) is not type(other):
             return NotImplemented
         return self.name == other.name and self.owner is other.owner
@@ -406,11 +404,12 @@ class NodeRef(Generic[TransformGraphNodeT]):
             return {"name": self.name, "path": FileRef.from_string(path).to_ome_zarr(version)}
         return {"name": self.name}
 
-    def to_signature(self, rename: Mapping[str, "NodeRef"]):
+    def to_signature(self, rename: Mapping[str, "NodeRef"]) -> "NodeSignature":
+        """Return a value-comparable representation of self"""
         for new_name, ref in rename.items():
             if self is ref:
-                return NodeSignature(name=new_name, owner=self.owner._to_eq_comparable())
-        return NodeSignature(name=self.name, owner=self.owner._to_eq_comparable())
+                return NodeSignature(name=new_name, owner=self.owner)
+        return NodeSignature(name=self.name, owner=self.owner)
 
 
 @dataclass(frozen=True, slots=True)
@@ -437,33 +436,34 @@ class _UnresolvedRef:
         return d
 
     def to_signature(self, rename: Mapping[str, "NodeRef"]) -> "_UnresolvedRef":
-        """UnresolvedRefs can directly act as a signature"""
+        """Unlike NodeRef, UnresolvedRef is value-comparable (no conversion needed)"""
         return self
 
 
 @dataclass(frozen=True, slots=True)
 class NodeSignature:
-    """Eq-comparable equivalent to a NodeRef.
-    CoordinateSystem uses identity-based eq, so it needs to be replaced by an equivalent value object."""
+    """Eq-comparable equivalent to a NodeRef, because NodeRef uses identity-based eq.
+    This only works as long as all TransformGraphNode implement a purely value-based eq (not identity-based)"""
 
     name: CoordinateSystemName
-    owner: Union[TransformGraphNode, OmeZarrAxes]  # Should never be CoordinateSystem due to identity-eq
-
-
-@dataclass(frozen=True, slots=True)
-class TransformSignature:
-    """Eq-comparable equivalent to a Transform.
-    Transform.source/target can be NodeRef[CoordinateSystem], whose identity-based eq would degrade comparing
-    it to other Transforms by type and values."""
-
-    source: Union[NodeSignature, _UnresolvedRef]
-    target: Union[NodeSignature, _UnresolvedRef]
-    transform: "Transform"
-    """The original Transform, unbound so it can be eq-compared"""
+    owner: TransformGraphNode
 
 
 ResolvedRef = NodeRef[TransformGraphNode]
 AnyRef = Union[ResolvedRef, _UnresolvedRef]
+AnyRefSignature = Union[NodeSignature, _UnresolvedRef]
+
+
+@dataclass(frozen=True, slots=True)
+class TransformSignature:
+    """Value-comparable equivalent to a Transform.
+    Transform.source/target can be NodeRef, whose identity-based eq would degrade comparing
+    it to other Transforms by type and values."""
+
+    source: AnyRefSignature
+    target: AnyRefSignature
+    transform: "Transform"
+    """The original Transform, unbound so it can be eq-compared"""
 
 
 class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
@@ -471,22 +471,13 @@ class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
     Fulfills two functions:
     * Representation specifically of OME-Zarr 0.6 coordinateSystem object
     * 'Virtual' graph node representing a space without attached data, as OME-Zarr 0.6 coordinateSystems are
+    Kept separate from OmeZarrAxes to separate private graph implementation concerns from the public axis-property concerns.
+    Also to avoid confusion, because the public "coordinate_system" concept isn't quite the same as this CoordinateSystem.
     """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _ensure_axis_keys_and_names_synced(self._mapping)
-
-    def __hash__(self):
-        """(See __eq__)"""
-        return id(self)
-
-    def __eq__(self, other):
-        """Identity-based equality and hash.
-        Even content-identical coordinate systems are not necessarily the same system.
-        For example, most JPEGs have content-identical coordinate systems (x, y, color), but there is no
-        relationship between the coordinate systems of two different JPEG scans of paper."""
-        return self is other  # even content-identical coordinate systems may not be the same system
 
     @property
     def axes(self) -> Tuple[AxisKey, ...]:
@@ -495,10 +486,6 @@ class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
     def _as_ref(self, name: CoordinateSystemName) -> NodeRef["CoordinateSystem"]:
         """For CoordinateSystem, making a ref means giving the coordinate system a name."""
         return NodeRef(str(name), self)
-
-    def _to_eq_comparable(self) -> Union[TransformGraphNode, OmeZarrAxes]:
-        """Since CoordinateSystem.__eq__ uses identity, convert to a value-comparable object here."""
-        return OmeZarrAxes(self)
 
     @classmethod
     def fromkeys(cls, axes: OrderedAxes) -> "CoordinateSystem":
@@ -917,6 +904,7 @@ class Transform(ABC):
         return self.target if self.target is not None else earlier.target
 
     def to_signature(self, rename: Mapping[str, "NodeRef"]) -> "TransformSignature":
+        """Return a value-comparable representation of self (NodeRef endpoints use identity-based eq)"""
         assert (
             self.source is not None
         ), "should only be used in context of a TransformGraph, where all Transforms are fully bound"
