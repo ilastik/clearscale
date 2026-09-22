@@ -1,6 +1,7 @@
 import pytest
 from clearscale._axis_values import PixelSize, Shape, Factor, Translation
 from clearscale._multiscale import Multiscale, Scale
+from clearscale._services.ome_zarr import SUPPORTED_OME_ZARR_VERSIONS_WRITE
 from clearscale._spatial_relations import AxisRearrangementTo
 
 
@@ -8,6 +9,19 @@ def _multiscale(axes, size=4, pixel_size=None):
     shape = Shape(zip(axes, [size] * len(axes)))
     ps = PixelSize(zip(axes, pixel_size)) if pixel_size else None
     return Multiscale({"s0": Scale(shape=shape, pixel_size=ps)})
+
+
+@pytest.mark.parametrize("version", SUPPORTED_OME_ZARR_VERSIONS_WRITE)
+def test_serializes_ome_properties(version):
+    ms = _multiscale("zyx")
+    ms.ome.name = "my-image"
+    ms.ome.type = "gaussian"
+    ms.ome.metadata = {"method": "skimage.transform.pyramid_gaussian", "version": "0.22", "kwargs": {"sigma": 1.5}}
+
+    written = ms.to_ome_zarr(version=version)
+    assert written["name"] == ms.ome.name
+    assert written["type"] == ms.ome.type
+    assert written["metadata"] == ms.ome.metadata
 
 
 def _global_scale(result):

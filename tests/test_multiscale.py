@@ -1,5 +1,5 @@
+import copy
 import re
-from dataclasses import replace
 from typing import List
 
 import pytest
@@ -15,6 +15,7 @@ from clearscale import (
     Factor,
     ome_zarr,
 )
+from clearscale._services.ome_zarr import MultiscaleProperties
 from clearscale.characterization import (
     discrete_bin_center,
     half_pixel_space_preservation,
@@ -949,3 +950,106 @@ class TestLosslessOmeZarrVersion:
             _legacy_convention_global_t_scale=2.0,
         )
         assert ms.lowest_lossless_ome_zarr_version == "0.4"
+
+
+class TestPropertyCarryover:
+    """
+    Methods that return "the same Multiscale, modified" must carry over everything that isn't per-scale content:
+    .ome and .has_shapes for now.
+    `derive` creates a new Multiscale, so it follows special rules (has_shapes transfers if derivation is still all-singleton).
+    """
+
+    modifying_functions = [
+        lambda ms: ms.filter_items(lambda key, scale: key != "s1"),
+        lambda ms: ms.with_keys("level{}"),
+        lambda ms: ms.drop_before("s1"),
+        lambda ms: ms.with_coordinate_system("physical"),
+        # `by` to avoid early-return, skipping the carryover
+        lambda ms: ms.as_derived_from(_multiscale("yx", 64), by=Factor(y=2.0, x=2.0)),
+    ]
+    expected_scale = [
+        ["s0", "s2"],
+        ["level0", "level1", "level2"],
+        ["s1", "s2"],
+        ["s0", "s1", "s2"],
+        ["s0", "s1", "s2"],
+    ]
+    function_ids = ["filter_items", "with_keys", "drop_before", "with_coordinate_system", "as_derived_from"]
+
+    @staticmethod
+    def _ms_from_ome_zarr(shape_source="real") -> Multiscale:
+        json = {
+            "version": "0.5",
+            "name": "my-image",
+            "type": "gaussian",
+            "metadata": {"method": "skimage.transform.pyramid_gaussian", "version": "0.22", "kwargs": {"sigma": 1.5}},
+            "axes": [
+                {"name": "y", "type": "space", "unit": "micrometer"},
+                {"name": "x", "type": "space", "unit": "micrometer"},
+            ],
+            "datasets": [
+                {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]},
+                {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [2.0, 2.0]}]},
+                {"path": "s2", "coordinateTransformations": [{"type": "scale", "scale": [4.0, 4.0]}]},
+            ],
+        }
+        shapes = {"s0": (64, 64), "s1": (32, 32), "s2": (16, 16)}
+        return Multiscale.from_ome_zarr(json, shape_source=shapes if shape_source == "real" else "singletons")
+
+    @pytest.fixture
+    def read_multiscale(self) -> Multiscale:
+        return TestPropertyCarryover._ms_from_ome_zarr()
+
+    @pytest.mark.parametrize("modify, expected_keys", zip(modifying_functions, expected_scale), ids=function_ids)
+    def test_modification_keeps_ome_properties(self, read_multiscale, modify, expected_keys):
+        result = modify(read_multiscale)
+
+        assert list(result.keys()) == expected_keys
+        assert result.ome.name == read_multiscale.ome.name
+        assert result.ome.type == read_multiscale.ome.type
+        assert result.ome.metadata == read_multiscale.ome.metadata
+
+    @pytest.mark.parametrize("modify", modifying_functions, ids=function_ids)
+    def test_modification_does_not_share_ome_properties_with_original(self, read_multiscale, modify):
+        before_ome = copy.deepcopy(read_multiscale.ome)
+
+        result = modify(read_multiscale)
+        assert result is not read_multiscale, "should actually modify"
+
+        assert result.ome is not read_multiscale.ome, "should carry over values, not instance"
+        result.ome.name = "changed"
+        result.ome.metadata["method"] = "changed"
+        result.ome.metadata["kwargs"]["sigma"] = -1
+
+        assert read_multiscale.ome == before_ome
+
+    @pytest.mark.parametrize(
+        "shape_source, expected_has_shapes", [("real", True), ("singletons", False)], ids=["real_shapes", "singletons"]
+    )
+    @pytest.mark.parametrize("modify", modifying_functions, ids=function_ids)
+    def test_modification_keeps_has_shapes(self, shape_source, expected_has_shapes, modify):
+        multiscale = TestPropertyCarryover._ms_from_ome_zarr(shape_source)
+        assert multiscale.has_shapes is expected_has_shapes, "broke test setup"
+
+        assert modify(multiscale).has_shapes is expected_has_shapes
+
+    @pytest.mark.parametrize(
+        "shape_source, expected_has_shapes", [("real", True), ("singletons", False)], ids=["real_shapes", "singletons"]
+    )
+    def test_derive_without_blueprint_keeps_has_shapes(self, shape_source, expected_has_shapes):
+        multiscale = TestPropertyCarryover._ms_from_ome_zarr(shape_source)
+        assert multiscale.has_shapes is expected_has_shapes, "broke test setup"
+
+        assert multiscale.derive("s1", blueprint=None).has_shapes is expected_has_shapes
+
+    def test_derive_with_blueprint_resets_has_shapes(self):
+        multiscale = TestPropertyCarryover._ms_from_ome_zarr("singletons")
+        assert multiscale.has_shapes is False, "broke test setup"
+
+        non_singleton = BlueprintShapes({"scale0": Shape(y=105, x=105)})
+        assert multiscale.derive("s1", blueprint=non_singleton).has_shapes is True
+
+    def test_derive_does_not_carry_over_ome_properties(self, read_multiscale):
+        derived = read_multiscale.derive("s1")
+
+        assert derived.ome == MultiscaleProperties()

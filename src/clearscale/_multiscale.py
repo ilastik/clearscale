@@ -1,3 +1,4 @@
+import copy
 import math
 import string
 import warnings
@@ -351,7 +352,7 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
 
     def filter_items(self: _ScaleMappingSelf, keep_func: Callable[[ScaleKey, ValueType], bool]) -> _ScaleMappingSelf:
         items = [(k, v) for k, v in self.items() if keep_func(k, v)]
-        return self.__class__(items)
+        return self._with_items(items)
 
     def with_keys(
         self: _ScaleMappingSelf,
@@ -372,10 +373,10 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
                     f"e.g. 's{{}}' or 's{{:03d}}'. Received: '{pattern}'"
                 )
             items = [(keys_pattern_or_func.format(i), v) for i, v in enumerate(self.values())]
-            return self.__class__(items)
+            return self._with_items(items)
         elif callable(keys_pattern_or_func):
             new_keys = self._generate_and_validate_new_keys(keys_pattern_or_func)
-            return self.__class__(zip(new_keys, self.values()))
+            return self._with_items(zip(new_keys, self.values()))
         else:
             new_keys = keys_pattern_or_func
             if len(new_keys) != len(self):
@@ -384,7 +385,7 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
                 )
             if not self._all_unique(new_keys):
                 raise ValueError(f"All new scale keys must be unique. Received: {new_keys}")
-            return self.__class__(zip(new_keys, self.values()))
+            return self._with_items(zip(new_keys, self.values()))
 
     def drop_before(self: _ScaleMappingSelf, key: ScaleKey, inclusive=False) -> _ScaleMappingSelf:
         keys = list(self.keys())
@@ -396,6 +397,10 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
             start_idx += 1
 
         items = [(k, v) for k, v in self.items() if k in keys[start_idx:]]
+        return self._with_items(items)
+
+    def _with_items(self: _ScaleMappingSelf, items: Iterable[Tuple[ScaleKey, ValueType]]) -> _ScaleMappingSelf:
+        """Build a modified copy of the same kind from `items`, carrying over everything that isn't per-scale content."""
         return self.__class__(items)
 
     def _generate_and_validate_new_keys(self, keys_pattern_or_func: Callable) -> List[ScaleKey]:
@@ -1372,16 +1377,15 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 raise AssertionError("_intrinsic_ref must be inside _transform_graph")
             self._transform_graph = transform_graph
             self._intrinsic_ref = _intrinsic_ref
-        zero_scale_axes_by_key = {}
         if _zero_scale_axes_by_key:
+            assert isinstance(_zero_scale_axes_by_key, ABCMapping)
             available_axes = set(self.axes)
             for key, axes in _zero_scale_axes_by_key.items():
                 if key not in self:
-                    continue
-                kept_axes = tuple(axis for axis in axes if axis in available_axes)
-                if kept_axes:
-                    zero_scale_axes_by_key[key] = kept_axes
-        self._zero_scale_axes_by_key = zero_scale_axes_by_key
+                    raise AssertionError(f"Mismatching zero-scale record: {key} not in self {tuple(self.keys())}")
+                if any(axis not in available_axes for axis in axes):
+                    raise AssertionError(f"Mismatching zero-scale record: Some of {axes} not in {available_axes}")
+        self._zero_scale_axes_by_key = _zero_scale_axes_by_key or {}
         self._legacy_convention_global_t_scale = _legacy_convention_global_t_scale
         self.has_shapes = has_shapes
         self.ome = ome if isinstance(ome, ome_zarr.MultiscaleProperties) else ome_zarr.MultiscaleProperties()
@@ -1743,6 +1747,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         )
         return Multiscale(
             self.items(),
+            ome=copy.deepcopy(self.ome),
+            has_shapes=self.has_shapes,
             _transform_graph=new_graph,
             _intrinsic_ref=self._intrinsic_ref,
             _zero_scale_axes_by_key=self._zero_scale_axes_by_key,
@@ -1887,6 +1893,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         )
         return Multiscale(
             mapping_items,
+            ome=copy.deepcopy(self.ome),
+            has_shapes=self.has_shapes,
             _transform_graph=new_graph,
             _intrinsic_ref=intrinsic_ref,
             _zero_scale_axes_by_key=self._zero_scale_axes_by_key,
@@ -1929,6 +1937,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             translating=translating,
             rounding=rounding,
         )
+        # singleton marker only carried over if shapes are unmodified
+        new_ms.has_shapes = self.has_shapes or blueprint is not None
         return new_ms.as_derived_from(self, by=derived_by)
 
     # Ignore narrowing of `version: str` to Literal (nicer to be explicit)
@@ -2070,6 +2080,19 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     f"Multiscales must be ordered from largest to smallest. Scale shape increases along "
                     f"{increased} between {prev_key!r} and {key!r} ({prev_shape} -> {shape})."
                 )
+
+    def _with_items(self, items: Iterable[Tuple[ScaleKey, Scale]]) -> "Multiscale":
+        # `_zero_scale_axes_by_key` is dropped: (1) We don't know correspondence of old to new items.
+        # (2) The property exists for clean read-write roundtrip. On modification, the normalisation to 1.0 should be ok.
+        # `has_shapes` is carried over: This is only fine if all _with_items callers leave Scale shapes unchanged.
+        return Multiscale(
+            items,
+            ome=copy.deepcopy(self.ome),
+            has_shapes=self.has_shapes,
+            _transform_graph=self._transform_graph,
+            _intrinsic_ref=self._intrinsic_ref,
+            _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
+        )
 
     def _get_interface_transform(self):
         """Allows a scene to traverse into this subgraph"""
