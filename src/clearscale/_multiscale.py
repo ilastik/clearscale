@@ -1419,13 +1419,20 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     def __eq__(self, other):
         if isinstance(other, Multiscale):
-            selfsig = self._transform_graph.structural_signature({"self": self._intrinsic_ref})
-            othersig = other._transform_graph.structural_signature({"self": other._intrinsic_ref})
-            return self._mapping == other._mapping and selfsig == othersig
-        return _ScaleMapping.__eq__(self, other)
+            return self._mapping == other._mapping and self._transform_graph.structural_signature(
+                {"_self": self._intrinsic_ref}
+            ) == other._transform_graph.structural_signature({"_self": other._intrinsic_ref})
+        if isinstance(other, ABCMapping):
+            return (
+                not self._transform_graph.transforms
+                and len(self._transform_graph.system_refs) < 2
+                and self._mapping == other
+            )
+        return NotImplemented
 
     def __hash__(self):
-        return _ScaleMapping.__hash__(self)
+        sig = self._transform_graph.structural_signature({"_self": self._intrinsic_ref})
+        return hash((tuple(self._mapping.items()), sig))
 
     def copy(self) -> "Multiscale":
         raise NotImplementedError(

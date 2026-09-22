@@ -43,27 +43,78 @@ def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
     return CoordinateSystem.fromkeys(axes)._as_ref(name)
 
 
-def test_blueprint_hash_matches_value_equality():
-    left = BlueprintShapes({"s0": Shape(y=2, x=3)})
-    right = BlueprintShapes({"s0": Shape(y=2, x=3)})
+class TestEqAndHash:
+    def test_blueprint_hash_matches_value_equality(self):
+        left = BlueprintShapes({"s0": Shape(y=2, x=3)})
+        right = BlueprintShapes({"s0": Shape(y=2, x=3)})
 
-    assert left == right
-    assert hash(left) == hash(right)
+        assert left == right
+        assert hash(left) == hash(right)
 
+    @pytest.mark.parametrize(
+        "make_ms",
+        [
+            pytest.param(lambda: Multiscale({"s0": Scale(Shape(y=2, x=3))}), id="simple"),
+            pytest.param(
+                lambda: Multiscale({"s0": Scale(Shape(y=2, x=3))}).with_coordinate_system("world"), id="with_coord_sys"
+            ),
+            pytest.param(
+                lambda: Multiscale({"s0": Scale(Shape(y=2, x=3))}).with_coordinate_system(
+                    "world", reached_by=Translation(y=2.0, x=3.0)
+                ),
+                id="with_transform",
+            ),
+            pytest.param(lambda: Multiscale({"s0": Scale(Shape(y=2, x=3))}).derive("s0"), id="derive"),
+        ],
+    )
+    def test_multiscale_hash_matches_value_equality(self, make_ms):
+        left = make_ms()
+        right = make_ms()
 
-def test_multiscale_equality_and_hash_are_value_based():
-    left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
-    right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+        assert left == right
+        assert hash(left) == hash(right)
 
-    assert left == right
-    assert {left, right} == {left}, "Value hash should lead to collapse in sets"
+    def test_multiscale_equal_derivation_is_not_equal(self):
+        """left and right here *should* be equal, but they're not, because the two constructions make different
+        intrinsic system names. On derive with a derived_by relation, the intrinsic is transferred,
+        but the daughter no longer knows this was an intrinsic system whose name is not as strictly meaningful
+        as a coordinate system added through `with_coordinate_system`."""
+        make_ms = lambda: Multiscale({"s0": Scale(Shape(y=2, x=3))}).derive("s0", derived_by=Translation(y=2.0, x=3.0))
 
+        left = make_ms()
+        right = make_ms()
 
-def test_multiscale_refs_are_hashable():
-    left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
-    right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+        assert left != right
+        assert hash(left) != hash(right)
 
-    assert len({left._as_ref("physical"), right._as_ref("physical")}) == 2
+    @pytest.mark.parametrize(
+        "make_ms",
+        [
+            lambda name: Multiscale({"s0": Scale(Shape(y=2, x=3))}).with_coordinate_system(name),
+            lambda name: Multiscale({"s0": Scale(Shape(y=2, x=3))}).with_coordinate_system(
+                name, reached_by=Translation(y=2.0, x=3.0)
+            ),
+        ],
+    )
+    def test_multiscale_hash_matches_value_inequality(self, make_ms):
+        left = make_ms("world")
+        right = make_ms("atlas")
+
+        assert left != right
+        assert hash(left) != hash(right)
+
+    def test_multiscale_equality_and_hash_are_value_based(self):
+        left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+        right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+
+        assert left == right
+        assert {left, right} == {left}, "Value hash should lead to collapse in sets"
+
+    def test_multiscale_refs_are_hashable(self):
+        left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+        right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+
+        assert len({left._as_ref("physical"), right._as_ref("physical")}) == 2
 
 
 def test_multiscale_accepts_duplicate_scale_shapes():
