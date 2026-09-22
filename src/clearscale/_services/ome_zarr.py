@@ -201,7 +201,7 @@ class MultiscaleTransforms(TransformSequence):
         sup = super(MultiscaleTransforms, self).inverted()
         return InvertedMultiscaleTransforms(transforms=sup.transforms).bound(source=self.target, target=self.source)
 
-    def to_signature(self, rename: Mapping[str, "NodeRef"]) -> "TransformSignature":
+    def to_signature(self, rename: Mapping["NodeRef", str]) -> "TransformSignature":
         """For structural comparisons, this should be treated like a regular TransformSequence"""
         return TransformSequence(self.transforms).to_signature(rename)
 

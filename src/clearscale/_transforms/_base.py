@@ -404,12 +404,9 @@ class NodeRef(Generic[TransformGraphNodeT]):
             return {"name": self.name, "path": FileRef.from_string(path).to_ome_zarr(version)}
         return {"name": self.name}
 
-    def to_signature(self, rename: Mapping[str, "NodeRef"]) -> "NodeSignature":
+    def to_signature(self, rename: Mapping["NodeRef", str]) -> "NodeSignature":
         """Return a value-comparable representation of self"""
-        for new_name, ref in rename.items():
-            if self is ref:
-                return NodeSignature(name=new_name, owner=self.owner)
-        return NodeSignature(name=self.name, owner=self.owner)
+        return NodeSignature(name=rename.get(self, self.name), owner=self.owner)
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,7 +432,7 @@ class _UnresolvedRef:
             d["name"] = self.name
         return d
 
-    def to_signature(self, rename: Mapping[str, "NodeRef"]) -> "_UnresolvedRef":
+    def to_signature(self, rename: Mapping["NodeRef", str]) -> "_UnresolvedRef":
         """Unlike NodeRef, UnresolvedRef is value-comparable (no conversion needed)"""
         return self
 
@@ -903,7 +900,7 @@ class Transform(ABC):
     def _composed_target(self, earlier: "Transform") -> Optional[AnyRef]:
         return self.target if self.target is not None else earlier.target
 
-    def to_signature(self, rename: Mapping[str, "NodeRef"]) -> "TransformSignature":
+    def to_signature(self, rename: Mapping["NodeRef", str]) -> "TransformSignature":
         """Return a value-comparable representation of self (NodeRef endpoints use identity-based eq)"""
         assert (
             self.source is not None
@@ -1209,7 +1206,7 @@ class TransformGraph:
         )
 
     def structural_signature(
-        self, rename: Mapping[str, "NodeRef"]
+        self, *, rename: Mapping["NodeRef", str]
     ) -> FrozenSet[Union[NodeSignature, TransformSignature]]:
         """Identity-cleared representation of this graph, for structural comparisons."""
         edges = tuple(t.to_signature(rename) for t in self.transforms)
