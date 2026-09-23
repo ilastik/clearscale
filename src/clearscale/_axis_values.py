@@ -456,7 +456,7 @@ class PixelSize(_AxisFloats):
             ) from e
         tags = axistags if axistags else vigra.defaultAxistags("".join(str(axis) for axis in self.keys()))
         for tag in tags:
-            if tag.key in self and self[tag.key] != self._default():
+            if tag.key in self:
                 tags.setResolution(tag.key, self[tag.key])
         return tags
 
