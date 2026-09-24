@@ -1308,7 +1308,15 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     Transforms in Multiscale graphs may only source/target `NodeRef[CoordinateSystem]`, and the paths from 
     self._intrinsic_ref to each satellite coordinate system must be a single Transform."""
     _intrinsic_ref: NodeRef[CoordinateSystem]
-    """The system in which the Scales' shape, pixel size, translation etc. are correct."""
+    """The system in which the Scales' shape, pixel size, translation etc. are correct.
+    
+    Ref instance identity matters for "manipulator" methods:
+    - filter_items, with_keys, drop_before, with_coordinate_system, copy return "the same space, viewed differently".
+      They preserve `self._intrinsic_ref` and other NodeRefs inside the graph, maintaining identity.
+    - .from_* (and hence .derive) return "a new space". Fresh _intrinsic_ref (the result is not the same space).
+      as_derived_from reconnects the new space back to its origin, via an explicit SpatialRelation.
+    When adding a new method, decide which of these two is correct (there is no correct default).
+    """
     _zero_scale_axes_by_key: Mapping[str, Tuple[AxisKey, ...]]
     """Dataset scale axes that were read as 0.0 from loaded meta; kept for as-read round-trip."""
     _legacy_convention_global_t_scale: Optional[float]
@@ -1439,9 +1447,21 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return hash((tuple(self._mapping.items()), sig))
 
     def copy(self) -> "Multiscale":
-        raise NotImplementedError(
-            "Shallow copying of Multiscale is likely to cause surprising behavior. "
-            "Please use the `copy` module and consider using `copy.deepcopy()` to avoid mutating the original."
+        """Return a new Multiscale with the same Scales, coordinate-system identity, and metadata.
+
+        The result shares this Multiscale's coordinate systems - it is spatially identical with `self`.
+        `.ome` is deep-copied, so mutating one's `.ome` does not affect the other.
+
+        For a spatially independent structural clone that shares nothing at all with `self`, use `copy.deepcopy(self)`.
+        """
+        return Multiscale(
+            self._mapping,  # The Scale instances end up shared. Fine because they're frozen dataclasses.
+            ome=copy.deepcopy(self.ome),
+            _transform_graph=self._transform_graph,
+            _intrinsic_ref=self._intrinsic_ref,
+            _zero_scale_axes_by_key=self._zero_scale_axes_by_key,
+            _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
+            has_shapes=self.has_shapes,
         )
 
     @classmethod
@@ -1692,6 +1712,10 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         ome_zarr_axes: Optional[OmeZarrAxesParam] = None,
     ) -> "Multiscale":
+        """Add a coordinate system to this Multiscale's spatial context.
+
+        The returned Multiscale is spatially identical with `self`, but additionally knows the new coordinate system."""
+
         def _reconcile_axis_prop_params(
             target_axes: Tuple[AxisKey, ...],
             source_ome_axes: OmeZarrAxes,
@@ -1759,8 +1783,15 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         self, other: "Multiscale", *, by: Union[SpatialRelation, Sequence[SpatialRelation], None] = None
     ) -> "Multiscale":
         """
-        Transfer the spatial context, axis properties, and serialization convention from `other`.
+        Transfer `self` into the spatial context of `other`, carrying over axis properties, coordinate systems and
+        serialization convention.
+
         Optionally specify *how* `self` was derived from `other` using `by=Factor(...)` or other SpatialRelations.
+
+        The returned Multiscale loses spatial identity with `self` if `other` has different axis metadata (indicating
+        that it originates from a different space).
+        `other`, and its additional coordinate systems, may be renamed on transfer in case of clashes with existing
+        systems in `self`'s context, but otherwise maintain spatial identity.
         """
         relations: List[SpatialRelation] = [] if by is None else [by] if isinstance(by, SpatialRelation) else list(by)
         if not all(isinstance(r, SpatialRelation) for r in relations):
@@ -1914,8 +1945,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         """
         Derive a new Multiscale from one of this Multiscale's own scale levels.
 
-        Deriving transfers `.coordinate_systems` from this Multiscale to the new one where possible,
-        and keeps the new one within the nifti-zarr convention, if this one is.
+        Deriving keeps the new Multiscale in the spatial context of `self`. This means `.coordinate_systems` are
+        transferred, maintaining identity where possible, and `self` becomes a coordinate system on the child.
+        If `self` follows the nifti-zarr convention, this is also transferred.
 
         `blueprint`: How to expand the Scale at `base_key` into the derived Multiscale's levels.
         Omit to extract the respective Scale as an independent Multiscale with just that one entry.
@@ -1927,7 +1959,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         `derived_by`: The relation(s) describing how the new Multiscale was derived from the Scale at `base_key`.
         For example, provide a `Translation` if the derived Multiscale is shifted from its parent's origin, or
         an `AxisRearrangementTo` if axes were dropped/inserted/reordered.
-        The derived Multiscale will retain the relation as a reference to an external coordinate system.
         """
         new_ms = Multiscale.from_single(
             self[base_key],
@@ -2082,9 +2113,12 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 )
 
     def _with_items(self, items: Iterable[Tuple[ScaleKey, Scale]]) -> "Multiscale":
-        # `_zero_scale_axes_by_key` is dropped: (1) We don't know correspondence of old to new items.
-        # (2) The property exists for clean read-write roundtrip. On modification, the normalisation to 1.0 should be ok.
-        # `has_shapes` is carried over: This is only fine if all _with_items callers leave Scale shapes unchanged.
+        """Shared cloner for "with_" methods.
+        These methods create alternative views of the same space, so self._intrinsic_ref and the graph are maintained (see _intrinsic_ref docstring).
+
+        `_zero_scale_axes_by_key` is dropped: (1) We don't know correspondence of old to new items.
+        (2) The property exists for clean read-write roundtrip. On modification, the normalisation to 1.0 should be ok.
+        `has_shapes` is carried over: This is only fine if all _with_items callers leave Scale shapes unchanged."""
         return Multiscale(
             items,
             ome=copy.deepcopy(self.ome),
