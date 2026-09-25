@@ -398,37 +398,39 @@ class LabelColor:
 @dataclass(slots=True, init=False)
 class ImageLabel:
     """Group-level 'image-label' metadata marking a multiscale as a label (segmentation) image.
-    `colors` and `properties` are separate maps, matching the spec's own separation between the two lists
-    rather than merging them: `colors` SHOULD have one entry per unique label value; `properties` MAY add
-    further arbitrary metadata per label value, and its per-label dict is passed through unvalidated - as
-    with the rest of `.ome`, getting its contents right is the caller's responsibility, not clearscale's.
-    On duplicate label values within one list, the last entry wins (plain dict semantics)."""
+    `properties` maps each label value to arbitrary metadata, with `LabelColor` stored under the `color` key.
+    Per-label metadata is passed through unvalidated; on duplicate label values, the last entry wins."""
 
     source: Optional[FileRef]
-    colors: Dict[LabelValue, LabelColor]
     properties: Dict[LabelValue, Dict[str, Any]]
 
     def __init__(
-        self,
-        source: Optional[Union[FileRef, str]] = None,
-        colors: Optional[Mapping[Any, LabelColor]] = None,
-        properties: Optional[Mapping[Any, Mapping[str, Any]]] = None,
+        self, source: Optional[Union[FileRef, str]] = None, properties: Optional[Mapping[Any, Mapping[str, Any]]] = None
     ):
         self.source = (
             None if source is None else (source if isinstance(source, FileRef) else FileRef.from_string(source))
         )
-        self.colors = {_require_label_value(k): v for k, v in (colors or {}).items()}
         self.properties = {_require_label_value(k): dict(v) for k, v in (properties or {}).items()}
 
     def __bool__(self) -> bool:
-        return self.source is not None or bool(self.colors) or bool(self.properties)
+        return self.source is not None or bool(self.properties)
 
     def to_ome_zarr(self, version: str) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
-            "colors": [{"label-value": lv, **color.to_ome_zarr()} for lv, color in self.colors.items()]
-        }
-        if self.properties:
-            d["properties"] = [{"label-value": lv, **props} for lv, props in self.properties.items()]
+        d: Dict[str, Any] = {}
+        colors = [
+            {"label-value": lv, **props["color"].to_ome_zarr()}
+            for lv, props in self.properties.items()
+            if isinstance(props.get("color"), LabelColor)
+        ]
+        if colors:
+            d["colors"] = colors
+        properties = [
+            {"label-value": lv, **{k: v for k, v in props.items() if k != "color"}}
+            for lv, props in self.properties.items()
+            if any(k != "color" for k in props)
+        ]
+        if properties:
+            d["properties"] = properties
         if self.source is not None:
             d["source"] = {"image": self.source.path}
         if version in ("0.4", "0.5"):
@@ -440,16 +442,6 @@ class ImageLabel:
         if not isinstance(image_label_dict, Mapping):
             return None
 
-        colors: Dict[LabelValue, LabelColor] = {}
-        for entry in image_label_dict.get("colors") or []:
-            if not isinstance(entry, Mapping) or "label-value" not in entry:
-                continue
-            try:
-                label_value = _require_label_value(entry["label-value"])
-            except ValueError:
-                continue
-            colors[label_value] = LabelColor.from_ome_zarr(entry)  # last wins
-
         properties: Dict[LabelValue, Dict[str, Any]] = {}
         for entry in image_label_dict.get("properties") or []:
             if not isinstance(entry, Mapping) or "label-value" not in entry:
@@ -458,7 +450,16 @@ class ImageLabel:
                 label_value = _require_label_value(entry["label-value"])
             except ValueError:
                 continue
-            properties[label_value] = {k: v for k, v in entry.items() if k != "label-value"}  # last wins
+            properties[label_value] = {k: v for k, v in entry.items() if k != "label-value"}
+
+        for entry in image_label_dict.get("colors") or []:
+            if not isinstance(entry, Mapping) or "label-value" not in entry:
+                continue
+            try:
+                label_value = _require_label_value(entry["label-value"])
+            except ValueError:
+                continue
+            properties.setdefault(label_value, {})["color"] = LabelColor.from_ome_zarr(entry)
 
         source = None
         raw_source = image_label_dict.get("source")
@@ -467,7 +468,7 @@ class ImageLabel:
             if isinstance(image_path, str) and image_path:
                 source = FileRef.from_string(image_path)
 
-        return cls(source=source, colors=colors, properties=properties)
+        return cls(source=source, properties=properties)
 
 
 class HasShape(Protocol):
