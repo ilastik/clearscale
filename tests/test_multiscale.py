@@ -967,7 +967,7 @@ class TestPropertyCarryover:
         # `by` to avoid early-return, skipping the carryover
         lambda ms: ms.as_derived_from(_multiscale("yx", 64), by=Factor(y=2.0, x=2.0)),
     ]
-    expected_scale = [
+    expected_keys = [
         ["s0", "s2"],
         ["level0", "level1", "level2"],
         ["s1", "s2"],
@@ -998,9 +998,14 @@ class TestPropertyCarryover:
 
     @pytest.fixture
     def read_multiscale(self) -> Multiscale:
-        return TestPropertyCarryover._ms_from_ome_zarr()
+        ms = TestPropertyCarryover._ms_from_ome_zarr()
+        window = ome_zarr.OmeroWindow(start=0, end=255, min=0, max=255)
+        ms.ome.omero = ome_zarr.Omero([ome_zarr.OmeroChannel(color="FF0000", window=window)])
+        labels = {1: ome_zarr.LabelEntry(color=(255, 0, 0, 128))}
+        ms.ome.image_label = ome_zarr.ImageLabel(source="../../", labels=labels)
+        return ms
 
-    @pytest.mark.parametrize("modify, expected_keys", zip(modifying_functions, expected_scale), ids=function_ids)
+    @pytest.mark.parametrize("modify, expected_keys", zip(modifying_functions, expected_keys), ids=function_ids)
     def test_modification_keeps_ome_properties(self, read_multiscale, modify, expected_keys):
         result = modify(read_multiscale)
 
@@ -1008,6 +1013,8 @@ class TestPropertyCarryover:
         assert result.ome.name == read_multiscale.ome.name
         assert result.ome.type == read_multiscale.ome.type
         assert result.ome.metadata == read_multiscale.ome.metadata
+        assert result.ome.omero == read_multiscale.ome.omero, "omero follows the same carryover rule as name/type"
+        assert result.ome.image_label == read_multiscale.ome.image_label
 
     @pytest.mark.parametrize("modify", modifying_functions, ids=function_ids)
     def test_modification_does_not_share_ome_properties_with_original(self, read_multiscale, modify):
@@ -1015,11 +1022,13 @@ class TestPropertyCarryover:
 
         result = modify(read_multiscale)
         assert result is not read_multiscale, "should actually modify"
-
         assert result.ome is not read_multiscale.ome, "should carry over values, not instance"
+
         result.ome.name = "changed"
         result.ome.metadata["method"] = "changed"
         result.ome.metadata["kwargs"]["sigma"] = -1
+        result.ome.omero.extra["changed"] = True
+        result.ome.image_label.labels[1].properties["changed"] = True
 
         assert read_multiscale.ome == before_ome
 

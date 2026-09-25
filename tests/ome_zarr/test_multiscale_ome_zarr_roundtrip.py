@@ -12,7 +12,6 @@ from tests.ome_zarr.multiscale_examples import (
     maximal_multiscale_example,
 )
 
-known_keys_that_should_roundtrip_but_todo = ("omero",)
 float_roundtrip_abs_tolerance = 2**-54
 
 
@@ -63,14 +62,6 @@ def without_identity_translations_datasets(metadata: dict[str, Any]) -> dict[str
     return metadata
 
 
-def without_known_feature_gaps(metadata: dict[str, Any]) -> dict[str, Any]:
-    round_trippable_metadata = copy.deepcopy(metadata)
-    for key in known_keys_that_should_roundtrip_but_todo:
-        if key in round_trippable_metadata:
-            del round_trippable_metadata[key]
-    return round_trippable_metadata
-
-
 @pytest.fixture
 def maximal_ome_zarr_0_6() -> MultiscaleMetadataExample:
     return maximal_multiscale_example("0.6")
@@ -95,11 +86,7 @@ def test_multiscale_roundtrips_maximal_ome_zarr(example: MultiscaleMetadataExamp
     multiscale = Multiscale.from_ome_zarr(example.metadata, shape_source=make_all_singleton_shapes(example.ndim))
     output_json = multiscale.to_ome_zarr(version=example.id)
 
-    for key in known_keys_that_should_roundtrip_but_todo:
-        assert key not in output_json, "Update test when implementing round-trip for previously unsupported optionals"
-    expected_output = without_identity_translations_datasets(
-        with_written_version(without_known_feature_gaps(example.metadata), example.id)
-    )
+    expected_output = without_identity_translations_datasets(with_written_version(example.metadata, example.id))
     if example.id in ("0.4", "0.5"):
         # We only guarantee approximate roundtrip of
         # `multiscale[coordinateTransformations]` for legacy versions.
@@ -122,7 +109,7 @@ def test_multiscale_roundtrip_preserves_coordinate_system_order(
     multiscale = Multiscale.from_ome_zarr(metadata, shape_source=make_all_singleton_shapes(maximal_ome_zarr_0_6.ndim))
     output_json = multiscale.to_ome_zarr(version="0.6")
 
-    expected_output = with_written_version(without_known_feature_gaps(metadata), "0.6")
+    expected_output = with_written_version(metadata, "0.6")
     assert output_json == with_approximate_floats(expected_output)
 
 

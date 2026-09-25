@@ -7,6 +7,11 @@ from clearscale._services.ome_zarr import (
     SUPPORTED_OME_ZARR_VERSIONS_READ,
     SUPPORTED_OME_ZARR_VERSIONS_WRITE,
     MultiscaleProperties,
+    Omero,
+    OmeroChannel,
+    OmeroWindow,
+    ImageLabel,
+    LabelEntry,
 )
 from clearscale._transforms import OmeZarrAxis as Axis, OmeZarrAxes as Axes
 
@@ -17,6 +22,11 @@ __all__ = [
     "SUPPORTED_OME_ZARR_VERSIONS_READ",
     "SUPPORTED_OME_ZARR_VERSIONS_WRITE",
     "MultiscaleProperties",
+    "Omero",
+    "OmeroChannel",
+    "OmeroWindow",
+    "ImageLabel",
+    "LabelEntry",
     "Axis",
     "Axes",
 ]

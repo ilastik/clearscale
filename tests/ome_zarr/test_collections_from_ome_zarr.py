@@ -1,9 +1,12 @@
+from typing import cast
+
 import pytest
 from clearscale._scene import Scene
 from clearscale._collections import OmeZarrGroup, GroupKind
-from clearscale.ome_zarr import make_all_singleton_shapes
+from clearscale.ome_zarr import make_all_singleton_shapes, SUPPORTED_OME_ZARR_VERSIONS_WRITE
 
 from tests.ome_zarr.multiscale_examples import (
+    group_metadata_examples_params,
     minimal_multiscale_examples_params,
     maximal_multiscale_examples_params,
     MultiscaleMetadataExample,
@@ -49,6 +52,135 @@ def test_ome_zarr_group_parses_maximal_multiscale_examples(example: MultiscaleMe
     assert len(ome_group.multiscales) == 1
     assert tuple(ome_group.multiscales[0].keys()) == example.expected_paths
     assert ome_group.version == example.id
+
+
+class TestOmeroAndImageLabel:
+    """In "multiscales" OME-Zarr groups, the "omero" and "image-label" json keys sit *next to* "multiscales".
+    They describe the multiscale objects, but live outside of them. Hence, tested here."""
+
+    @pytest.mark.parametrize("example", group_metadata_examples_params("omero"))
+    def test_ome_zarr_group_parses_omero_and_attaches_it_to_the_multiscale(self, example: MultiscaleMetadataExample):
+        ome_group = OmeZarrGroup.from_group(
+            MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
+        )
+        omero = ome_group.multiscales[0].ome.omero
+
+        assert omero is not None
+        assert omero.to_ome_zarr() == example.group_metadata["omero"]
+        channel = omero.channels[0]
+        assert (channel.color, channel.window.start, channel.window.end) == ("0000FF", 0, 1500)
+        assert (channel.window.min, channel.window.max) == (0, 65535)
+        # Keys clearscale doesn't model are kept, not lost
+        assert channel.extra == {
+            "active": True,
+            "coefficient": 1,
+            "family": "linear",
+            "inverted": False,
+            "label": "LaminB1",
+        }
+        assert omero.extra["name"] == "example.tif"
+        assert omero.extra["rdefs"] == {"defaultT": 0, "defaultZ": 118, "model": "color"}
+
+    @pytest.mark.parametrize("example", group_metadata_examples_params("image-label"))
+    def test_ome_zarr_group_parses_image_label_and_attaches_it_to_the_multiscale(
+        self, example: MultiscaleMetadataExample
+    ):
+        ome_group = OmeZarrGroup.from_group(
+            MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
+        )
+        image_label = ome_group.multiscales[0].ome.image_label
+
+        assert image_label is not None
+        assert image_label.source is not None and image_label.source.path == "../../"
+        assert list(image_label.labels) == [1, 2, 3]
+        assert image_label.labels[1].color == (255, 0, 0, 128)
+        assert image_label.labels[1].properties == {"class": "cell", "area (pixels)": 1200}
+        assert image_label.labels[2].properties == {
+            "@color:hexColor": "#00FF00",  # An "additional key under colors"
+            "class": "nucleus",
+            "confidence": 0.5,
+        }
+        assert image_label.labels[3].color is None
+        assert image_label.labels[3].properties == {"class": "background"}
+
+    @pytest.mark.parametrize("example", maximal_multiscale_examples_params())
+    def test_ome_zarr_group_only_attaches_omero_and_image_label_if_present(self, example: MultiscaleMetadataExample):
+        ome_group = OmeZarrGroup.from_group(
+            MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
+        )
+        ms = ome_group.multiscales[0]
+
+        assert (ms.ome.omero is not None) == ("omero" in example.group_metadata)
+        assert (ms.ome.image_label is not None) == ("image-label" in example.group_metadata)
+
+    @pytest.mark.parametrize("example", group_metadata_examples_params("omero"))
+    def test_ome_zarr_group_roundtrips_omero(self, example: MultiscaleMetadataExample):
+        if example.id not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
+            pytest.skip(f"Writing version {example.id} not supported")
+        ome_group = OmeZarrGroup.from_group(
+            MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
+        )
+
+        output = ome_group.to_attrs(version=example.id)
+        ome_attrs = output["ome"] if "ome" in output else output
+
+        assert ome_attrs["omero"] == example.group_metadata["omero"]
+        assert "omero" not in ome_attrs["multiscales"][0], "omero is a group key, not a multiscale key"
+
+    @pytest.mark.parametrize("example", group_metadata_examples_params("image-label"))
+    def test_ome_zarr_group_roundtrips_image_label(self, example: MultiscaleMetadataExample):
+        if example.id not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
+            pytest.skip(f"Writing version {example.id} not supported")
+        ome_group = OmeZarrGroup.from_group(
+            MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
+        )
+
+        output = ome_group.to_attrs(version=example.id)
+        ome_attrs = output["ome"] if "ome" in output else output
+
+        assert ome_attrs["image-label"] == example.group_metadata["image-label"]
+        assert "image-label" not in ome_attrs["multiscales"][0], "image-label is a group key, not a multiscale key"
+
+    @pytest.mark.parametrize("example", maximal_multiscale_examples_params("0.5"))
+    def test_ome_zarr_group_writes_omero_and_image_label_in_other_writable_versions(
+        self, example: MultiscaleMetadataExample
+    ):
+        """Read as 0.5, write as 0.4 and 0.6: omero is version-independent, image-label only carries its `version` in
+        the versions that have one."""
+        ome_group = OmeZarrGroup.from_group(
+            MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
+        )
+
+        as_0_4 = ome_group.to_attrs(version="0.4")
+        output_0_6 = ome_group.to_attrs(version="0.6")
+        as_0_6 = output_0_6["ome"] if "ome" in output_0_6 else output_0_6
+
+        expected_image_label = example.group_metadata["image-label"]
+        assert as_0_4["omero"] == as_0_6["omero"] == example.group_metadata["omero"]
+        assert as_0_4["image-label"] == {**expected_image_label, "version": "0.4"}
+        assert as_0_6["image-label"] == {k: v for k, v in expected_image_label.items() if k != "version"}
+
+    def test_ome_zarr_group_ignores_invalid_omero(self):
+        """A single invalid channel makes the whole omero unusable
+        (dropping it would make omero.channels != image channels)."""
+        example = cast(MultiscaleMetadataExample, maximal_multiscale_examples_params("0.4")[0].values[0])
+        attrs = example.to_group_attrs()
+        attrs["omero"]["channels"].append({"color": "FF0000"})
+
+        with pytest.warns(UserWarning, match="Invalid entry in 'omero.channels'"):
+            ome_group = OmeZarrGroup.from_group(MockZarrGroup(attrs, make_all_singleton_shapes(example.ndim)))
+
+        assert ome_group.kind is GroupKind.MULTISCALE
+        assert ome_group.multiscales[0].ome.omero is None
+        assert ome_group.multiscales[0].ome.image_label is not None, "invalid omero must not affect image-label"
+
+    def test_ome_zarr_group_ignores_omero_and_image_label_without_multiscales(self):
+        attrs = {"omero": {"channels": []}, "image-label": {"source": {"image": "../../"}}}
+
+        ome_group = OmeZarrGroup.from_group(MockZarrGroup(attrs))
+
+        assert ome_group.kind is None
+        assert not ome_group.multiscales
 
 
 def test_ome_zarr_group_ignores_invalid_multiscale():

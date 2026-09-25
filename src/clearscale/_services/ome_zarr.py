@@ -1,6 +1,8 @@
 """Private helpers that support Multiscale and Scene to/from_ome_zarr methods"""
 
 import copy
+import math
+import numbers
 import re
 import warnings
 from collections.abc import Callable, Mapping, Sequence
@@ -28,11 +30,6 @@ if TYPE_CHECKING:
 
 SUPPORTED_OME_ZARR_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
 SUPPORTED_OME_ZARR_VERSIONS_WRITE = ("0.4", "0.5", "0.6")
-
-####
-# Reading
-####
-
 
 OME_ZARR_TRANSFORM = Mapping[str, Any]
 """
@@ -90,6 +87,13 @@ class MultiscaleProperties:
     metadata: Dict[str, Any] = field(default_factory=dict)
     """Scaling method description. This *should* specify keys 'method', 'version', 'args', 
     'kwargs', and 'description' (refer to OME-Zarr specification)"""
+    omero: Optional["Omero"] = None
+    """Display/rendering metadata"""
+    image_label: Optional["ImageLabel"] = None
+    """Marks this multiscale as a label (segmentation) image."""
+
+    def __bool__(self):
+        return bool(self.type or self.name or self.metadata or self.omero or self.image_label)
 
     @classmethod
     def from_ome_zarr(cls, multiscale_dict: OME_ZARR_MULTISCALE) -> "MultiscaleProperties":
@@ -104,9 +108,6 @@ class MultiscaleProperties:
             metadata = {}
         return cls(type=typ, name=name, metadata=metadata)
 
-    def __bool__(self):
-        return bool(self.type or self.name or self.metadata)
-
     def to_ome_zarr(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {}
         if self.type:
@@ -118,6 +119,310 @@ class MultiscaleProperties:
         elif self.metadata:
             raise ValueError(f"Must not replace Multiscale.ome.metadata. Found: {self.metadata}")
         return d
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class OmeroWindow:
+    """Windowing (contrast) settings for one OmeroChannel."""
+
+    start: float
+    end: float
+    min: float
+    max: float
+
+    def __init__(self, *, start: float, end: float, min: float, max: float):
+        object.__setattr__(self, "start", self._as_finite_float(start))
+        object.__setattr__(self, "end", self._as_finite_float(end))
+        object.__setattr__(self, "min", self._as_finite_float(min))
+        object.__setattr__(self, "max", self._as_finite_float(max))
+
+    def to_ome_zarr(self) -> Dict[str, Any]:
+        return {"start": self.start, "end": self.end, "min": self.min, "max": self.max}
+
+    @classmethod
+    def from_ome_zarr(cls, window_dict: Any) -> Optional["OmeroWindow"]:
+        if not isinstance(window_dict, Mapping):
+            return None
+        try:
+            return cls(
+                start=window_dict["start"],
+                end=window_dict["end"],
+                min=window_dict["min"],
+                max=window_dict["max"],
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _as_finite_float(value: Any) -> float:
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            raise TypeError(f"Expected a number, received: {value!r}")
+        result = float(value)
+        if not math.isfinite(result):
+            raise ValueError(f"Expected a finite number, received: {value!r}")
+        return result
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class OmeroChannel:
+    """One entry of omero.channels."""
+
+    _HEX_COLOR_RE = re.compile(r"^[0-9A-Fa-f]{6}$")
+
+    color: str
+    """6 hex digits, e.g. 'FF00AA'. Normalized to upper case; a leading '#' is accepted on read."""
+    window: OmeroWindow
+    extra: Mapping[str, Any] = field(default_factory=dict)
+    """Channel keys other than 'color' and 'window' (e.g. 'label', 'active', 'inverted'). If
+    .extra['color'] or .extra['window'] are defined, .color and .window override them on serialization.
+    Consult the OMERO documentation for the allowed fields and their format requirements.
+    Caution: Mutable!"""
+
+    def __init__(self, *, color: str, window: OmeroWindow, extra: Optional[Mapping[str, Any]] = None):
+        object.__setattr__(self, "color", self._require_hex_color(color))
+        if not isinstance(window, OmeroWindow):
+            raise TypeError(f"'window' must be an OmeroWindow, received: {window!r}")
+        object.__setattr__(self, "window", window)
+        object.__setattr__(self, "extra", copy.deepcopy(dict(extra or {})))
+
+    def to_ome_zarr(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = copy.deepcopy(dict(self.extra))
+        d["color"] = self.color
+        d["window"] = self.window.to_ome_zarr()
+        return d
+
+    @classmethod
+    def from_ome_zarr(cls, channel_dict: Any) -> Optional["OmeroChannel"]:
+        if not isinstance(channel_dict, Mapping) or "color" not in channel_dict:
+            return None
+        window = OmeroWindow.from_ome_zarr(channel_dict.get("window"))
+        if window is None:
+            return None
+        extra = {k: v for k, v in channel_dict.items() if k not in ("color", "window")}
+        try:
+            return cls(color=channel_dict["color"], window=window, extra=extra)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _require_hex_color(value: Any) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"'color' must be a 6-digit hex string, received: {value!r}")
+        candidate = value[1:] if value.startswith("#") else value
+        if not OmeroChannel._HEX_COLOR_RE.match(candidate):
+            raise ValueError(
+                f"'color' must be 6 hexadecimal digits (optionally prefixed with '#'), received: {value!r}"
+            )
+        return candidate.upper()
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class Omero:
+    """Display/rendering metadata from the OME-Zarr group-level 'omero' key."""
+
+    channels: Tuple[OmeroChannel, ...]
+    extra: Mapping[str, Any] = field(default_factory=dict)
+    """Top-level keys other than 'channels' (e.g. 'id', 'name', 'rdefs'). If .extra['channels'] is defined,
+    .channels overrides it on serialization.
+    Consult the OMERO documentation for the allowed fields and their format requirements.
+    Caution: Mutable!"""
+
+    def __init__(self, channels: Iterable[OmeroChannel], extra: Optional[Mapping[str, Any]] = None):
+        channels = tuple(channels)
+        if not all(isinstance(c, OmeroChannel) for c in channels):
+            raise TypeError("Omero.channels must contain only OmeroChannel instances.")
+        if not channels:
+            raise ValueError("Omero.channels must contain at least one OmeroChannel.")
+        object.__setattr__(self, "channels", channels)
+        object.__setattr__(self, "extra", copy.deepcopy(dict(extra or {})))
+
+    def to_ome_zarr(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = copy.deepcopy(dict(self.extra))
+        d["channels"] = [c.to_ome_zarr() for c in self.channels]
+        return d
+
+    @classmethod
+    def from_ome_zarr(cls, omero_dict: Any) -> Optional["Omero"]:
+        if not isinstance(omero_dict, Mapping):
+            return None
+        raw_channels = omero_dict.get("channels")
+        if not isinstance(raw_channels, list) or not raw_channels:
+            warnings.warn(f"Invalid or missing 'omero.channels'; ignoring omero metadata. Received: {omero_dict!r}")
+            return None
+        channels = []
+        for raw_channel in raw_channels:
+            channel = OmeroChannel.from_ome_zarr(raw_channel)
+            if channel is None:
+                warnings.warn(f"Invalid entry in 'omero.channels'; ignoring omero metadata. Received: {raw_channel!r}")
+                return None
+            channels.append(channel)
+        extra = {k: v for k, v in omero_dict.items() if k != "channels"}
+        return cls(channels, extra=extra)
+
+
+@dataclass(slots=True, init=False)
+class LabelEntry:
+    """Properties for one unique label value: its rgba display color, and further arbitrary metadata.
+    Caution: Mutable!"""
+
+    _color: Optional[Tuple[int, int, int, int]] = field(default=None, init=False, repr=False)
+    properties: Dict[str, Any] = field(default_factory=dict)
+
+    def __init__(self, color: Optional[Sequence[int]] = None, properties: Optional[Mapping[str, Any]] = None):
+        self.color = color
+        self.properties = dict(properties or {})
+
+    @property
+    def color(self) -> Optional[Tuple[int, int, int, int]]:
+        return self._color
+
+    @color.setter
+    def color(self, value: Optional[Sequence[int]]) -> None:
+        if value is None:
+            self._color = None
+            return
+        try:
+            values = tuple(value)
+        except TypeError:
+            raise ValueError(f"Label color must be a sequence of four integers 0-255 (RGBA), received: {value!r}")
+        if len(values) != 4 or not all(
+            isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 255 for v in values
+        ):
+            raise ValueError(f"Label color must be four integers between 0 and 255 (RGBA), received: {value!r}")
+        self._color = (values[0], values[1], values[2], values[3])
+
+    def __bool__(self) -> bool:
+        return self.color is not None or bool(self.properties)
+
+    def __repr__(self) -> str:
+        return f"LabelEntry(color={self.color!r}, properties={self.properties!r})"
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ImageLabel:
+    """Group-level 'image-label' metadata marking a multiscale as a label (segmentation) image.
+
+    `labels` maps each unique label value to its properties. OME-Zarr up to 0.6 writes this as two
+    separate lists ('colors', 'properties'); `labels` keeps one entry per label value instead.
+    OME-Zarr 0.6 allows arbitrary keys in 'colors' entries alongside 'rgba'; these are merged into `label_entry.properties`, prefixed with "@color:". Writing a
+    properties key with a "@color:" prefix emits it back into the 'colors' list."""
+
+    _COLOR_PREFIX = "@color:"
+    """Future-proofing: colors/properties are expected to be merged, with potentially no dedicated
+    replacement for colors-keys besides 'rgba'. This workaround communicates the riskiness of using
+    'colors' aside from rgba, and minimises risk of properties/colors key clashes, while round-tripping
+    arbitrary metadata as-read."""
+
+    source: Optional[FileRef]
+    labels: Dict[int, LabelEntry]
+    """{label_pixel_value: LabelEntry}"""
+
+    def __init__(
+        self,
+        source: Optional[Union[FileRef, str]] = None,
+        labels: Optional[Mapping[Any, LabelEntry]] = None,
+    ):
+        resolved_source = (
+            None if source is None else (source if isinstance(source, FileRef) else FileRef.from_string(source))
+        )
+        object.__setattr__(self, "source", resolved_source)
+
+        resolved_labels: Dict[int, LabelEntry] = {}
+        for key, entry in (labels or {}).items():
+            if not isinstance(entry, LabelEntry):
+                raise TypeError(f"Label entries must be LabelEntry objects, received: {entry!r}")
+            resolved_labels[self._require_label_value(key)] = entry
+        object.__setattr__(self, "labels", resolved_labels)
+
+    def __bool__(self) -> bool:
+        return self.source is not None or bool(self.labels)
+
+    def to_ome_zarr(self, version: str) -> Dict[str, Any]:
+        colors, properties = [], []
+        for label_value, entry in self.labels.items():
+            color_entry: Dict[str, Any] = {"label-value": label_value}
+            if entry.color is not None:
+                color_entry["rgba"] = list(entry.color)
+            property_entry: Dict[str, Any] = {"label-value": label_value}
+            for key, value in entry.properties.items():
+                if key.startswith(self._COLOR_PREFIX):
+                    color_entry[key[len(self._COLOR_PREFIX) :]] = value
+                else:
+                    property_entry[key] = value
+            if len(color_entry) > 1:
+                colors.append(color_entry)
+            if len(property_entry) > 1:
+                properties.append(property_entry)
+
+        d: Dict[str, Any] = {}
+        if colors:
+            d["colors"] = colors
+        if properties:
+            d["properties"] = properties
+        if self.source is not None:
+            d["source"] = {"image": self.source.path}
+        if version in ("0.4", "0.5"):
+            d["version"] = version
+        return d
+
+    @classmethod
+    def from_ome_zarr(cls, image_label_dict: Any) -> Optional["ImageLabel"]:
+        if not isinstance(image_label_dict, Mapping):
+            return None
+
+        labels: Dict[int, LabelEntry] = {}
+
+        def entry_for(label_value: int) -> LabelEntry:
+            return labels.setdefault(label_value, LabelEntry())
+
+        for entry_dict in image_label_dict.get("colors") or []:
+            if not isinstance(entry_dict, Mapping) or "label-value" not in entry_dict:
+                continue
+            try:
+                label_value = cls._require_label_value(entry_dict["label-value"])
+            except ValueError:
+                continue
+
+            entry = entry_for(label_value)
+            for key, value in entry_dict.items():
+                if key == "label-value":
+                    continue
+                if key == "rgba":
+                    try:
+                        entry.color = value
+                    except ValueError:
+                        warnings.warn(f"Invalid image-label color for label {label_value}, ignoring: {value!r}")
+                else:
+                    entry.properties[f"{cls._COLOR_PREFIX}{key}"] = value
+
+        for entry_dict in image_label_dict.get("properties") or []:
+            if not isinstance(entry_dict, Mapping) or "label-value" not in entry_dict:
+                continue
+            try:
+                label_value = cls._require_label_value(entry_dict["label-value"])
+            except ValueError:
+                continue
+            entry_for(label_value).properties.update({k: v for k, v in entry_dict.items() if k != "label-value"})
+
+        source = None
+        raw_source = image_label_dict.get("source")
+        if isinstance(raw_source, Mapping):
+            image_path = raw_source.get("image")
+            if isinstance(image_path, str) and image_path:
+                source = FileRef.from_string(image_path)
+
+        return cls(source=source, labels=labels)
+
+    @staticmethod
+    def _require_label_value(value: Any) -> int:
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            raise ValueError(f"Label values must be numbers, received: {value!r}")
+        if isinstance(value, numbers.Integral):
+            return int(value)
+        as_float = float(value)
+        if not as_float.is_integer():
+            raise ValueError(f"Label values must be integral, received: {value!r}")
+        return int(as_float)
 
 
 class HasShape(Protocol):

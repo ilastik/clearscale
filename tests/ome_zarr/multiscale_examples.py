@@ -1,5 +1,5 @@
 import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 import pytest
@@ -10,7 +10,11 @@ from clearscale.ome_zarr import SUPPORTED_OME_ZARR_VERSIONS_READ
 class MultiscaleMetadataExample:
     id: str
     metadata: dict[str, Any]
+    """The multiscale object, i.e. one entry of the group's "multiscales" list."""
     ndim: int
+    group_metadata: dict[str, Any] = field(default_factory=dict)
+    """Keys that describe the multiscale(s), but live in the *group* attrs next to "multiscales" rather than 
+    inside the multiscale object. In practice: "omero" and "image-label"."""
 
     def __post_init__(self):
         assert self.id in SUPPORTED_OME_ZARR_VERSIONS_READ, "Examples should use version of the metadata as ID"
@@ -21,8 +25,8 @@ class MultiscaleMetadataExample:
 
     def to_group_attrs(self) -> Dict[str, Any]:
         if self.id in ("0.1", "0.2", "0.3", "0.4"):
-            return {"multiscales": [self.metadata]}
-        return {"ome": {"version": self.id, "multiscales": [self.metadata]}}
+            return {"multiscales": [self.metadata], **self.group_metadata}
+        return {"ome": {"version": self.id, "multiscales": [self.metadata], **self.group_metadata}}
 
 
 ALL_CANONICAL_AXES = [
@@ -66,6 +70,26 @@ OMERO_EXAMPLE = {
         "model": "color",
     },
 }
+
+
+def image_label_example(version: Optional[str]) -> dict[str, Any]:
+    """`version` is written inside the image-label object by OME-Zarr 0.4 and 0.5 (and clearscale)."""
+    return {
+        **({"version": version} if version else {}),
+        "colors": [
+            {"label-value": 1, "rgba": [255, 0, 0, 128]},
+            # OME-Zarr 0.6 adds explicitly that "Additional keys under colors are allowed"
+            {"label-value": 2, "rgba": [0, 255, 0, 128], "hexColor": "#00FF00"},
+        ],
+        "properties": [
+            # "Label-value objects within the properties array do not need to have the same keys"
+            {"label-value": 1, "class": "cell", "area (pixels)": 1200},
+            {"label-value": 2, "class": "nucleus", "confidence": 0.5},
+            {"label-value": 3, "class": "background"},  # No corresponding entry in "colors" for this pixel value
+        ],
+        "source": {"image": "../../"},
+    }
+
 
 OME_ZARR_MIN_MS_0_1 = {"datasets": [{"path": "s0"}]}
 OME_ZARR_MIN_MS_0_2 = {"datasets": [{"path": "s0"}]}
@@ -115,7 +139,6 @@ OME_ZARR_MAX_MS_0_2 = {
     "datasets": [{"path": "s0"}, {"path": "s1"}],
     "type": "gaussian",
     "metadata": SCALING_METHOD_EXAMPLE,
-    "omero": OMERO_EXAMPLE,
 }
 OME_ZARR_MAX_MS_0_3 = {
     "version": "0.3",
@@ -124,7 +147,6 @@ OME_ZARR_MAX_MS_0_3 = {
     "datasets": [{"path": "s0"}, {"path": "s1"}],
     "type": "gaussian",
     "metadata": SCALING_METHOD_EXAMPLE,
-    "omero": OMERO_EXAMPLE,
 }
 OME_ZARR_MAX_MS_0_4 = {
     "version": "0.4",
@@ -150,7 +172,6 @@ OME_ZARR_MAX_MS_0_4 = {
     ],
     "type": "gaussian",
     "metadata": SCALING_METHOD_EXAMPLE,
-    "omero": OMERO_EXAMPLE,
 }
 OME_ZARR_MAX_MS_0_4_IDENTITY_TRANSLATION = {
     "name": "input.zarr",
@@ -310,7 +331,6 @@ OME_ZARR_MAX_MS_0_6 = {
     ],
     "type": "gaussian",
     "metadata": SCALING_METHOD_EXAMPLE,
-    "omero": OMERO_EXAMPLE,
 }
 
 _MINIMAL_MULTISCALE_EXAMPLES = (
@@ -324,19 +344,39 @@ _MINIMAL_MULTISCALE_EXAMPLES = (
 
 _MAXIMAL_MULTISCALE_EXAMPLES = (
     MultiscaleMetadataExample("0.1", OME_ZARR_MAX_MS_0_1, ndim=5),
-    MultiscaleMetadataExample("0.2", OME_ZARR_MAX_MS_0_2, ndim=5),
-    MultiscaleMetadataExample("0.3", OME_ZARR_MAX_MS_0_3, ndim=5),
-    MultiscaleMetadataExample("0.4", OME_ZARR_MAX_MS_0_4, ndim=5),
+    MultiscaleMetadataExample("0.2", OME_ZARR_MAX_MS_0_2, ndim=5, group_metadata={"omero": OMERO_EXAMPLE}),
+    MultiscaleMetadataExample("0.3", OME_ZARR_MAX_MS_0_3, ndim=5, group_metadata={"omero": OMERO_EXAMPLE}),
+    MultiscaleMetadataExample(
+        "0.4",
+        OME_ZARR_MAX_MS_0_4,
+        ndim=5,
+        group_metadata={"omero": OMERO_EXAMPLE, "image-label": image_label_example("0.4")},
+    ),
     MultiscaleMetadataExample("0.4", OME_ZARR_MAX_MS_0_4_IDENTITY_TRANSLATION, ndim=2),
     MultiscaleMetadataExample("0.4", OME_ZARR_MAX_MS_0_4_STRICT_GLOBAL_TRANSFORMS, ndim=2),
     MultiscaleMetadataExample("0.4", OME_ZARR_MAX_MS_0_4_GLOBAL_T_IS_PIXEL_SIZE_CONVENTION, ndim=3),
-    MultiscaleMetadataExample("0.5", OME_ZARR_MAX_MS_0_5, ndim=5),
-    MultiscaleMetadataExample("0.6", OME_ZARR_MAX_MS_0_6, ndim=5),
+    MultiscaleMetadataExample(
+        "0.5",
+        OME_ZARR_MAX_MS_0_5,
+        ndim=5,
+        group_metadata={"omero": OMERO_EXAMPLE, "image-label": image_label_example("0.5")},
+    ),
+    MultiscaleMetadataExample(
+        "0.6",
+        OME_ZARR_MAX_MS_0_6,
+        ndim=5,
+        group_metadata={"omero": OMERO_EXAMPLE, "image-label": image_label_example(None)},
+    ),
 )
 
 
 def _copied_example(example: MultiscaleMetadataExample) -> MultiscaleMetadataExample:
-    return MultiscaleMetadataExample(example.id, copy.deepcopy(example.metadata), ndim=example.ndim)
+    return MultiscaleMetadataExample(
+        example.id,
+        copy.deepcopy(example.metadata),
+        ndim=example.ndim,
+        group_metadata=copy.deepcopy(example.group_metadata),
+    )
 
 
 def minimal_multiscale_examples(version: Optional[str] = None):
@@ -364,3 +404,13 @@ def minimal_multiscale_examples_params(version: Optional[str] = None):
 
 def maximal_multiscale_examples_params(version: Optional[str] = None):
     return [pytest.param(example, id=example.id) for example in maximal_multiscale_examples(version)]
+
+
+def group_metadata_examples_params(key: str):
+    """Select examples whose group attrs contain `key`
+    (for group-level keys, i.e. "omero" and "image-label")."""
+    return [
+        pytest.param(example, id=example.id)
+        for example in maximal_multiscale_examples()  # only maximal examples have group-level keys
+        if key in example.group_metadata
+    ]
