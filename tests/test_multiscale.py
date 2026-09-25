@@ -1002,12 +1002,19 @@ class TestPropertyCarryover:
 
     @pytest.mark.parametrize("modify, expected_keys", zip(modifying_functions, expected_scale), ids=function_ids)
     def test_modification_keeps_ome_properties(self, read_multiscale, modify, expected_keys):
+        from clearscale.ome_zarr import ImageLabel, Omero, OmeroChannel
+
+        read_multiscale.ome.omero = Omero([OmeroChannel(label="ch0")])
+        read_multiscale.ome.image_label = ImageLabel(source="../../")
+
         result = modify(read_multiscale)
 
         assert list(result.keys()) == expected_keys
         assert result.ome.name == read_multiscale.ome.name
         assert result.ome.type == read_multiscale.ome.type
         assert result.ome.metadata == read_multiscale.ome.metadata
+        assert result.ome.omero == read_multiscale.ome.omero, "omero follows the same carryover rule as name/type"
+        assert result.ome.image_label == read_multiscale.ome.image_label
 
     @pytest.mark.parametrize("modify", modifying_functions, ids=function_ids)
     def test_modification_does_not_share_ome_properties_with_original(self, read_multiscale, modify):
@@ -1050,6 +1057,11 @@ class TestPropertyCarryover:
         assert multiscale.derive("s1", blueprint=non_singleton).has_shapes is True
 
     def test_derive_does_not_carry_over_ome_properties(self, read_multiscale):
+        from clearscale.ome_zarr import ImageLabel, Omero, OmeroChannel
+
+        read_multiscale.ome.omero = Omero([OmeroChannel(label="ch0")])
+        read_multiscale.ome.image_label = ImageLabel(source="../../")
+
         derived = read_multiscale.derive("s1")
 
         assert derived.ome == MultiscaleProperties()

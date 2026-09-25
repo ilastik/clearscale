@@ -2,14 +2,19 @@ from collections.abc import Mapping as ABCMapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import Any, Dict, Literal, List, Mapping, Optional, Protocol, Tuple, Union
+from typing import Any, Dict, Literal, List, Mapping, Optional, Protocol, Sequence, Tuple, Union
 import warnings
 
-from clearscale._axis_values import AxisKey
 from clearscale._multiscale import Multiscale
 from clearscale._scene import Scene
-from clearscale._transforms import FileRef, PRE_COLLECTIONS_VERSIONS
-from clearscale._services.ome_zarr import SUPPORTED_OME_ZARR_VERSIONS_WRITE, ShapeSource, ShapeSourceMap
+from clearscale._transforms import FileRef
+from clearscale._services.ome_zarr import (
+    SUPPORTED_OME_ZARR_VERSIONS_WRITE,
+    ShapeSource,
+    ShapeSourceMap,
+    Omero,
+    ImageLabel,
+)
 
 
 class GroupKind(str, Enum):
@@ -206,6 +211,17 @@ class OmeZarrGroup:
             if not version and isinstance(scene_json.get("version"), str) and scene_json.get("version"):
                 scene_version = scene_json.get("version")
 
+        if multiscales:
+            # Awkward: omero and image-label are multiscale metadata, but they are defined *next to* "multiscales",
+            # so we have to parse them here and attach them to every Multiscale
+            omero = Omero.from_ome_zarr(ome_attrs.get("omero"))
+            image_label = ImageLabel.from_ome_zarr(ome_attrs.get("image-label"))
+            for ms in multiscales:
+                if omero is not None:
+                    ms.ome.omero = omero
+                if image_label is not None:
+                    ms.ome.image_label = image_label
+
         children, child_version = _children_from_attrs(ome_attrs)
 
         # Kind is generally detected from content in post_init; only the bf2raw kinds can't be recognised this way and need to be preset
@@ -245,15 +261,22 @@ class OmeZarrGroup:
         """
         return cls.from_attrs(group.attrs, shape_source=shape_source or group)
 
-    def to_attrs(self, version: Literal["0.4", "0.5", "0.6"]) -> Dict[str, Any]:
+    def to_attrs(self, version: Literal["0.4", "0.5", "0.6"], *, override_multi_multiscales=False) -> Dict[str, Any]:
+        """Return attributes for the zarr group described by this OmeZarrGroup metadata.
+        Pass this to `zarr_group.attrs.update()` to make zarr_group an OME-Zarr dataset.
+
+        override_multi_multiscales: bool, default False. None of the current OME-Zarr versions genuinely support
+          arbitrary collections of multiple multiscales. It is technically possible to specify multiple "multiscales",
+          but this is badly supported across the tool ecosystem. Pass True to write multiple entries in "multiscales".
+        """
         if version not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
             raise ValueError(f"Cannot write OME-Zarr with {version=}")
         if self.kind is None:
             return {}
-        self._validate_for_version(version)
+        self._validate_for_version(version, override_multi_multiscales)
         ome: Dict[str, Any] = {}
         if self.kind is GroupKind.MULTISCALE:
-            ome["multiscales"] = [self.multiscales[0].to_ome_zarr(version=version)]
+            ome.update(self._multiscales_to_attrs(version))
         elif self.kind is GroupKind.SCENE:
             ome["scene"] = self.scenes[0].to_ome_zarr(version=version)
         elif self.kind is GroupKind.LABELS:
@@ -274,8 +297,8 @@ class OmeZarrGroup:
                 "Writing plate and well metadata is not supported yet. Please open an issue on GitHub if you need this."
             )
         elif self.kind is GroupKind.COLLECTION:
-            if self.multiscales and not self.scenes and not self.children:
-                ome["multiscales"] = [ms.to_ome_zarr(version=version) for ms in self.multiscales]
+            if self.multiscales and not self.scenes and not self.children and override_multi_multiscales:
+                ome.update(self._multiscales_to_attrs(version))
             else:
                 raise NotImplementedError("No version of OME-Zarr currently supports collections.")
         if version == "0.4":
@@ -283,7 +306,7 @@ class OmeZarrGroup:
         ome["version"] = version
         return {"ome": ome}
 
-    def _validate_for_version(self, version: Literal["0.4", "0.5", "0.6"]):
+    def _validate_for_version(self, version: Literal["0.4", "0.5", "0.6"], override_multi_multiscale):
         assert self.kind is not None, "should skip if empty"
         not_implemented_kinds = (GroupKind.BF2RAW, GroupKind.BF2RAW_OME)
         if self.kind in not_implemented_kinds:
@@ -299,14 +322,32 @@ class OmeZarrGroup:
         is_multi_multiscale = (
             self.kind is GroupKind.COLLECTION and len(self.multiscales) > 1 and not self.scenes and not self.children
         )
-        if self.kind not in supported_kinds[version] and not is_multi_multiscale:
+        if not (self.kind in supported_kinds[version] or (is_multi_multiscale and override_multi_multiscale)):
             raise ValueError(
                 f"Cannot write this group in OME-Zarr version {version}: {self.kind.value} groups are not supported."
             )
-        elif is_multi_multiscale and version in PRE_COLLECTIONS_VERSIONS:
+
+    def _multiscales_to_attrs(self, version: Literal["0.4", "0.5", "0.6"]) -> Dict[str, Any]:
+        multiscale_group_attrs: Dict[str, Any] = {
+            "multiscales": [ms.to_ome_zarr(version=version) for ms in self.multiscales]
+        }
+
+        unique_omero = set(ms.ome.omero for ms in self.multiscales if ms.ome.omero is not None)
+        if len(unique_omero) > 1:
             warnings.warn(
-                "This group consists of multiple multiscales. While this is technically valid in OME-Zarr version "
-                f"{version}, support for handling multiple multiscales within a single Zarr group is sparse across "
-                "the OME-Zarr tool ecosystem. Please consider storing each Multiscale in a separate OmeZarrGroup.",
+                f"This group's Multiscales carry conflicting `.ome.omero` metadata. "
+                "Only one Multiscale should set it, or all of them must agree. Continuing without writing omero.",
                 UserWarning,
             )
+        elif len(unique_omero) == 1:
+            multiscale_group_attrs["omero"] = next(iter(unique_omero)).to_ome_zarr()
+
+        unique_image_label = set(ms.ome.image_label for ms in self.multiscales if ms.ome.image_label is not None)
+        if len(unique_image_label) > 1:
+            raise ValueError(
+                "Can only write one image-label per group. Drop some, or store these Multiscales in separate groups."
+            )
+        elif len(unique_image_label) == 1:
+            multiscale_group_attrs["image-label"] = next(iter(unique_image_label)).to_ome_zarr(version=version)
+
+        return multiscale_group_attrs
