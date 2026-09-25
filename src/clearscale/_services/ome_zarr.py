@@ -253,8 +253,8 @@ class Omero:
         for raw_channel in raw_channels:
             channel = OmeroChannel.from_ome_zarr(raw_channel)
             if channel is None:
-                warnings.warn(f"Invalid omero channel entry, skipping: {raw_channel!r}")
-                continue
+                warnings.warn(f"Invalid omero channel entry; ignoring omero metadata due to: {raw_channel!r}")
+                return None
             channels.append(channel)
         if not channels:
             warnings.warn(f"No valid entries in 'omero.channels'; ignoring omero metadata. Received: {omero_dict!r}")
