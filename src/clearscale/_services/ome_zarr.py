@@ -265,10 +265,9 @@ class Omero:
 
 @dataclass(slots=True, init=False)
 class LabelColor:
-    """One entry of image-label.colors, beyond its label-value key (which lives as the dict key on
-    ImageLabel.colors, not on this object). `rgba`, if present, is a 4-tuple of ints 0-255 (RGBA).
-    Any other key on the object ("Additional keys under colors are allowed") is kept verbatim in `extra`,
-    since colors and properties are meant to hold different things and shouldn't be conflated."""
+    """One entry of OME-Zarr image-label.colors.
+    image-label.colors[].label-value becomes the dict key on ImageLabel.properties, not part of LabelColor.
+    `rgba`, if present, is a 4-tuple of ints 0-255 (RGBA). Any other properties are kept verbatim in `extra`."""
 
     rgba: Optional[Tuple[int, int, int, int]] = None
     extra: Dict[str, Any] = field(default_factory=dict)
@@ -291,7 +290,7 @@ class LabelColor:
             try:
                 rgba = cls._require_label_color(raw_rgba)
             except ValueError:
-                warnings.warn(f"Invalid image-label color, ignoring 'rgba': {raw_rgba!r}")
+                pass
         extra = {k: v for k, v in color_dict.items() if k not in ("label-value", "rgba")}
         return cls(rgba=rgba, **extra)
 
@@ -300,31 +299,35 @@ class LabelColor:
         try:
             values = tuple(value)
         except TypeError:
-            raise ValueError(f"'color' must be a sequence of four integers 0-255 (RGBA), received: {value!r}")
+            raise ValueError(f"'rgba' must be a sequence of four integers 0-255, received: {value!r}")
         if len(values) != 4 or not all(
             isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 255 for v in values
         ):
-            raise ValueError(f"'color' must be four integers between 0 and 255 (RGBA), received: {value!r}")
+            raise ValueError(f"'rgba' must be four integers between 0 and 255, received: {value!r}")
         return values[0], values[1], values[2], values[3]
 
 
 @dataclass(slots=True, init=False)
 class ImageLabel:
-    """Group-level 'image-label' metadata marking a multiscale as a label (segmentation) image.
-    `properties` maps each label value to arbitrary metadata, properties[]["color"] being a `LabelColor` object.
-    Per-label metadata is passed through unvalidated; on duplicate label values, the last entry wins."""
+    """Group-level OME-Zarr 'image-label' object, marking a multiscale as a label (segmentation) image.
+    OME-Zarr 'image-label.properties' become ImageLabel.properties, with 'property.label-value' becoming the dict key.
+    OME-Zarr 'image-label.colors' are kept under ImageLabel.properties[label-value]["color"] as a `LabelColor` object.
+    Any 'image-label.properties[].color' are dropped; color is reserved for the 'image-label.colors' list.
+    On duplicate label values, the last entry wins."""
 
     source: Optional[FileRef]
     properties: Dict[int, Dict[str, Any]]
     """Arbitrary per-label-integer metadata. properties[]["color"] must be a LabelColor object if present."""
 
     def __init__(
-        self, source: Optional[Union[FileRef, str]] = None, properties: Optional[Mapping[Any, Mapping[str, Any]]] = None
+        self, source: Optional[Union[FileRef, str]] = None, properties: Optional[Mapping[int, Mapping[str, Any]]] = None
     ):
         self.source = (
             None if source is None else (source if isinstance(source, FileRef) else FileRef.from_string(source))
         )
         self.properties = {self._require_label_value(k): dict(v) for k, v in (properties or {}).items()}
+        if any("color" in p and not isinstance(p["color"], LabelColor) for p in self.properties.values()):
+            raise ValueError(f"All properties['color'] must be LabelColor objects. Received: {properties!r}")
 
     def __bool__(self) -> bool:
         return self.source is not None or bool(self.properties)
@@ -364,7 +367,7 @@ class ImageLabel:
                 label_value = cls._require_label_value(entry["label-value"])
             except ValueError:
                 continue
-            properties[label_value] = {k: v for k, v in entry.items() if k != "label-value"}
+            properties[label_value] = {k: v for k, v in entry.items() if k not in ("label-value", "color")}
 
         for entry in image_label_dict.get("colors") or []:
             if not isinstance(entry, Mapping) or "label-value" not in entry:
