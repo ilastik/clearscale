@@ -33,11 +33,6 @@ if TYPE_CHECKING:
 SUPPORTED_OME_ZARR_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
 SUPPORTED_OME_ZARR_VERSIONS_WRITE = ("0.4", "0.5", "0.6")
 
-####
-# Reading
-####
-
-
 OME_ZARR_TRANSFORM = Mapping[str, Any]
 """
 Single transform.
@@ -268,88 +263,6 @@ class Omero:
         return cls(channels, extra=extra)
 
 
-####
-# image-label
-####
-
-
-LabelValue = int
-RgbaTuple = Tuple[int, int, int, int]
-
-
-def _require_label_value(value: Any) -> LabelValue:
-    if isinstance(value, bool) or not isinstance(value, numbers.Real):
-        raise ValueError(f"Label values must be numbers, received: {value!r}")
-    if isinstance(value, float) and not value.is_integer():
-        raise ValueError(f"Label values must be integral, received: {value!r}")
-    return int(value)
-
-
-class LabelProperties(Mapping):
-    """Immutable { label-value : label-attributes }
-    Keys are label values (int).
-    Each value is a JSON-safe {str: value} mapping; value['color'], if defined, is a 4-tuple of ints 0-255 (RGBA)."""
-
-    __slots__ = ("_mapping",)
-
-    def __init__(self, source: Optional[Mapping[Any, Mapping[str, Any]]] = None):
-        source = source or {}
-        if not isinstance(source, Mapping):
-            raise TypeError(
-                f"LabelProperties requires a {{label_value: label_attributes}} mapping, received: {source!r}"
-            )
-        normalized: "OrderedDict[LabelValue, Dict[str, Any]]" = OrderedDict()
-        for raw_key, raw_attrs in source.items():
-            key = _require_label_value(raw_key)
-            if key in normalized:
-                raise ValueError(f"Duplicate label value: {key}")
-            if not isinstance(raw_attrs, Mapping):
-                raise TypeError(f"Label attributes must be a mapping, received: {raw_attrs!r}")
-            label_attrs: Dict[str, Any] = {}
-            for key, value in raw_attrs.items():
-                if not isinstance(key, str):
-                    raise TypeError(f"Label attribute keys must be strings, received: {key!r}")
-                if key in ("label-value", "labelValue"):
-                    raise ValueError(
-                        f"{key!r} is reserved for the label value itself and cannot be used as an attribute key."
-                    )
-                label_attrs[key] = self._require_attrs_safe_value(value)
-            normalized[key] = label_attrs
-        self._mapping = normalized
-
-    def __getitem__(self, key: Any) -> Mapping[str, Any]:
-        return MappingProxyType(self._mapping[_require_label_value(key)])
-
-    def __iter__(self):
-        return iter(self._mapping)
-
-    def __len__(self):
-        return len(self._mapping)
-
-    def __repr__(self):
-        inner = {k: dict(v) for k, v in self._mapping.items()}
-        return f"LabelProperties({inner!r})"
-
-    @staticmethod
-    def _require_attrs_safe_value(value: Any) -> Any:
-        if value is None or isinstance(value, (bool, str)):
-            return value
-        if isinstance(value, numbers.Integral):
-            return int(value)
-        if isinstance(value, numbers.Real):
-            return float(value)
-        if isinstance(value, (list, tuple)):
-            return [LabelProperties._require_attrs_safe_value(v) for v in value]
-        if isinstance(value, Mapping):
-            result_dict = {}
-            for k, v in value.items():
-                if not isinstance(k, str):
-                    raise TypeError(f"Nested label attribute keys must be strings, received: {k!r}")
-                result_dict[k] = LabelProperties._require_attrs_safe_value(v)
-            return result_dict
-        raise TypeError(f"Label attribute values must be JSON-safe. Received {type(value).__name__}: {value!r}")
-
-
 @dataclass(slots=True, init=False)
 class LabelColor:
     """One entry of image-label.colors, beyond its label-value key (which lives as the dict key on
@@ -357,7 +270,7 @@ class LabelColor:
     Any other key on the object ("Additional keys under colors are allowed") is kept verbatim in `extra`,
     since colors and properties are meant to hold different things and shouldn't be conflated."""
 
-    rgba: Optional[RgbaTuple] = None
+    rgba: Optional[Tuple[int, int, int, int]] = None
     extra: Dict[str, Any] = field(default_factory=dict)
 
     def __init__(self, rgba: Optional[Sequence[int]] = None, **extra: Any):
@@ -383,7 +296,7 @@ class LabelColor:
         return cls(rgba=rgba, **extra)
 
     @staticmethod
-    def _require_label_color(value: Any) -> RgbaTuple:
+    def _require_label_color(value: Any) -> Tuple[int, int, int, int]:
         try:
             values = tuple(value)
         except TypeError:
@@ -398,11 +311,12 @@ class LabelColor:
 @dataclass(slots=True, init=False)
 class ImageLabel:
     """Group-level 'image-label' metadata marking a multiscale as a label (segmentation) image.
-    `properties` maps each label value to arbitrary metadata, with `LabelColor` stored under the `color` key.
+    `properties` maps each label value to arbitrary metadata, properties[]["color"] being a `LabelColor` object.
     Per-label metadata is passed through unvalidated; on duplicate label values, the last entry wins."""
 
     source: Optional[FileRef]
-    properties: Dict[LabelValue, Dict[str, Any]]
+    properties: Dict[int, Dict[str, Any]]
+    """Arbitrary per-label-integer metadata. properties[]["color"] must be a LabelColor object if present."""
 
     def __init__(
         self, source: Optional[Union[FileRef, str]] = None, properties: Optional[Mapping[Any, Mapping[str, Any]]] = None
@@ -410,25 +324,25 @@ class ImageLabel:
         self.source = (
             None if source is None else (source if isinstance(source, FileRef) else FileRef.from_string(source))
         )
-        self.properties = {_require_label_value(k): dict(v) for k, v in (properties or {}).items()}
+        self.properties = {self._require_label_value(k): dict(v) for k, v in (properties or {}).items()}
 
     def __bool__(self) -> bool:
         return self.source is not None or bool(self.properties)
 
     def to_ome_zarr(self, version: str) -> Dict[str, Any]:
         d: Dict[str, Any] = {}
-        colors = [
-            {"label-value": lv, **props["color"].to_ome_zarr()}
-            for lv, props in self.properties.items()
-            if isinstance(props.get("color"), LabelColor)
-        ]
+        colors, properties = [], []
+        for lv, props in self.properties.items():
+            color = props.get("color")
+            if color is not None and not isinstance(color, LabelColor):
+                raise TypeError(f"properties[{lv!r}]['color'] must be a LabelColor, got {type(color).__name__}")
+            if color is not None:
+                colors.append({"label-value": lv, **color.to_ome_zarr()})
+            rest = {k: v for k, v in props.items() if k != "color"}
+            if rest:
+                properties.append({"label-value": lv, **rest})
         if colors:
             d["colors"] = colors
-        properties = [
-            {"label-value": lv, **{k: v for k, v in props.items() if k != "color"}}
-            for lv, props in self.properties.items()
-            if any(k != "color" for k in props)
-        ]
         if properties:
             d["properties"] = properties
         if self.source is not None:
@@ -442,12 +356,12 @@ class ImageLabel:
         if not isinstance(image_label_dict, Mapping):
             return None
 
-        properties: Dict[LabelValue, Dict[str, Any]] = {}
+        properties: Dict[int, Dict[str, Any]] = {}
         for entry in image_label_dict.get("properties") or []:
             if not isinstance(entry, Mapping) or "label-value" not in entry:
                 continue
             try:
-                label_value = _require_label_value(entry["label-value"])
+                label_value = cls._require_label_value(entry["label-value"])
             except ValueError:
                 continue
             properties[label_value] = {k: v for k, v in entry.items() if k != "label-value"}
@@ -456,7 +370,7 @@ class ImageLabel:
             if not isinstance(entry, Mapping) or "label-value" not in entry:
                 continue
             try:
-                label_value = _require_label_value(entry["label-value"])
+                label_value = cls._require_label_value(entry["label-value"])
             except ValueError:
                 continue
             properties.setdefault(label_value, {})["color"] = LabelColor.from_ome_zarr(entry)
@@ -469,6 +383,14 @@ class ImageLabel:
                 source = FileRef.from_string(image_path)
 
         return cls(source=source, properties=properties)
+
+    @staticmethod
+    def _require_label_value(value: Any) -> int:
+        if isinstance(value, bool) or not isinstance(value, numbers.Real):
+            raise ValueError(f"Label values must be numbers, received: {value!r}")
+        if isinstance(value, float) and not value.is_integer():
+            raise ValueError(f"Label values must be integral, received: {value!r}")
+        return int(value)
 
 
 class HasShape(Protocol):

@@ -12,7 +12,6 @@ from clearscale._services.ome_zarr import (
     OmeroWindow,
     ImageLabel,
     LabelColor,
-    LabelProperties,
 )
 from clearscale._transforms import OmeZarrAxis as Axis, OmeZarrAxes as Axes
 
@@ -28,7 +27,6 @@ __all__ = [
     "OmeroWindow",
     "ImageLabel",
     "LabelColor",
-    "LabelProperties",
     "Axis",
     "Axes",
 ]
