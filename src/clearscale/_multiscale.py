@@ -2310,7 +2310,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         scale = ome_zarr.scale_to_pixel_size_with_normalized_zeros(t.scale_transform.scale, source_axes).with_axes(
             target_axes
         )
-        widened_scale = ScaleTransform(scale=scale.to_tuple())
+        widened_scale = ScaleTransform(scale=scale.values_tuple())
         if t.translation_transform is None:
             return ome_zarr.MultiscaleTransforms(transforms=(widened_scale,))
         translation = t.translation_transform.to_translation(source_axes).with_axes(target_axes)

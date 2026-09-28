@@ -538,7 +538,9 @@ class TestCharacterizationKwargsApply:
         multiscale = blueprint.apply_to_scale(base, **characterization.to_factor_kwargs())
 
         assert multiscale["s1"].shape == Shape(x=len(real_output))
-        assert multiscale["s1"].pixel_size.to_tuple() == pytest.approx((real_output[1] - real_output[0],), abs=1e-14)
+        assert multiscale["s1"].pixel_size.values_tuple() == pytest.approx(
+            (real_output[1] - real_output[0],), abs=1e-14
+        )
         assert multiscale["s1"].translation == Translation(x=real_output[0])
 
     def test_pipeline_indeterminate_rounding_redirects_to_blueprint_shapes(self):

@@ -110,6 +110,18 @@ class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, A
         This is just to stay consistent with the plain dict interface."""
         return self.__class__(self._mapping)
 
+    def keys_tuple(self) -> Tuple[AxisKeyT, ...]:
+        return tuple(self.keys())
+
+    def keys_list(self) -> List[AxisKeyT]:
+        return list(self.keys())
+
+    def values_tuple(self) -> Tuple[AxisMappedHashable, ...]:
+        return tuple(self.values())
+
+    def values_list(self) -> List[AxisMappedHashable]:
+        return list(self.values())
+
     def with_axes_order(self: _AxisMappingSelf, axes: OrderedAxesT) -> _AxisMappingSelf:
         """Order like given axes (but no new insertions or drops)."""
         if not axes:
@@ -138,12 +150,6 @@ class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, A
         if not kept_items:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Removing {axes!r} would leave no axes.")
         return self.__class__(kept_items)
-
-    def to_tuple(self) -> Tuple[AxisMappedHashable, ...]:
-        return tuple(self.values())
-
-    def to_list(self) -> List[AxisMappedHashable]:
-        return list(self.values())
 
 
 class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[AxisKeyT, AxisMappedPrimitive]):

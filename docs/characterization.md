@@ -200,7 +200,7 @@ blueprint = BlueprintShapes.uniform_steps(
 # for scale_key, target_shape in blueprint.items():
 #     scaled_arrays[scale_key] = resize(
 #         raw_yx,
-#         output_shape=target_shape.to_tuple(),
+#         output_shape=target_shape.values_tuple(),
 #         anti_aliasing=True,
 #         preserve_range=True,
 #     )
