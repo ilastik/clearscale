@@ -597,6 +597,11 @@ class Transform(ABC):
             raise ValueError(f"Transform name must be a non-empty string. Received: {self._ome_zarr_name!r}")
         self._validate_bound_axes()
 
+    def __repr__(self):
+        # Omit None fields
+        items = (f"{f.name}={getattr(self, f.name)!r}" for f in fields(self) if getattr(self, f.name) is not None)
+        return f"{self.__class__.__name__}({', '.join(items)})"
+
     def to_ome_zarr(self, version: str, *, nodes_by_path: Optional[NodesByPath] = None) -> Dict[str, Any]:
         ome_zarr_transform_dict = self._get_subtype_ome_zarr_properties(version)
         if version in PRE_TRANSFORMS_VERSIONS:
@@ -913,7 +918,7 @@ class Transform(ABC):
         return TransformSignature(source_sig, target_sig, self.unbound())
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class IdentityTransform(Transform):
     # Note (to be deleted): Identity is actually not representable as affine
     # because it has no payload, so it does not know its ndim...
@@ -939,7 +944,7 @@ class IdentityTransform(Transform):
         return {"type": "identity"}
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class TransformSequence(Transform):
     transforms: Tuple[Transform, ...] = field(default=())
 

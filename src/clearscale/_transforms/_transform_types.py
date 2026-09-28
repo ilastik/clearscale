@@ -130,7 +130,7 @@ def _validate_unique(values: AxisIndices, field_name: str) -> None:
         raise ValueError(f"Invalid transform. Expected unique indices in {field_name}, received: {values!r}")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class AffineRepresentableTransform(Transform, ABC):
     """Mixin-ish for transforms that can also be represented by an affine matrix, to deduplicate composed_with logic"""
 
@@ -173,7 +173,7 @@ AffineRepresentableSubtypes = Union[
 ]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class ScaleTransform(AffineRepresentableTransform):
     """
     ScaleTransform usually represents a simple scaling, i.e its values are positive.
@@ -299,7 +299,7 @@ class ScaleTransform(AffineRepresentableTransform):
         return PixelSize(zip(axes, self.scale))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class TranslationTransform(AffineRepresentableTransform):
     translation: Tuple[float, ...]  # Can be empty if _ome_zarr_path is provided instead
     _ome_zarr_path: Optional[str] = None
@@ -415,7 +415,7 @@ class TranslationTransform(AffineRepresentableTransform):
         return Translation(zip(axes, self.translation))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class RotationTransform(AffineRepresentableTransform):
     rotation: Optional[FloatMatrix] = None
     _ome_zarr_path: Optional[str] = None
@@ -520,7 +520,7 @@ class RotationTransform(AffineRepresentableTransform):
         Transform.__post_init__(self)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class AffineTransform(AffineRepresentableTransform):
     affine: Optional[FloatMatrix] = None
     _ome_zarr_path: Optional[str] = None
@@ -801,7 +801,7 @@ class AffineTransform(AffineRepresentableTransform):
         return all(value > tolerance for value in numbers)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class CoordinatesTransform(Transform):
     path: RelativePath
     interpolation: Optional[str] = None
@@ -860,7 +860,7 @@ class CoordinatesTransform(Transform):
         return interpolation
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class DisplacementsTransform(Transform):
     path: RelativePath
     interpolation: Optional[str] = None
@@ -920,7 +920,7 @@ class DisplacementsTransform(Transform):
         return interpolation
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class MapAxisTransform(AffineRepresentableTransform):
     """MapAxisTransform represents a pure permutation (no drops or inserts)"""
 
@@ -995,7 +995,7 @@ class MapAxisTransform(AffineRepresentableTransform):
         Transform.__post_init__(self)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class ProjectAxisTransform(AffineRepresentableTransform):
     """ProjectAxisTransform represents axis dropping and insertion"""
 
@@ -1148,7 +1148,7 @@ class ProjectAxisTransform(AffineRepresentableTransform):
         Transform.__post_init__(self)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class BijectionTransform(Transform):
     """Provides an explicit way to state the inversion of a normally not-invertible transform."""
 
@@ -1331,7 +1331,7 @@ class BijectionTransform(Transform):
         )
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class _ByDimensionChild:
     source_indices: AxisIndices
     target_indices: AxisIndices
@@ -1377,7 +1377,7 @@ class _ByDimensionChild:
         object.__setattr__(self, "target_indices", target_indices)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class ByDimensionTransform(Transform):
     transforms: Tuple[_ByDimensionChild, ...]
 

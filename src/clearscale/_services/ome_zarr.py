@@ -500,7 +500,7 @@ def _as_transform_list(ome_transformations: Optional[OME_ZARR_TRANSFORMS]) -> Li
     return []
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class MultiscaleTransforms(TransformSequence):
     def inverted(self) -> "InvertedMultiscaleTransforms":
         sup = super(MultiscaleTransforms, self).inverted()
