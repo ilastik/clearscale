@@ -1,6 +1,7 @@
 import pytest
 
 from clearscale import ProjectionTo
+from clearscale._spatial_relations import SpatialRelationSequence, PermutationTo
 
 
 @pytest.mark.parametrize(
@@ -63,3 +64,8 @@ def test_projection_to_public_methods_reject_reordering(source, target, method):
 
     with pytest.raises(ValueError, match="cannot reorder retained axes"):
         method(projection, source)
+
+
+def test_relation_sequence_target_axes_across_hops():
+    relations = SpatialRelationSequence((ProjectionTo(("t", "z", "y", "x")), PermutationTo(("t", "y", "x", "z"))))
+    assert relations.target_axes("zyx") == ("t", "y", "x", "z")

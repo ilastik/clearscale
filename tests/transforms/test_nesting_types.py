@@ -734,6 +734,54 @@ def test_transform_sequence_collapsed_preserves_bound_endpoints():
     assert collapsed.scale == (10, 21)
 
 
+def test_transform_sequence_collapses_recursively_across_nesting_boundary():
+    sequence = TransformSequence(
+        (
+            ScaleTransform((2,)),
+            TransformSequence(
+                (
+                    TransformSequence((ScaleTransform((3,)),)),
+                    ScaleTransform((5,)),
+                )
+            ),
+            ScaleTransform((7,)),
+        )
+    )
+
+    collapsed = sequence.collapsed()
+
+    assert isinstance(collapsed, ScaleTransform)
+    assert collapsed.scale == (210,)
+
+
+def test_transform_sequence_collapses_before_between_and_after_uncomposable():
+    sequence = TransformSequence(
+        (
+            ScaleTransform((2,)),
+            ScaleTransform((3,)),
+            CoordinatesTransform(path="somewhere.zarr"),
+            ScaleTransform((5,)),
+            ScaleTransform((7,)),
+            CoordinatesTransform(path="somewhere_else.zarr"),
+            ScaleTransform((11,)),
+            ScaleTransform((13,)),
+        )
+    )
+
+    collapsed = sequence.collapsed()
+
+    assert isinstance(collapsed, TransformSequence)
+    assert collapsed == TransformSequence(
+        (
+            ScaleTransform((6,)),
+            CoordinatesTransform(path="somewhere.zarr"),
+            ScaleTransform((35,)),
+            CoordinatesTransform(path="somewhere_else.zarr"),
+            ScaleTransform((143,)),
+        )
+    )
+
+
 @pytest.mark.parametrize(
     "transforms",
     [

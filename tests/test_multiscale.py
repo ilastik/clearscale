@@ -680,9 +680,7 @@ class TestMultiscaleAsDerivedFrom:
         caller_ms = _multiscale("xyz")
         donor_ms = _multiscale("xyz")
 
-        with pytest.raises(
-            ValueError, match=re.escape("The derivation relationship must be expressed using SpatialRelations")
-        ):
+        with pytest.raises(ValueError, match=re.escape("Relations must be expressed using SpatialRelations")):
             caller_ms.as_derived_from(donor_ms, by="not a relation")  # type: ignore[arg-type]
 
     def test_rejects_mismatching_derivation(self):
@@ -742,9 +740,11 @@ class TestMultiscaleAsDerivedFrom:
         expected_n_transforms = 1 if not relations else 2
         assert len(result._transform_graph.transforms) == expected_n_transforms
         if relations:
+            expected_derived_to_source = expected_derivation_transform.bound(
+                source=source_ms._intrinsic_ref, target=derived_ms._intrinsic_ref
+            )
             assert (
-                expected_derivation_transform.bound(source=source_ms._intrinsic_ref, target=derived_ms._intrinsic_ref)
-                in result._transform_graph.transforms
+                expected_derived_to_source in result._transform_graph.transforms
             ), f"expected {source_ms._intrinsic_ref.name}-->{derived_ms._intrinsic_ref.name}"
         # Maybe slightly counterintuitive, but the expected
         # `derived_ms -> world` is the derivation *inverted*:
@@ -754,10 +754,13 @@ class TestMultiscaleAsDerivedFrom:
         # `derived_ms -derivation_t.inverted-> source_ms -(identity)-> world`
         # (with identity dropping out by composition).
         # At least as long as the derivation itself is invertible.
-        expected_t_inverted = expected_derivation_transform.inverted()
+        expected_derived_to_world = (
+            TransformSequence((expected_derivation_transform.inverted(),))
+            .canonicalized()
+            .bound(source=derived_ms._intrinsic_ref, target=world)
+        )
         assert (
-            expected_t_inverted.bound(source=derived_ms._intrinsic_ref, target=world)
-            in result._transform_graph.transforms
+            expected_derived_to_world in result._transform_graph.transforms
         ), f"expected {derived_ms._intrinsic_ref.name}-->{world.name}"
 
     def test_relation_list_order_matters(self):
@@ -782,6 +785,17 @@ class TestMultiscaleAsDerivedFrom:
             ),
         ):
             caller_ms.as_derived_from(donor_ms, by=relations)
+
+    @pytest.mark.parametrize("relation", [ProjectionTo("yx"), PermutationTo("xyz"), AxisRearrangementTo("tyx")])
+    def test_wrapper_derive_errors_early_on_axis_rearrangement(self, relation):
+        """
+        The deeper error from as_derived_from hints at the problem, but isn't exactly clear:
+        ValueError: Incompatible derivation: Provided relation chain would produce axes ('y', 'x') from ('z', 'y', 'x'), but this Multiscale has ('z', 'y', 'x'). by=ProjectionTo(_targets=('y', 'x'))
+        """
+        ms = _multiscale("zyx")
+
+        with pytest.raises(ValueError, match="cannot express relations that rearrange axes"):
+            ms.derive("s0", derived_by=relation)
 
 
 class TestMultiscaleWithCoordinateSystem:
@@ -866,7 +880,7 @@ class TestMultiscaleWithCoordinateSystem:
 
         with pytest.raises(
             ValueError,
-            match="How the new coordinate system is reached must be expressed using SpatialRelations",
+            match="Relations must be expressed using SpatialRelations",
         ):
             ms.with_coordinate_system("world", reached_by="not a relation")  # type: ignore[arg-type]
 

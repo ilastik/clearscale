@@ -48,7 +48,7 @@ from clearscale._axis_values import (
     _axis_in,
 )
 from clearscale._errors import NoSuchCoordinateSystemError
-from clearscale._spatial_relations import SpatialRelation
+from clearscale._spatial_relations import SpatialRelation, normalize_relations_param
 from clearscale._transforms import (
     CoordinateSystemName,
     CoordinateSystem,
@@ -58,8 +58,6 @@ from clearscale._transforms import (
     TransformGraphNode,
     PRE_TRANSFORMS_VERSIONS,
     Transform,
-    relation_chain_target_axes,
-    relations_to_transform,
     ScaleTransform,
     TransformSequence,
     ProjectAxisTransform,
@@ -67,6 +65,7 @@ from clearscale._transforms import (
     MapAxisTransform,
     OmeZarrAxes,
     OmeZarrAxis,
+    relation_to_transform_canonic,
 )
 from clearscale._services import ome_zarr, precomputed
 
@@ -1744,24 +1743,16 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
             return result.with_unit_merged(unit)
 
-        relations = (
-            [] if reached_by is None else [reached_by] if isinstance(reached_by, SpatialRelation) else list(reached_by)
-        )
-        if not all(isinstance(r, SpatialRelation) for r in relations):
-            raise ValueError(
-                "How the new coordinate system is reached must be expressed using SpatialRelations "
-                'like `Factor`, `Translation` or AxisRearrangementTo("zyx").'
-            )
-
         if name in self.coordinate_systems:
             raise ValueError(f"Coordinate system name {name!r} already exists on this Multiscale.")
 
+        relation = normalize_relations_param(reached_by)
         source_axes = self.axes
-        target_axes = relation_chain_target_axes(relations, source_axes) if relations else source_axes
+        target_axes = relation.target_axes(source_axes) if relation else source_axes
         target_ome_axes = _reconcile_axis_prop_params(target_axes, self.ome_zarr_axes, ome_zarr_axes, unit)
 
         target_ref = CoordinateSystem(target_ome_axes)._as_ref(name)
-        transform = (relations_to_transform(relations, source_axes) if relations else IdentityTransform()).bound(
+        transform = (relation_to_transform_canonic(relation, source_axes) if relation else IdentityTransform()).bound(
             source=self._intrinsic_ref, target=target_ref
         )
 
@@ -1793,16 +1784,11 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         `other`, and its additional coordinate systems, may be renamed on transfer in case of clashes with existing
         systems in `self`'s context, but otherwise maintain spatial identity.
         """
-        relations: List[SpatialRelation] = [] if by is None else [by] if isinstance(by, SpatialRelation) else list(by)
-        if not all(isinstance(r, SpatialRelation) for r in relations):
-            raise ValueError(
-                "The derivation relationship must be expressed using SpatialRelations like Factor,"
-                'Translation or AxisRearrangementTo("zyx").'
-            )
+        relation = normalize_relations_param(by)
         source_axes = other.axes
         target_axes = self.axes
 
-        if not relations:
+        if not relation:
             if source_axes != target_axes:
                 raise ValueError(
                     f"Cannot transfer coordinate systems from source with axes {source_axes!r} to Multiscale "
@@ -1811,7 +1797,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     f"for reordering, or a list of both."
                 )
         else:
-            derived_axes = relation_chain_target_axes(relations, source_axes)
+            derived_axes = relation.target_axes(source_axes)
             if derived_axes != target_axes:
                 raise ValueError(
                     f"Incompatible derivation: Provided relation chain would produce axes {derived_axes!r} "
@@ -1862,7 +1848,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         other_unique = self._find_or_make_unique_ref(
             other._intrinsic_ref.owner, other._intrinsic_ref.name, existing_refs
         )
-        derivation = (relations_to_transform(relations, source_axes) if relations else IdentityTransform()).bound(
+        derivation = (relation_to_transform_canonic(relation, source_axes) if relation else IdentityTransform()).bound(
             source=other_unique, target=intrinsic_ref
         )
         existing_refs.append(other_unique)
@@ -1901,7 +1887,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 else:
                     # `self <--deriv-- other --t--> satellite`
                     # Can only be resolved if drops in deriv and t are a subset of each other. Edge case, skip.
-                    if relations:
+                    if relation:
                         warnings.warn(
                             f"Cannot carry over a connection to {satellite.name!r}: Both `by` and the transformation "
                             "from the source to it lose information (e.g. by dropping axes)."
@@ -1912,7 +1898,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     existing_refs.append(resolved_ref)
                     to_merge_list.append(edge)
 
-        if relations and derivation not in transform_graph.transforms + tuple(to_merge_list):
+        if relation and derivation not in transform_graph.transforms + tuple(to_merge_list):
             to_merge_list.append(derivation)
         if not to_merge_list and unchanged_t_scale and intrinsic_ref == self._intrinsic_ref:
             return self
@@ -1960,6 +1946,16 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         For example, provide a `Translation` if the derived Multiscale is shifted from its parent's origin, or
         an `AxisRearrangementTo` if axes were dropped/inserted/reordered.
         """
+        rel = normalize_relations_param(derived_by)
+        if rel is not None:
+            targets = rel.target_axes(self.axes)
+            if targets != self.axes:
+                raise ValueError(
+                    f"Multiscale.derive cannot express relations that rearrange axes (received: "
+                    f"{self.axes} -> {targets}). Explicitly define the new Scale, make a BlueprintShapes/Factors, "
+                    f"and use `from_single` and `as_derived_from`"
+                )
+
         new_ms = Multiscale.from_single(
             self[base_key],
             scale_key=base_key,

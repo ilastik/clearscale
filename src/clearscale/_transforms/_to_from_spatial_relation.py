@@ -1,7 +1,13 @@
-from typing import List, Sequence, Tuple
+from typing import List
 
-from clearscale._axis_values import AxisKey, Factor, Translation
-from clearscale._spatial_relations import PermutationTo, ProjectionTo, SpatialRelation, AxisRearrangementTo
+from clearscale._axis_values import Factor, Translation
+from clearscale._spatial_relations import (
+    PermutationTo,
+    ProjectionTo,
+    SpatialRelation,
+    AxisRearrangementTo,
+    SpatialRelationSequence,
+)
 from clearscale._transforms._base import Transform, TransformSequence
 from clearscale._transforms._transform_types import (
     MapAxisTransform,
@@ -16,6 +22,14 @@ def relation_to_transform(relation: SpatialRelation, source_axes: OrderedAxes) -
     """Build one Transform for a single SpatialRelation hop. Validate that `relation`
     can operate on `source_axes` and if so, reshape it to produce a Transform payload that fits `source_axes`."""
     source_axes = tuple(source_axes)
+
+    if isinstance(relation, SpatialRelationSequence):
+        steps: List[Transform] = []
+        current_axes = source_axes
+        for child in relation.relations:
+            steps.append(relation_to_transform(child, current_axes))
+            current_axes = child.target_axes(current_axes)
+        return TransformSequence(tuple(steps))
 
     if isinstance(relation, Factor):
         _ensure_compatible = relation.target_axes(source_axes)
@@ -75,22 +89,6 @@ def relation_to_transform(relation: SpatialRelation, source_axes: OrderedAxes) -
     raise NotImplementedError(f"Conversion to Transform not yet implemented for {relation.__class__.__name__}")
 
 
-def relations_to_transform(relations: Sequence[SpatialRelation], source_axes: OrderedAxes) -> Transform:
-    """Compose a left-to-right chain of SpatialRelations into one Transform
-    (a TransformSequence for more than one hop). Each relation's target axes become
-    the next relation's source axes."""
-    if not relations:
-        raise ValueError("relations_to_transform requires at least one SpatialRelation.")
-    current_axes = tuple(source_axes)
-    steps: List[Transform] = []
-    for relation in relations:
-        steps.append(relation_to_transform(relation, current_axes))
-        current_axes = relation.target_axes(current_axes)
-    return TransformSequence(tuple(steps)).canonicalized()
-
-
-def relation_chain_target_axes(relations: Sequence[SpatialRelation], source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
-    axes = tuple(source_axes)
-    for relation in relations:
-        axes = relation.target_axes(axes)
-    return axes
+def relation_to_transform_canonic(relation: SpatialRelation, source_axes: OrderedAxes) -> Transform:
+    raw_relation = relation_to_transform(relation, source_axes)
+    return TransformSequence((raw_relation,)).canonicalized()

@@ -19,6 +19,7 @@ from typing import (
     TypeGuard,
     cast,
     FrozenSet,
+    Iterator,
 )
 
 from clearscale._axis_values import (
@@ -1076,15 +1077,16 @@ class TransformSequence(Transform):
 
     def collapsed(self, *, raise_uncollapsed: bool = False) -> "Transform | TransformSequence":
         """
-        Reduce the sequence's length by composing the contained transforms.
+        Reduce the sequence's length by composing the contained transforms, flattening contained TransformSequences.
         Returns the shortest sequence that is semantically identical.
-        Returns a single Transform if the entire sequence can be composed.
+        Returns a single Transform if the entire sequence and all (deeply) nested children can be composed.
         Raises ValueError if raise_uncollapsed and the sequence cannot be composed into a single Transform.
         The returned transform(s) may be more 'complex' types (e.g. [Scale, Translation] -> Affine).
         """
-        result: List[Transform] = [self.transforms[0]]
+        flattened = iter(self._iter_flattened())
+        result: List[Transform] = [next(flattened)]
 
-        for current in self.transforms[1:]:
+        for current in flattened:
             previous = result[-1]
             merged = current.composed_with(previous)
             if merged is not None:
@@ -1150,6 +1152,14 @@ class TransformSequence(Transform):
             earlier_target_min = target_min
             earlier_target_max = target_max
             earlier = transform
+
+    def _iter_flattened(self) -> Iterator[Transform]:
+        """Performance-optimisation for recursively iterating and flattening this sequence and its child sequences."""
+        for transform in self.transforms:
+            if type(transform) is TransformSequence:  # preserve MultiscaleTransforms
+                yield from transform._iter_flattened()
+            else:
+                yield transform
 
 
 def _ordered_unique_refs(refs: Iterable[_RefT]) -> Tuple[_RefT, ...]:
