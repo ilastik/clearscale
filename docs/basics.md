@@ -18,7 +18,7 @@ If you've been coding for a bit already, you most likely just need to know:
 
 Potential gotchas:
 
-* When describing relative scaling, `Factor` is a _multiplier_ for `PixelSize` and a _divisor_ for `Shape`. `Factor(x=2)` means "downscale by factor 2" - doubling pixel size and halving image shape. `Shape / Factor` needs to know how your scaling method rounds uneven divisions, so must be called as `shape.scaled_by(factor, rounding="ceil")`. Note that many scaling methods like `scipy.ndimage.zoom` expect *shape multiplier* factors, so you'd need to pass `factor.inverted().to_tuple()`.
+* When describing relative scaling, `Factor` is a _multiplier_ for `PixelSize` and a _divisor_ for `Shape`. `Factor(x=2)` means "downscale by factor 2" - doubling pixel size and halving image shape. `Shape / Factor` needs to know how your scaling method rounds uneven divisions, so must be called as `shape.scaled_by(factor, rounding="ceil")`. Note that many scaling methods like `scipy.ndimage.zoom` expect *shape multiplier* factors, so you'd need to pass `factor.inverted().value_tuple`.
 * Scaled pixel size cannot be trivially determined. By default, `shape_ratio` is assumed (`output_spacing = input_spacing * input_shape / output_shape`), but some methods use `"corner_ratio"` or `"exact_factor"`.
 * Scaling usually introduces a shift, or `Translation`, to the scaled image's origin in physical space. Methods that handle `Scale` objects (and hence `Scale.translation`) compute this using a `TranslationShiftFunction`
 
@@ -93,7 +93,7 @@ transposed = image.transpose(permuted_indices)
 source_shape = Shape(zip(source_axes, image.shape))
 target_shape = source_shape.with_axes(target_axes)
 
-assert transposed.shape == target_shape.to_tuple()
+assert transposed.shape == target_shape.value_tuple
 ```
 
 Dropping and inserting an axis:
@@ -114,7 +114,7 @@ plane_shape = Shape(zip(source_axes, time_series.shape))
 # with_axes removes t and detects c as a new axis key. It inserts the default Shape value for c (1)
 with_channel_shape = plane_shape.with_axes(target_axes)
 
-assert with_channel_data.shape == with_channel_shape.to_tuple()
+assert with_channel_data.shape == with_channel_shape.value_tuple
 ```
 
 Likewise for the other axis values:
@@ -254,7 +254,7 @@ blueprint = BlueprintShapes.uniform_steps(
 
 # Scale your data using this shape blueprint:
 #for scale_key, target_shape in blueprint.items():
-#    scaled_data = do_my_scaling(raw_data, target_shape.to_tuple())
+#    scaled_data = do_my_scaling(raw_data, target_shape.value_tuple)
 
 multiscale = Multiscale.from_single(base, blueprint=blueprint)
 
@@ -305,7 +305,7 @@ factors = shapes.to_factors()
 # This only works if your scaling method can handle arbitrary fractional factors.
 
 #for scale_key, scale_factor in factors.items():
-#    scaled_data = do_my_scaling_by_factor(raw_data, scale_factor.to_tuple())
+#    scaled_data = do_my_scaling_by_factor(raw_data, scale_factor.value_tuple)
 
 # Whether you use the `shapes` or `factors` blueprint now makes no difference.
 # But with `shapes` you don't have to provide `rounding` :)
@@ -319,4 +319,4 @@ assert multiscale["s2"].pixel_size == PixelSize(z=0.5, y=1.0, x=1.0)
 Take note that Factors in clearscale are *divisors for shape*:
 `1024 pixels downscaled by factor 2 = 1024 / 2 = 512 pixels`. Scaling functions that accept factors as parameters may expect the inverse.
 For example, to downscale by 2, you could use `skimage.transform.rescale(image, 0.5)` or `scipy.ndimage.zoom(image, 0.5)`.
-In this case you would use `scale_factor.inverted().to_tuple()`.
+In this case you would use `scale_factor.inverted().value_tuple`.
