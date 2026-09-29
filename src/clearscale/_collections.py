@@ -2,7 +2,7 @@ from collections.abc import Mapping as ABCMapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import PurePosixPath
-from typing import Any, Dict, List, Literal, Mapping, Optional, Protocol, Tuple, Union
+from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple, Union
 import copy
 import warnings
 
@@ -11,11 +11,10 @@ from clearscale._scene import Scene
 from clearscale._transforms import FileRef
 from clearscale._services.ome_zarr import (
     SUPPORTED_OME_ZARR_VERSIONS_WRITE,
-    ShapeSource,
-    ShapeSourceMap,
     ImageLabel,
     Omero,
 )
+from clearscale.types import ZarrGroup, ShapeSource
 
 
 class GroupKind(str, Enum):
@@ -104,13 +103,6 @@ def _children_from_attrs(attrs: Mapping[str, Any]) -> Tuple[Tuple[ChildRef, ...]
             )
 
     return tuple(children), version
-
-
-class ZarrGroup(ShapeSourceMap, Protocol):
-    """Matches e.g. zarr.Group (zarr-python) or z5py.Group."""
-
-    @property
-    def attrs(self) -> Mapping[str, Any]: ...
 
 
 @dataclass(frozen=True, slots=True)

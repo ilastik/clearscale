@@ -24,15 +24,13 @@ from typing import (
 )
 
 from clearscale._spatial_relations import SpatialRelation
-from clearscale.types import AxisKey, _Ordered, OrderedAxes
+from clearscale.types import AxisKey, _Ordered, OrderedAxes, ShapeLike, AxisKeyT
 
-AxisKeyT = TypeVar("AxisKeyT", bound=AxisKey)
 OrderedAxesT = _Ordered[AxisKeyT]
 AxisMappedHashable = TypeVar("AxisMappedHashable", bound=Hashable)
 AxisMappedPrimitive = TypeVar("AxisMappedPrimitive", int, float, str)
 Axes = Union[Collection[AxisKey], str]
 Scalar = Union[int, float, numbers.Real]
-ShapeLike = Union["Shape", Mapping[AxisKeyT, int]]
 FactorLike = Union["Factor", Mapping[AxisKeyT, float]]
 RoundingFunction = Callable[[float], int]
 RoundingMethod = Union[Literal["ceil", "floor", "round", "round_half_up", "error_on_round"], RoundingFunction]

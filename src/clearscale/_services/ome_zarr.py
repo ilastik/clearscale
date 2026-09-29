@@ -5,11 +5,11 @@ import math
 import numbers
 import re
 import warnings
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Union, Dict, Literal, List, Any, Optional, Tuple, Protocol, Iterable, TYPE_CHECKING
+from typing import Union, Dict, List, Any, Optional, Tuple, Iterable, TYPE_CHECKING, Callable
 
-from clearscale._axis_values import ShapeLike, Translation, PixelSize, AxisKey, Factor
+from clearscale._axis_values import Translation, PixelSize, AxisKey, Factor
 from clearscale._services.matrices import is_identity_scale, DETERMINANT_SINGULARITY_TOLERANCE
 from clearscale._transforms import (
     TransformSequence,
@@ -24,6 +24,7 @@ from clearscale._transforms import (
     Transform,
     TransformSignature,
 )
+from clearscale.types import ShapeValue, ShapeSource
 
 if TYPE_CHECKING:
     from clearscale._multiscale import Multiscale
@@ -423,31 +424,6 @@ class ImageLabel:
         if not as_float.is_integer():
             raise ValueError(f"Label values must be integral, received: {value!r}")
         return int(as_float)
-
-
-class HasShape(Protocol):
-    @property
-    def shape(self) -> Sequence[int]: ...
-
-
-ShapeValue = Union[Sequence[int], ShapeLike, HasShape]
-
-
-class ShapeSourceMap(Protocol):
-    def __getitem__(self, path: str, /) -> ShapeValue: ...
-
-
-ShapeSource = Union[Literal["singletons"], Callable[[str], ShapeValue], ShapeSourceMap, Mapping[str, ShapeValue]]
-"""
-Lets clearscale know how to obtain a zarr's array shape in this Python environment.
-Options:
-- "singletons": Skip obtaining shapes and use placeholder all-singleton shapes (like `Shape(x=1, y=1, z=1)`)
-    This sets `Multiscale.has_shapes = False` as a convenience indicator.
-- Callable: A function that takes a relative path that *should* point to an array, and retrieves its shape tuple
-    Example: zarr.open_array
-- Map: A dict-like that can be indexed to retrieve shapes like `{ <relative path> : <shape tuple or array> }`
-    Example: zarr.Group or fsspec.FSMap
-"""
 
 
 def make_all_singleton_shapes(ndim_or_spec: Union[int, OME_ZARR_MULTISCALE]) -> GetShapeFunction:

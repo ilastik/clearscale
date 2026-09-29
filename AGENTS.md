@@ -2,9 +2,9 @@
 
 `src/clearscale/`, in order from lowest to highest level:
 
-- `types.py` defines common types (AxisKey)
+- `types.py` defines common type aliases that might be needed publicly (e.g. AxisKey)
 - `_spatial_relations.py` defines the SpatialRelation base and simple non-mapping implementations (PermutationTo, ProjectionTo)
-- `_axis_values.py` defines primitives (Shape, Unit, PixelSize, ...)
+- `_axis_values.py` defines axis-mapping primitives (Shape, Unit, PixelSize, ...)
 - `_affines.py` defines nested AxisValues (Linear matrices, their Coefficient building block, and Affine container)
 - `_transforms` contains the new concepts from OME-Zarr 0.6. `_base.py` defines the transformation graph, transform base class, IdentityTransform and TransformSequence (which still interacts with the graph). `_transform_types.py` implements the payload-specific Transform subclasses according to the OME-Zarr 0.6 spec. The public API for users to interact with Transforms is the SpatialRelation.
 - `_multiscale.py` defines the primary user-value objects (Scale, Multiscale, BlueprintShapes and BlueprintFactors)
@@ -63,6 +63,7 @@ Class methods should be ordered from top to bottom like:
 
 ## Commit hygiene
 
-- Strictly separate refactoring changes, and functional changes
+- Strictly separate refactoring changes from functional changes
 - Strictly separate moving large pieces of code from any modifications inside them
+- Commit production changes together with the test changes that prove the new behaviour / reproduce the bug
 - Agents must not insert optional white space. Do not add line breaks or indents that are not required for valid Python syntax. Formatting is done by the `black` pre-commit hook.

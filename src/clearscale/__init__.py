@@ -4,14 +4,13 @@ from clearscale import ome_zarr
 from clearscale._spatial_relations import SpatialRelation, PermutationTo, ProjectionTo, AxisRearrangementTo
 from clearscale._affines import Affine, Coefficient, Linear
 from clearscale._axis_values import Factor, PixelOffset, PixelSize, Shape, Translation, Unit
-from clearscale._collections import OmeZarrGroup, GroupKind, ZarrGroup, ChildRef
+from clearscale._collections import OmeZarrGroup, GroupKind, ChildRef
 from clearscale._multiscale import (
     BlueprintFactors,
     BlueprintShapes,
     DuplicatePolicy,
     Multiscale,
     Scale,
-    TranslationShiftFunction,
 )
 from clearscale._scene import Scene
 from clearscale._transforms import FileRef
@@ -25,13 +24,11 @@ __all__ = [
     "AxisRearrangementTo",
     "BlueprintFactors",
     "BlueprintShapes",
-    "TranslationShiftFunction",
     "DuplicatePolicy",
     "Factor",
     "Multiscale",
     "ome_zarr",
     "OmeZarrGroup",
-    "ZarrGroup",
     "ChildRef",
     "FileRef",
     "GroupKind",
