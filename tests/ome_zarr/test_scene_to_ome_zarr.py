@@ -20,29 +20,31 @@ def test_stitching_example_roundtrip():
 
 class TestMultipleCoordinateSystemsToOmeZarr06:
     def test_writes_all_reachable_systems_from_graph_edges(self):
-        world = CoordinateSystem.fromkeys("yx")
-        mm = CoordinateSystem.fromkeys("yx")
+        world_ref = CoordinateSystem.fromkeys("yx")._as_ref("world")
+        mm_ref = CoordinateSystem.fromkeys("yx")._as_ref("mm")
         a = _multiscale(y=2, x=2)
         b = _multiscale(y=2, x=2)
         scene = Scene.from_graph_edges(
             [
-                (a, TranslationTransform((1.0, 2.0)), world._as_ref("world")),
-                (b, ScaleTransform((2.0, 2.0)), world._as_ref("world")),
-                (world._as_ref("world"), ScaleTransform((0.001, 0.001)), mm._as_ref("mm")),
+                (a, TranslationTransform((1.0, 2.0)), world_ref),
+                (b, ScaleTransform((2.0, 2.0)), world_ref),
+                (world_ref, ScaleTransform((0.001, 0.001)), mm_ref),
             ]
         )
+        ms_by_path = {"a": a, "b": b}
 
-        result = scene.to_ome_zarr(version="0.6", multiscales_by_path={"a": a, "b": b})
+        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=ms_by_path)
 
         names = {s["name"] for s in result["coordinateSystems"]}
-        assert names == {a._intrinsic_ref.name, b._intrinsic_ref.name, "world", "mm"}
+        assert names == {"world", "mm"}
         edges = {(t["input"]["name"], t["output"]["name"]) for t in result["coordinateTransformations"]}
         assert (a._intrinsic_ref.name, "world") in edges
         assert (b._intrinsic_ref.name, "world") in edges
         assert ("world", "mm") in edges
 
-        read_back = Scene.from_ome_zarr(result)
-        chain = read_back.transforms_between(a._intrinsic_ref.name, "mm")
+        read_back = Scene.from_ome_zarr(result).with_resolved(multiscales_by_path=ms_by_path)
+
+        chain = read_back.transforms_between(a, "mm")
         assert chain is not None and len(chain) == 2
         assert read_back.to_ome_zarr(version="0.6") == result
 
@@ -50,16 +52,17 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         tile_a = _multiscale(y=2, x=2)
         tile_b = _multiscale(y=2, x=2)
         scene = Scene.from_tiles_translations([(tile_a, Translation(y=0, x=0)), (tile_b, Translation(y=0, x=4))])
+        paths = {"a.zarr": tile_a, "b.zarr": tile_b}
 
-        result = scene.to_ome_zarr(version="0.6")
+        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=paths)
 
         names = [s["name"] for s in result["coordinateSystems"]]
         # "world" is the hard-coded name for the central system. Subject to change.
-        assert names[0] == "world", "the central system should be written first"
-        assert set(names) == {tile_a._intrinsic_ref.name, tile_b._intrinsic_ref.name, "world"}
-        read_back = Scene.from_ome_zarr(result)
+        assert names == ["world"]
+
+        read_back = Scene.from_ome_zarr(result).with_resolved(paths)
         assert read_back.to_ome_zarr(version="0.6") == result
-        chain = read_back.transforms_between(tile_a._intrinsic_ref.name, tile_b._intrinsic_ref.name)
+        chain = read_back.transforms_between(tile_a, tile_b)
         assert chain is not None and len(chain) == 2
 
     def test_writes_explicit_system_refs_in_declared_order(self):

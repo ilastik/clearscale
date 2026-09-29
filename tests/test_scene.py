@@ -6,6 +6,7 @@ from clearscale._transforms import (
     TranslationTransform,
     TransformGraph,
     _UnresolvedRef,
+    IdentityTransform,
     ScaleTransform,
     AffineTransform,
     NodeRef,
@@ -28,8 +29,8 @@ def test_from_graph_edges_binds_between_multiscales():
     assert path
     assert len(path) == 1
     assert path[0] == ScaleTransform((2, 2, 2)).bound(
-        source=source._intrinsic_ref,
-        target=target._intrinsic_ref,
+        source=source._as_ref(source._intrinsic_ref.name),
+        target=target._as_ref(target._intrinsic_ref.name),
     )
 
 
@@ -125,9 +126,9 @@ def test_scene_from_tiles_translations_multiple_multiscales():
     assert p2[0].target == world_ref
     assert p3[0].target == world_ref
 
-    assert p1[0] == TranslationTransform.from_translation(t1).bound(source=ms1._intrinsic_ref, target=world_ref)
-    assert p2[0] == TranslationTransform.from_translation(t2).bound(source=ms2._intrinsic_ref, target=world_ref)
-    assert p3[0] == TranslationTransform.from_translation(t3).bound(source=ms3._intrinsic_ref, target=world_ref)
+    assert p1[0] == TranslationTransform.from_translation(t1).bound(source=ms1._as_ref_to_intrinsic(), target=world_ref)
+    assert p2[0] == TranslationTransform.from_translation(t2).bound(source=ms2._as_ref_to_intrinsic(), target=world_ref)
+    assert p3[0] == TranslationTransform.from_translation(t3).bound(source=ms3._as_ref_to_intrinsic(), target=world_ref)
 
     p13 = scene.transforms_between(ms1, ms3)
     assert p13
@@ -175,15 +176,27 @@ def test_transforms_between_accepts_path_addressed_unresolved_refs():
 
 
 def test_transforms_between_can_include_child_multiscale_graphs():
-    multiscale = _multiscale(y=2, x=3)
+    multiscale = _multiscale(y=2, x=3).with_coordinate_system("warped")
+    # Not the transform created by with_coordinate_system inside multiscale's graph,
+    # but its representation when ported into the Scene:
+    ms_transform_within_scene = IdentityTransform().bound(
+        source=multiscale._as_ref_to_intrinsic(), target=multiscale._as_ref("warped")
+    )
     world = CoordinateSystem.fromkeys("yx")._as_ref("world")
     scene_transform = TranslationTransform(
         translation=(10, 20),
-        source=multiscale._as_ref(multiscale._intrinsic_ref.name),
+        source=multiscale._as_ref_to_intrinsic(),
         target=world,
     )
-    scene = Scene(TransformGraph([scene_transform], system_refs=(world,)), _multiscale_paths={"tile_0": multiscale})
+    scene = Scene(TransformGraph([scene_transform], system_refs=(world,)), _multiscale_paths={})
 
-    result = scene.transforms_between(multiscale, "world", include_children=True)
+    without_children = scene.transforms_between((multiscale, "warped"), "world")
 
-    assert result == [multiscale._get_interface_transform(), scene_transform]
+    assert without_children is None
+
+    with_children = scene.transforms_between((multiscale, "warped"), "world", include_children=True)
+
+    assert with_children == [
+        ms_transform_within_scene.inverted(),
+        scene_transform,
+    ], "hop1 is stored as ms->warped, hop2 is ms->world, so the path is warped--inv(hop1)->ms--hop2->world"
