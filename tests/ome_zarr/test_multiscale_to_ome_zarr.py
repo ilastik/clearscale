@@ -1,6 +1,6 @@
 import pytest
-from clearscale._axis_values import PixelSize, Shape, Factor, Translation
-from clearscale._multiscale import Multiscale, Scale
+from clearscale._axis_values import PixelSize, Shape, Unit, Factor, Translation
+from clearscale._multiscale import BlueprintShapes, Multiscale, Scale
 from clearscale._services.ome_zarr import SUPPORTED_OME_ZARR_VERSIONS_WRITE
 from clearscale._spatial_relations import AxisRearrangementTo
 
@@ -170,3 +170,69 @@ class TestLegacyGlobalTScale:
         assert _global_scale_and_translation(result) == expected_global_transform
         assert _dataset_scale(result, "s0") == [1.0, 20.0, 30.0]  # pixel size in global transforms, not here
         assert _dataset_scale(result, "s1") == [1.0, 40.0, 60.0]
+
+
+class TestMultipleCoordinateSystemsToOmeZarr06:
+    """Coverage for handling more than one satellite coordinate system (other tests only ever use one)."""
+
+    def test_multiple_satellite_systems(self):
+        ms = _multiscale("yx", pixel_size=[0.5, 0.5])
+        ms = ms.with_coordinate_system("world", reached_by=Translation(y=3, x=4))
+        ms = ms.with_coordinate_system("mm", reached_by=Factor(y=1000, x=1000), unit=Unit(y="mm", x="mm"))
+        ms = ms.with_coordinate_system("proj", reached_by=AxisRearrangementTo("zyx"))
+
+        result = ms.to_ome_zarr(version="0.6")
+
+        names = {s["name"] for s in result["coordinateSystems"]}
+        assert names == {ms._intrinsic_ref.name, "world", "mm", "proj"}, "json export must include all"
+        assert ms.coordinate_systems == ("world", "mm", "proj"), "public API must exclude intrinsic"
+
+        proj_axes = [a["name"] for a in next(s for s in result["coordinateSystems"] if s["name"] == "proj")["axes"]]
+        assert proj_axes == ["z", "y", "x"], "AxisRearrangementTo inserts z"
+
+        by_output = {t["output"]["name"]: t for t in result["coordinateTransformations"]}
+        assert by_output["world"] == {
+            "type": "translation",
+            "translation": [-3.0, -4.0],
+            "input": {"name": ms._intrinsic_ref.name},
+            "output": {"name": "world"},
+        }
+        assert by_output["mm"] == {
+            "type": "scale",
+            "scale": [0.001, 0.001],
+            "input": {"name": ms._intrinsic_ref.name},
+            "output": {"name": "mm"},
+        }
+        assert by_output["proj"] == {
+            "type": "projectAxis",
+            "createdOutputs": [0],
+            "input": {"name": ms._intrinsic_ref.name},
+            "output": {"name": "proj"},
+        }
+        mm_units = [a["unit"] for a in next(s for s in result["coordinateSystems"] if s["name"] == "mm")["axes"]]
+        assert mm_units == ["mm", "mm"]
+
+        read_back = Multiscale.from_ome_zarr(result, shape_source=lambda p: (4, 4))
+        assert set(read_back.coordinate_systems) == {"world", "mm", "proj"}
+        assert read_back == ms
+        assert read_back.to_ome_zarr(version="0.6") == result
+
+    def test_derive_preserves_multiple_inherited_systems_and_source_lineage(self):
+        source = Multiscale.from_single(
+            Scale(shape=Shape(z=4, y=4, x=4), pixel_size=PixelSize(z=2, y=1, x=1)),
+            blueprint=BlueprintShapes({"s0": Shape(z=4, y=4, x=4), "s1": Shape(z=2, y=2, x=2)}),
+        )
+        source = source.with_coordinate_system("world", reached_by=Translation(z=1, y=2, x=3))
+        source = source.with_coordinate_system("other", reached_by=Factor(z=1, y=2, x=2))
+
+        derived = source.derive("s1", derived_by=Factor(z=1, y=2, x=2))
+
+        result = derived.to_ome_zarr(version="0.6")
+        names = {s["name"] for s in result["coordinateSystems"]}
+        # Both inherited satellites, plus a direct lineage link back to the source's own intrinsic system.
+        assert names == {derived._intrinsic_ref.name, source._intrinsic_ref.name, "world", "other"}
+
+        read_back = Multiscale.from_ome_zarr(result, shape_source=lambda p: (2, 2, 2))
+        assert set(read_back.coordinate_systems) == {source._intrinsic_ref.name, "world", "other"}
+        assert read_back == derived
+        assert read_back.to_ome_zarr(version="0.6") == result
