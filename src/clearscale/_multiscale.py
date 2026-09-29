@@ -38,13 +38,11 @@ from clearscale._axis_values import (
     Unit,
     Translation,
     PixelOffset,
-    ShapeLike,
     FactorLike,
     Axes,
     RoundingMethod,
     OrderedAxes,
     AxisKey,
-    AxisKeyT,
     _axis_in,
 )
 from clearscale._errors import NoSuchCoordinateSystemError
@@ -68,6 +66,7 @@ from clearscale._transforms import (
     relation_to_transform_canonic,
 )
 from clearscale._services import ome_zarr, precomputed
+from clearscale.types import PixelSizingMethod, ShapeSource, TranslationShiftFunction, ShapeLike, AxisKeyT
 
 ScaleKey = str
 ValueType = TypeVar("ValueType", Shape, Factor, "Scale")
@@ -76,21 +75,6 @@ _ScaleMappingSelf = TypeVar("_ScaleMappingSelf", bound="_ScaleMapping[Any]")
 _ScaledAxisValuesSelf = TypeVar("_ScaledAxisValuesSelf", bound="_ScaledAxisValues[Any]")
 DEFAULT_NAME_PATTERN = "s{}"
 
-TranslationShiftFunction = Callable[["Scale", "Scale"], "Translation"]
-"""
-base_scale: the reference scale being transformed from
-target_scale: the new scale being created (with 0 translation)
-Returns: target_scale's translation
-"""
-PixelSizingMethod = Literal["shape_ratio", "corner_ratio", "exact_factor"]
-"""
-How the scaling method used spaces output pixels.
-Options for both BlueprintShapes and BlueprintFactors:
-* shape_ratio: output_spacing = input_spacing * input_shape / output_shape
-* corner_ratio: output_spacing = input_spacing * (input_shape - 1) / (output_shape - 1)
-Option only for BlueprintFactors:
-* exact_factor: output_spacing = input_spacing * factor
-"""
 OmeZarrAxesParam = Union[Literal["infer"], OmeZarrAxes, Mapping[AxisKeyT, OmeZarrAxis]]
 
 
@@ -1528,7 +1512,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         cls,
         multiscale_dict: ome_zarr.OME_ZARR_MULTISCALE,
         *,
-        shape_source: ome_zarr.ShapeSource,
+        shape_source: ShapeSource,
     ):
         ome_zarr.require_dataset_paths(multiscale_dict)
         get_shape = ome_zarr.normalize_shape_source_to_callable(shape_source, multiscale_dict)
