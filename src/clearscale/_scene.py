@@ -93,9 +93,7 @@ class Scene:
         return cls(_internal_graph=TransformGraph(transforms=transforms), _multiscale_paths={})
 
     @classmethod
-    def from_star_graph(
-        cls, multiscales: Iterable[Tuple[Multiscale, Transform]], *, center: Optional[Node] = None
-    ) -> "Scene":
+    def from_star_graph(cls, multiscales: Iterable[Tuple[Multiscale, Transform]], *, center: Node) -> "Scene":
         """
         Low-level constructor for star-shaped graphs by specifying partial edges (source->transform).
         All transforms will target the node provided as `center`.
@@ -113,13 +111,14 @@ class Scene:
 
         return cls(
             _internal_graph=TransformGraph(
+                system_refs=(central_ref,),
                 transforms=(
                     transform.bound(
                         source=multiscale._intrinsic_ref,
                         target=central_ref,
                     )
                     for multiscale, transform in multiscales
-                )
+                ),
             ),
             _multiscale_paths={},
         )
@@ -153,7 +152,8 @@ class Scene:
                 )
 
         return cls.from_star_graph(
-            (ms, TranslationTransform.from_translation(translation)) for ms, translation in translations
+            ((ms, TranslationTransform.from_translation(translation)) for ms, translation in translations),
+            center=first_ms,
         )
 
     @classmethod
@@ -190,14 +190,9 @@ class Scene:
         graph = replace(self._internal_graph, transforms=tuple(transforms))
         return replace(self, _internal_graph=graph, _multiscale_paths=paths)
 
-    def to_ome_zarr(self, *, version: str = "0.6", multiscales_by_path: Optional[MultiscalesByPath] = None) -> Dict:
-        # TODO: I think this is broken (would not dump all coord systems from the graph)
-        # should probably delegate to self._internal_graph.to_ome_zarr, no?
-        coordinate_system_dicts = []
-        for ref in self._internal_graph.system_refs:
-            assert ref.owner is not None, "Dev error: all refs to CoordinateSystems must be owned"
-            coordinate_system_dicts.append(ref.owner.to_ome_zarr(name=ref.name, version=version))
-
+    def to_ome_zarr(self, *, version: str, multiscales_by_path: Optional[MultiscalesByPath] = None) -> Dict:
+        if version != "0.6":
+            raise ValueError(f"Scenes can only be written in OME-Zarr version 0.6. Received: {version}")
         all_paths = dict(self._multiscale_paths)
         if multiscales_by_path is not None:
             if not isinstance(multiscales_by_path, MappingABC):
@@ -206,14 +201,7 @@ class Scene:
                 )
             cleaned = {k: v for k, v in multiscales_by_path.items() if k not in (None, "")}
             all_paths.update(cleaned)
-        coordinate_transformations_dicts = [
-            t.to_ome_zarr(version, nodes_by_path=all_paths) for t in self._internal_graph.transforms
-        ]
-
-        result: Dict = {"coordinateTransformations": coordinate_transformations_dicts}
-        if coordinate_system_dicts:
-            result["coordinateSystems"] = coordinate_system_dicts
-        return result
+        return self._internal_graph.to_ome_zarr(version=version, nodes_by_path=all_paths)
 
     def transforms_between(
         self, source: UserFacingCoordinateSystemKey, target: UserFacingCoordinateSystemKey, include_children=False

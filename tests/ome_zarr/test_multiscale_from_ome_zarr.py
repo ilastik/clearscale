@@ -389,6 +389,44 @@ def test_from_ome_zarr_parses_valid_0_6_multiscale_transforms_as_coordinate_syst
     assert read == expected
 
 
+def test_from_ome_zarr_preserves_chained_coordinate_systems():
+    """Pathological: The spec explicitly forbids transforms that do not reference the multiscale's
+    intrinsic system.
+    Our implementation should have no trouble with this in principle, but there should be no public
+    API to create this state."""
+    metadata = {
+        "version": "0.6",
+        "coordinateSystems": [
+            {"name": "physical", "axes": [{"name": "y"}, {"name": "x"}]},
+            {"name": "world", "axes": [{"name": "y"}, {"name": "x"}]},
+            {"name": "mm", "axes": [{"name": "y", "unit": "mm"}, {"name": "x", "unit": "mm"}]},
+        ],
+        "datasets": [
+            {
+                "path": "s0",
+                "coordinateTransformations": [
+                    {"type": "scale", "scale": [1.0, 1.0], "input": {"path": "s0"}, "output": {"name": "physical"}}
+                ],
+            }
+        ],
+        "coordinateTransformations": [
+            {
+                "type": "translation",
+                "translation": [0.2, 0.3],
+                "input": {"name": "physical"},
+                "output": {"name": "world"},
+            },
+            # structurally valid, but forbidden transform (must reference intrinsic)
+            {"type": "scale", "scale": [0.001, 0.001], "input": {"name": "world"}, "output": {"name": "mm"}},
+        ],
+    }
+
+    read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
+
+    assert set(read.coordinate_systems) == {"world", "mm"}
+    assert read.to_ome_zarr(version="0.6") == metadata
+
+
 def test_from_ome_zarr_parses_valid_label_transform():
     """Transforms to labels are the only case within multiscale json where transforms are allowed to reference a path.
     We have no public API to access such transforms yet, since it's not clear whether anyone will need this.

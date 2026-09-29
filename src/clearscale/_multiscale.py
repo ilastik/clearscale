@@ -1743,7 +1743,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
             return result.with_unit_merged(unit)
 
-        if name in self.coordinate_systems:
+        if name == self._intrinsic_ref.name or name in self.coordinate_systems:
             raise ValueError(f"Coordinate system name {name!r} already exists on this Multiscale.")
 
         relation = normalize_relations_param(reached_by)

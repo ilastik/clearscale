@@ -363,6 +363,8 @@ class FileRef:
             if self.path_type != "zarr":
                 raise ValueError(f"OME-Zarr version {version} can only reference zarr paths.")
             return self.path
+        if version != "rfc-8":
+            raise ValueError(f"Can only write RFC-8 style file references in OME-Zarr RFC-8. Received: {version}")
         return {"type": self.path_type, "path": self.path}
 
 
@@ -400,7 +402,7 @@ class NodeRef(Generic[TransformGraphNodeT]):
     def __repr__(self):
         return f"NodeRef(name='{self.name}', owner={type(self.owner).__name__}<id={id(self.owner)}, axes={self.owner.axes})>"
 
-    def to_ome_zarr(self, version: str = "0.6", path: Optional[str] = None) -> Dict[str, Any]:
+    def to_ome_zarr(self, *, version: str, path: Optional[str] = None) -> Dict[str, Any]:
         if path and isinstance(path, str):
             return {"name": self.name, "path": FileRef.from_string(path).to_ome_zarr(version)}
         return {"name": self.name}
@@ -425,7 +427,7 @@ class _UnresolvedRef:
         if not self.name and not self.file:
             raise ValueError("_UnresolvedRef requires at least one of: name, path")
 
-    def to_ome_zarr(self, version: str = "0.6", path: Optional[FileRef] = None) -> Dict[str, Any]:
+    def to_ome_zarr(self, *, version: str, path: Optional[FileRef] = None) -> Dict[str, Any]:
         d = {}
         if self.file is not None:
             d["path"] = self.file.to_ome_zarr(version)
@@ -613,19 +615,19 @@ class Transform(ABC):
         target = self.target
         if source is None or target is None:
             return ome_zarr_transform_dict
-        input_dict = source.to_ome_zarr()
-        output_dict = target.to_ome_zarr()
+        input_dict = source.to_ome_zarr(version=version)
+        output_dict = target.to_ome_zarr(version=version)
         for path, node in (nodes_by_path or {}).items():
             if node is None:
                 continue
             if isinstance(source, NodeRef) and source.owner is node:
-                input_dict = source.to_ome_zarr(path)
+                input_dict = source.to_ome_zarr(version=version, path=path)
             if isinstance(target, NodeRef) and target.owner is node:
-                output_dict = target.to_ome_zarr(path)
+                output_dict = target.to_ome_zarr(version=version, path=path)
             if input_dict and output_dict:
                 break
-        input_dict = input_dict or source.to_ome_zarr()
-        output_dict = output_dict or target.to_ome_zarr()
+        input_dict = input_dict or source.to_ome_zarr(version=version)
+        output_dict = output_dict or target.to_ome_zarr(version=version)
         ome_zarr_transform_dict.update({"input": input_dict, "output": output_dict})
         return ome_zarr_transform_dict
 

@@ -875,6 +875,9 @@ class TestMultiscaleWithCoordinateSystem:
         with pytest.raises(ValueError, match="Coordinate system name 'world' already exists"):
             ms.with_coordinate_system("world")
 
+        with pytest.raises(ValueError, match="already exists"):
+            ms.with_coordinate_system(ms._intrinsic_ref.name)
+
     def test_rejects_non_spatial_relations(self):
         ms = _multiscale("zyx")
 
