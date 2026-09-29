@@ -1,7 +1,7 @@
 import functools
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, replace
-from typing import Any, Dict, Iterable, Mapping, Union, Tuple, Literal
+from typing import Any, Dict, Iterable, Mapping, Union, Tuple, Literal, FrozenSet, TypeGuard
 from typing import Optional, List
 
 from clearscale._errors import MismatchingMultiscaleError
@@ -17,9 +17,9 @@ from clearscale._transforms import (
     AnyRef,
     Transform,
     TransformGraph,
-    TransformGraphNode,
     TranslationTransform,
 )
+from clearscale._transforms._base import _is_owner_coordinate_system
 
 MultiscalesByPath = Mapping[RelativePath, Multiscale]
 UserFacingCoordinateSystemKey = Union[
@@ -65,11 +65,32 @@ class Scene:
         return paths
 
     @functools.cached_property
+    def resolved_multiscales(self) -> FrozenSet[NodeRef[Multiscale]]:
+        def _is_owner_multiscale(ref: Optional[AnyRef]) -> TypeGuard[NodeRef[Multiscale]]:
+            return isinstance(ref, NodeRef) and isinstance(ref.owner, Multiscale)
+
+        return frozenset(
+            endpoint
+            for t in self._internal_graph.transforms
+            for endpoint in (t.source, t.target)
+            if _is_owner_multiscale(endpoint)
+        )
+
+    @functools.cached_property
     def _full_graph(self):
         all_transforms = list(self._internal_graph.transforms)
-        for ms in self._multiscale_paths.values():
-            all_transforms.append(ms._get_interface_transform())  # noqa: package-private, not class-private
-            all_transforms.extend(ms._transform_graph.transforms)  # noqa: package-private, not class-private
+        for ms_ref in self.resolved_multiscales:
+            ms = ms_ref.owner
+            ms_transforms = []
+            for child_t in ms._transform_graph.transforms:
+                if not _is_owner_coordinate_system(child_t.source) or not _is_owner_coordinate_system(child_t.target):
+                    # Scenes can only reference CoordinateSystems within their child Multiscales,
+                    # they can't reach the Multiscale's own child (label) Multiscales, if it transforms to any of them.
+                    continue
+                new_source = ms._as_ref(child_t.source.name)
+                new_target = ms._as_ref(child_t.target.name)
+                ms_transforms.append(child_t.bound(source=new_source, target=new_target))
+            all_transforms.extend(ms_transforms)
         return TransformGraph(all_transforms)
 
     @classmethod
@@ -84,10 +105,22 @@ class Scene:
             (moving_ms2, AffineTransform(...), fixed_ms),
         ])
         """
+
+        def node_to_ref(node: Node) -> NodeRef:
+            if isinstance(node, Multiscale):
+                ref = node._as_ref_to_intrinsic()
+            elif isinstance(node, NodeRef) and isinstance(node.owner, CoordinateSystem):
+                ref = node
+            else:
+                raise TypeError(
+                    f"Use CoordinateSystem._as_ref(name) to use a CoordinateSystem in a Scene. Received: {node!r}"
+                )
+            return ref
+
         transforms = []
         for source_node, transform, target_node in source_transform_targets:
-            source = cls._node_to_coord_sys_ref(source_node)
-            target = cls._node_to_coord_sys_ref(target_node)
+            source = node_to_ref(source_node)
+            target = node_to_ref(target_node)
             bound = transform.bound(source=source, target=target)
             transforms.append(bound)
         return cls(_internal_graph=TransformGraph(transforms=transforms), _multiscale_paths={})
@@ -97,8 +130,8 @@ class Scene:
         """
         Low-level constructor for star-shaped graphs by specifying partial edges (source->transform).
         All transforms will target the node provided as `center`.
-        If `center` is not provided, all transforms will target the first entry in `multiscales`.
-        The first Multiscale should be paired with an IdentityTransform in that case.
+        A sensible default is to provide the first edge's multiscale as the center,
+        and use an IdentityTransform for its edge.
         """
         multiscales = list(multiscales)
         if not multiscales and not center:
@@ -106,15 +139,15 @@ class Scene:
         elif not center:
             center = multiscales[0][0]
 
-        central_system = cls._node_to_coord_sys_ref(center).owner.copy()
-        central_ref = central_system._as_ref("world")
+        central_system = center._intrinsic_ref.owner if isinstance(center, Multiscale) else center.owner
+        central_ref = CoordinateSystem(central_system)._as_ref("world")
 
         return cls(
             _internal_graph=TransformGraph(
                 system_refs=(central_ref,),
                 transforms=(
                     transform.bound(
-                        source=multiscale._intrinsic_ref,
+                        source=multiscale._as_ref_to_intrinsic(),
                         target=central_ref,
                     )
                     for multiscale, transform in multiscales
@@ -226,8 +259,7 @@ class Scene:
             return key[0]._as_ref(key[1])
 
         if isinstance(key, Multiscale):
-            # If there were more than 1 and user cared, they'd give us a tuple
-            return key._intrinsic_ref  # noqa: package-private, not class-private
+            return key._as_ref_to_intrinsic()
 
         if isinstance(key, CoordinateSystemName):
             # Purely matching by name could bring up refs to any TransformGraphNode
@@ -249,18 +281,6 @@ class Scene:
             return name_matches[0] if name_matches else None
 
         raise TypeError(f"Unsupported key type for coordinate system lookup: {key}")
-
-    @classmethod
-    def _node_to_coord_sys_ref(cls, node: Node) -> NodeRef[CoordinateSystem]:
-        if isinstance(node, Multiscale):
-            ref = node._intrinsic_ref
-        elif isinstance(node, NodeRef) and isinstance(node.owner, CoordinateSystem):
-            ref = node
-        else:
-            raise TypeError(
-                f"Use CoordinateSystem._as_ref(name) to use a CoordinateSystem in a Scene. Received: {node!r}"
-            )
-        return ref
 
     @staticmethod
     def _resolved_multiscale_paths(

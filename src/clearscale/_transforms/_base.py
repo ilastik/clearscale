@@ -615,8 +615,8 @@ class Transform(ABC):
         target = self.target
         if source is None or target is None:
             return ome_zarr_transform_dict
-        input_dict = source.to_ome_zarr(version=version)
-        output_dict = target.to_ome_zarr(version=version)
+        input_dict = {}
+        output_dict = {}
         for path, node in (nodes_by_path or {}).items():
             if node is None:
                 continue
@@ -651,6 +651,10 @@ class Transform(ABC):
 
     def bound(self: _TransformSelf, source: Optional[AnyRef], target: Optional[AnyRef]) -> _TransformSelf:
         # binding required to use the Transform in a TransformGraph
+        if source is not None and not isinstance(source, (NodeRef, _UnresolvedRef)):
+            raise TypeError(f"can only bind to ref, not {source}")
+        if target is not None and not isinstance(target, (NodeRef, _UnresolvedRef)):
+            raise TypeError(f"can only bind to ref, not {target}")
         return replace(self, source=source, target=target)
 
     def unbound(self: _TransformSelf) -> _TransformSelf:
@@ -1169,7 +1173,7 @@ def _ordered_unique_refs(refs: Iterable[_RefT]) -> Tuple[_RefT, ...]:
     return tuple(dict.fromkeys(refs))
 
 
-def _is_owner_coordinate_system(ref: AnyRef) -> TypeGuard[NodeRef["CoordinateSystem"]]:
+def _is_owner_coordinate_system(ref: Optional[AnyRef]) -> TypeGuard[NodeRef["CoordinateSystem"]]:
     """Makes pyright happy with TransformGraph.connected_system_refs"""
     return isinstance(ref, NodeRef) and isinstance(ref.owner, CoordinateSystem)
 
@@ -1292,8 +1296,8 @@ class TransformGraph:
     def to_ome_zarr(self, version="0.6", nodes_by_path: Optional[NodesByPath] = None) -> Dict[str, Any]:
         """
         Returns dict like {
-            "coordinateSystems": List[Dict] (maybe)
-            "coordinateTransformations: List[Dict] (required)
+            "coordinateSystems": List[Dict] (required for Multiscale, optional for Scene)
+            "coordinateTransformations: List[Dict] (required for Scene, optional for Multiscale)
         }
         """
         if version != "0.6":
@@ -1303,12 +1307,25 @@ class TransformGraph:
             for ref in self.all_system_refs
             if isinstance(ref.owner, CoordinateSystem)
         ]
-        transforms = [t.to_ome_zarr(version, nodes_by_path=nodes_by_path) for t in self.transforms]
+        transform_dicts = []
+        requires_path = []
+        for t in self.transforms:
+            assert t.source is not None and t.target is not None, "transforms in graphs must be bound"
+            if isinstance(t.source, NodeRef) and not isinstance(t.source.owner, CoordinateSystem):
+                requires_path.append(t.source.owner)
+            if isinstance(t.target, NodeRef) and not isinstance(t.target.owner, CoordinateSystem):
+                requires_path.append(t.target.owner)
+            transform_dicts.append(t.to_ome_zarr(version, nodes_by_path=nodes_by_path))
+        if requires_path:
+            provided = [] if nodes_by_path is None else [id(node) for node in nodes_by_path.values()]
+            missing = [ms for ms in requires_path if id(ms) not in provided]
+            if missing:
+                raise ValueError(f"Paths for all Multiscales must be provided. Missing: {missing!r}")
         d: Dict[str, Any] = {}
         if systems:
             d["coordinateSystems"] = systems
-        if transforms:
-            d["coordinateTransformations"] = transforms
+        if transform_dicts:
+            d["coordinateTransformations"] = transform_dicts
         return d
 
     def path_between(

@@ -2065,6 +2065,15 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             raise NoSuchCoordinateSystemError(name)
         return NodeRef(name=str(name), owner=self)
 
+    def _as_ref_to_intrinsic(self) -> NodeRef["Multiscale"]:
+        """
+        The intrinsic ref is a ref that gives the intrinsic CoordinateSystem a name.
+          It's what we need inside the Multiscale's own graph and what we tie additional coordinate_systems to.
+        This method produces a ref that selects the intrinsic ref inside this Multiscale.
+          It's what a Scene uses to connect different Multiscales.
+        """
+        return self._as_ref(self._intrinsic_ref.name)
+
     @staticmethod
     def _merge_ome_zarr_axes(scales: Sequence["Scale"]) -> OmeZarrAxes:
         axes = list(scales[0].ome_zarr_axes.keys())
@@ -2123,10 +2132,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _intrinsic_ref=self._intrinsic_ref,
             _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
         )
-
-    def _get_interface_transform(self):
-        """Allows a scene to traverse into this subgraph"""
-        return IdentityTransform(source=self._intrinsic_ref, target=self._as_ref(self._intrinsic_ref.name))
 
     @staticmethod
     def _replace_transform_ref(t: Transform, old: NodeRef, new: NodeRef) -> Transform:
