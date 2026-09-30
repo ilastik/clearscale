@@ -397,9 +397,12 @@ def test_from_ome_zarr_preserves_chained_coordinate_systems():
     metadata = {
         "version": "0.6",
         "coordinateSystems": [
-            {"name": "physical", "axes": [{"name": "y"}, {"name": "x"}]},
-            {"name": "world", "axes": [{"name": "y"}, {"name": "x"}]},
-            {"name": "mm", "axes": [{"name": "y", "unit": "mm"}, {"name": "x", "unit": "mm"}]},
+            {"name": "physical", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]},
+            {"name": "world", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]},
+            {
+                "name": "mm",
+                "axes": [{"name": "y", "type": "space", "unit": "mm"}, {"name": "x", "type": "space", "unit": "mm"}],
+            },
         ],
         "datasets": [
             {

@@ -29,6 +29,7 @@ Lower-level modules must not import higher-level modules.
 - When reading metadata, be as permissive as possible. Error only if necessary information is missing or ambiguous.
 - Avoid modelling concepts that cannot be represented in standardised metadata formats (i.e. OME-Zarr).
 - Similarly, methods should not by design create states or constellations that cannot be serialised.
+- The exception to this is serialisation requirements that substantially interfere with ergonomics for use-cases that never target serialisation at all. In such cases, the point of serialisation that can fail due to the requirement should also offer a fixup escape hatch.
 
 ## Public APIs
 

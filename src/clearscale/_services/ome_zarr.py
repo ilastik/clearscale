@@ -7,7 +7,20 @@ import re
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Union, Dict, List, Any, Optional, Tuple, Iterable, TYPE_CHECKING, Callable
+from typing import (
+    Union,
+    Dict,
+    List,
+    Any,
+    Literal,
+    Optional,
+    Tuple,
+    Iterable,
+    TYPE_CHECKING,
+    Callable,
+    Hashable,
+    TypeVar,
+)
 
 from clearscale._axis_values import Translation, PixelSize, AxisKey, Factor
 from clearscale._services.matrices import is_identity_scale, DETERMINANT_SINGULARITY_TOLERANCE
@@ -19,12 +32,13 @@ from clearscale._transforms import (
     FileRef,
     NodeRef,
     CoordinateSystem,
+    OmeZarrAxes,
     _UnresolvedRef,
     PRE_TRANSFORMS_VERSIONS,
     Transform,
     TransformSignature,
 )
-from clearscale.types import ShapeValue, ShapeSource
+from clearscale.types import ShapeValue, ShapeSource, AxisKeyT
 
 if TYPE_CHECKING:
     from clearscale._multiscale import Multiscale
@@ -840,7 +854,8 @@ def multiscale_graph_from_legacy(
             ), f"dev error: {global_transforms.scale_transform.scale} doesn't actually use global-t convention"
             return graph, intrinsic_system_ref, (global_t_scale, global_transforms.translation_transform)
         own_axes = intrinsic_system.axes
-        synthetic_external = CoordinateSystem.fromkeys(own_axes)._as_ref(SYNTHETIC_EXTERNAL_NAME)
+        # Legacy global transforms are only scale and translation, so the external system's axes are the same as ours
+        synthetic_external = CoordinateSystem(intrinsic_system)._as_ref(SYNTHETIC_EXTERNAL_NAME)
         try:
             bound_transform = global_transforms.bound(source=intrinsic_system_ref, target=synthetic_external)
             assert isinstance(bound_transform, MultiscaleTransforms), "should not change type"
@@ -962,10 +977,113 @@ OME_ZARR_PATH_RE = re.compile(
 )
 
 
-def validate_multiscale(multiscale: "Multiscale"):
+MissingAxisTypes = Union[Literal["infer"], Mapping[AxisKeyT, str]]
+"""
+Escape hatch to write Multiscales whose axes lack OME-Zarr axis types. Fills *only* axes without a type
+(never overrides), in every coordinate system that has an axis with that key:
+- "infer": Infer standard types from standard axis keys ("tczyx" and common synonyms)
+- {axis_key: type}: Set these types, e.g. {"z": "space", "y": "space", "x": "space"}
+"""
+_SystemKeyT = TypeVar("_SystemKeyT", bound=Hashable)
+MIN_NDIM = 2
+MAX_NDIM = 5
+MIN_SPACE_AXES = 2
+MAX_SPACE_AXES = 3
+
+
+def fill_missing_axis_types(
+    systems: Mapping[_SystemKeyT, OmeZarrAxes], missing_axis_types: Optional[MissingAxisTypes]
+) -> Dict[_SystemKeyT, OmeZarrAxes]:
+    """Return `systems` with types filled in where missing. Never overrides existing types."""
+    if missing_axis_types is None:
+        return dict(systems)
+    if isinstance(missing_axis_types, str):
+        if missing_axis_types != "infer":
+            raise ValueError(f"missing_axis_types must be 'infer' or {{axis_key: type}}, not {missing_axis_types!r}")
+    elif isinstance(missing_axis_types, Mapping):
+        for axis, axis_type in missing_axis_types.items():
+            if not isinstance(axis_type, str) or not axis_type:
+                raise ValueError(f"Axis types must be non-empty strings. Received {axis_type!r} for axis {axis!r}.")
+    else:
+        raise TypeError(f"missing_axis_types must be 'infer' or {{axis_key: type}}, not {missing_axis_types!r}")
+
+    filled: Dict[_SystemKeyT, OmeZarrAxes] = {}
+    for key, axes in systems.items():
+        if all(ax.type for ax in axes.values()):
+            filled[key] = axes
+        elif isinstance(missing_axis_types, str):
+            try:
+                filled[key] = axes.with_types_inferred()
+            except ValueError:
+                filled[key] = axes  # Nothing recognisable; reported as missing types by the validation
+        else:
+            filled[key] = OmeZarrAxes(
+                (a, replace(ax, type=missing_axis_types[a]) if not ax.type and a in missing_axis_types else ax)
+                for a, ax in axes.items()
+            )
+    return filled
+
+
+def require_valid_axes(axes: OmeZarrAxes, *, system_name: Optional[str] = None) -> None:
+    """Raise if `axes` can't be the axes of a coordinate system in OME-Zarr multiscale metadata: Between 2 and 5 axes
+    of which 2 or 3 are of type "space". `system_name` is None for the Multiscale's own (intrinsic) system."""
+    where = "this Multiscale" if system_name is None else f"coordinate system {system_name!r}"
+    keys = list(axes.keys())
+    if not MIN_NDIM <= len(keys) <= MAX_NDIM:
+        raise ValueError(f"OME-Zarr requires {MIN_NDIM} to {MAX_NDIM} axes, but {where} has {len(keys)}: {keys}.")
+    space = [a for a, ax in axes.items() if ax.type == "space"]
+    untyped = [a for a, ax in axes.items() if not ax.type]
+    if MIN_SPACE_AXES <= len(space) <= MAX_SPACE_AXES:
+        return
+    problem = (
+        f"OME-Zarr requires {MIN_SPACE_AXES} or {MAX_SPACE_AXES} axes of type 'space', "
+        f"but {where} has {len(space)} (axes: {keys}, space axes: {space})."
+    )
+    if len(space) < MIN_SPACE_AXES and untyped:
+        problem += (
+            f" Axes without a type: {untyped}. Give the axes types when constructing the Scale, "
+            "e.g. `ome_zarr_axes='infer'`, or fill them in at write time with `missing_axis_types=`."
+        )
+    raise ValueError(problem)
+
+
+def has_enough_potential_space_axes(axes: OmeZarrAxes) -> bool:
+    """
+    Spec: "The “axes” MUST contain 2 or 3 entries of “type:space”."
+    Return False if `axes` can never satisfy this, no matter which types are assigned to untyped axes later.
+    """
+    space = sum(ax.type == "space" for ax in axes.values())
+    untyped = sum(not ax.type for ax in axes.values())
+    return space <= MAX_SPACE_AXES and space + untyped >= MIN_SPACE_AXES
+
+
+def validate_multiscale(
+    multiscale: "Multiscale",
+    missing_axis_types: Optional[MissingAxisTypes] = None,
+    *,
+    all_systems: bool = True,
+) -> Dict[NodeRef[CoordinateSystem], OmeZarrAxes]:
+    """
+    Raise if `multiscale` cannot be written as OME-Zarr: scale keys must be valid paths; the axes of its own
+    coordinate system, and if `all_systems`, of all others in its graph, must fulfill the OME-Zarr requirements.
+    Axis types are checked after filling in `missing_axis_types`.
+    Returns the (filled) axes of all the Multiscale's coordinate systems, for serialization.
+    """
     for scale_key in multiscale.keys():
         if not _is_valid_relative_path(str(scale_key)):
             raise ValueError(f"Scale key '{scale_key}' is not a valid relative filesystem path")
+
+    intrinsic_ref = multiscale._intrinsic_ref  # noqa: package-private, not class-private
+    refs = multiscale._transform_graph.all_system_refs  # noqa: package-private, not class-private
+    filled = fill_missing_axis_types({ref: OmeZarrAxes(ref.owner) for ref in refs}, missing_axis_types)
+    for ref in refs if all_systems else (intrinsic_ref,):
+        axes = filled[ref]
+        require_valid_axes(axes, system_name=None if ref is intrinsic_ref else ref.name)
+        if axes != OmeZarrAxes(ref.owner):
+            # Only check the order where `missing_axis_types` changed something: The fill-in must not produce
+            # a violation, but existing metadata with a bad order is deliberately written back as it was read.
+            multiscale._require_ome_zarr_permitted_type_order(axes)  # noqa: package-private, not class-private
+    return filled
 
 
 def _is_valid_relative_path(path: str) -> bool:

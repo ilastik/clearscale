@@ -251,6 +251,12 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
         return replaced if replaced != self else self
 
     def with_types_inferred(self) -> "OmeZarrAxes":
+        """Infers `type` and `discrete` for any axis where `type` is None and the key is recognised.
+        Raises if no axis has a recognised key (only use this method if you use standard axis keys).
+
+        Recognised keys are: t, time, timestep, timepoint, c, ch, channel, channels, z, y, x
+        Inferred types are: time (discrete=False), channel (discrete=True), space (discrete=False)
+        """
         inferred_types = {
             "t": "time",
             "time": "time",
@@ -1293,8 +1299,15 @@ class TransformGraph:
         graph = TransformGraph(transforms, system_refs=tuple(named_systems))
         return graph
 
-    def to_ome_zarr(self, version="0.6", nodes_by_path: Optional[NodesByPath] = None) -> Dict[str, Any]:
+    def to_ome_zarr(
+        self,
+        version="0.6",
+        nodes_by_path: Optional[NodesByPath] = None,
+        system_axes: Optional[Mapping[NodeRef["CoordinateSystem"], OmeZarrAxes]] = None,
+    ) -> Dict[str, Any]:
         """
+        `system_axes`: Serialize these axes instead of the referenced systems' own, for the systems included.
+
         Returns dict like {
             "coordinateSystems": List[Dict] (required for Multiscale, optional for Scene)
             "coordinateTransformations: List[Dict] (required for Scene, optional for Multiscale)
@@ -1303,7 +1316,9 @@ class TransformGraph:
         if version != "0.6":
             raise ValueError(f"Unsupported OME-Zarr version {version!r}. Graphs can only be written to '0.6'.")
         systems = [
-            ref.owner.to_ome_zarr(name=ref.name, version=version)
+            (CoordinateSystem(system_axes[ref]) if system_axes and ref in system_axes else ref.owner).to_ome_zarr(
+                name=ref.name, version=version
+            )
             for ref in self.all_system_refs
             if isinstance(ref.owner, CoordinateSystem)
         ]

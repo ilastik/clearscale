@@ -31,11 +31,11 @@ def write_ome_zarr_like_ilastik(
     else:
         export_unit = clearscale.Unit.empty(axes)
     input_translation = None
-    export_ome_axes = "infer"
+    export_ome_axes = None
     input_scale = input_multiscale[input_scale_key] if input_multiscale and input_scale_key else None
     if input_scale:
         input_translation = input_scale.translation.with_axes(axes)
-        export_ome_axes = input_scale.ome_zarr_axes.with_axes(axes, infer_inserted_types=True)
+        export_ome_axes = input_scale.ome_zarr_axes.with_axes(axes)
     export_scale = clearscale.Scale(export_shape, export_pixel_size, export_unit, input_translation, export_ome_axes)
     multiscale = export_blueprint.apply_to_scale(export_scale)
 
@@ -63,7 +63,7 @@ def write_ome_zarr_like_ilastik(
         else {}
     )
 
-    return clearscale.OmeZarrGroup.from_single(multiscale).to_attrs(version="0.4")
+    return clearscale.OmeZarrGroup.from_single(multiscale).to_attrs(version="0.4", missing_axis_types="infer")
 
 
 def test_pixel_sizes_test_write_ome_zarr_single_scale():
