@@ -32,7 +32,7 @@ def test_ome_zarr_group_to_attrs_multiscale(version, expected):
     group = OmeZarrGroup(multiscales=(multiscale,))
     result = group.to_attrs(version)
     assert result == expected
-    multiscale.to_ome_zarr.assert_called_once_with(version=version)
+    multiscale.to_ome_zarr.assert_called_once_with(version=version, missing_axis_types=None)
 
 
 @pytest.mark.parametrize("version", ["0.4", "0.5"])
@@ -106,8 +106,8 @@ def test_ome_zarr_group_to_attrs_multiple_multiscales_with_override(version, exp
         warnings.simplefilter("error")
         result = group.to_attrs(version, override_multi_multiscales=True)
     assert result == expected
-    multiscale_0.to_ome_zarr.assert_called_once_with(version=version)
-    multiscale_1.to_ome_zarr.assert_called_once_with(version=version)
+    multiscale_0.to_ome_zarr.assert_called_once_with(version=version, missing_axis_types=None)
+    multiscale_1.to_ome_zarr.assert_called_once_with(version=version, missing_axis_types=None)
 
 
 @pytest.mark.parametrize(

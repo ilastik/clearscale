@@ -489,7 +489,7 @@ class TestProportionalBlueprint:
 
 
 def _multiscale(axes="yx", size=4) -> Multiscale:
-    return Multiscale({"s0": Scale(shape=Shape(zip(axes, [size] * len(axes))))})
+    return Multiscale({"s0": Scale(shape=Shape(zip(axes, [size] * len(axes))), ome_zarr_axes="infer")})
 
 
 def test_multiscale_ome_properties_separate_across_instances():
@@ -888,9 +888,18 @@ class TestMultiscaleWithCoordinateSystem:
             ms.with_coordinate_system("world", reached_by="not a relation")  # type: ignore[arg-type]
 
 
+_SPACE_YX = {"y": ome_zarr.Axis(type="space"), "x": ome_zarr.Axis(type="space")}
+"""Inferred axes also set `discrete`, which can only be written by 0.6"""
+_INSERTED_TYPES = {"c": ome_zarr.Axis(type="channel"), "z": ome_zarr.Axis(type="space")}
+"""For relations that insert axes; ignored by relations that do not"""
+_TSPACE_TYX = {"t": ome_zarr.Axis(type="time"), **_SPACE_YX}
+
+
 class TestLosslessOmeZarrVersion:
     def test_lowest_lossless_version_plain_multiscale(self):
-        ms = Multiscale.from_single(Scale(shape=Shape(y=10, x=10), pixel_size=PixelSize(y=0.5, x=0.5)))
+        ms = Multiscale.from_single(
+            Scale(shape=Shape(y=10, x=10), pixel_size=PixelSize(y=0.5, x=0.5), ome_zarr_axes=_SPACE_YX)
+        )
         assert ms.lowest_lossless_ome_zarr_version == "0.4"
 
     @pytest.mark.parametrize(
@@ -919,22 +928,23 @@ class TestLosslessOmeZarrVersion:
         ],
     )
     def test_lowest_lossless_version_with_coordinate_system_is_always_0_6(self, relation):
-        """identity, scale and scale(+translation) can be expressed in 0.4"""
+        """identity, scale and scale(+translation) can sort of be expressed in 0.4,
+        and to_ome_zarr does approximate it in the legacy path, but this is lossy."""
         ms = Multiscale.from_single(
-            Scale(shape=Shape(y=10, x=10), pixel_size=PixelSize(y=0.5, x=0.5))
-        ).with_coordinate_system("world", reached_by=relation)
+            Scale(shape=Shape(y=10, x=10), pixel_size=PixelSize(y=0.5, x=0.5), ome_zarr_axes=_SPACE_YX)
+        ).with_coordinate_system("world", reached_by=relation, ome_zarr_axes=_INSERTED_TYPES)
         assert ms.lowest_lossless_ome_zarr_version == "0.6"
 
     def test_lowest_lossless_version_two_external_systems(self):
         ms = (
-            Multiscale.from_single(Scale(shape=Shape(y=10, x=10)))
+            Multiscale.from_single(Scale(shape=Shape(y=10, x=10), ome_zarr_axes="infer"))
             .with_coordinate_system("world-a", reached_by=Translation(y=1.0, x=1.0))
             .with_coordinate_system("world-b", reached_by=Translation(y=2.0, x=2.0))
         )
         assert ms.lowest_lossless_ome_zarr_version == "0.6"
 
     def test_lowest_lossless_version_unresolved_ref(self):
-        base = Multiscale.from_single(Scale(shape=Shape(y=10, x=10)))
+        base = Multiscale.from_single(Scale(shape=Shape(y=10, x=10), ome_zarr_axes="infer"))
         dangling = IdentityTransform(source=base._intrinsic_ref, target=_UnresolvedRef(name="nowhere"))
         ms = Multiscale(
             base.items(),
@@ -945,21 +955,35 @@ class TestLosslessOmeZarrVersion:
 
     def test_lowest_lossless_version_axis_properties(self):
         """discrete and long_name were only added in 0.6"""
-        scale1 = Scale(shape=Shape(y=10, x=10), ome_zarr_axes={"y": ome_zarr.Axis(type="space", unit="nanometer")})
+        scale1 = Scale(
+            shape=Shape(y=10, x=10),
+            ome_zarr_axes={"y": ome_zarr.Axis(type="space", unit="nanometer"), "x": ome_zarr.Axis(type="space")},
+        )
         ms1 = Multiscale.from_single(scale1)
         assert ms1.lowest_lossless_ome_zarr_version == "0.4"
 
-        scale2 = Scale(shape=Shape(y=10, x=10), ome_zarr_axes={"y": ome_zarr.Axis(long_name="row")})
+        scale2 = Scale(
+            shape=Shape(y=10, x=10), ome_zarr_axes=_SPACE_YX | {"y": ome_zarr.Axis(type="space", long_name="row")}
+        )
         ms2 = Multiscale.from_single(scale2)
         assert ms2.lowest_lossless_ome_zarr_version == "0.6"
 
-        scale3 = Scale(shape=Shape(c=3, y=10, x=10), ome_zarr_axes={"c": ome_zarr.Axis(type="channel", discrete=True)})
+        scale3 = Scale(
+            shape=Shape(c=3, y=10, x=10),
+            ome_zarr_axes={
+                "c": ome_zarr.Axis(type="channel", discrete=True),
+                "x": ome_zarr.Axis(type="space"),
+                "y": ome_zarr.Axis(type="space"),
+            },
+        )
         ms3 = Multiscale.from_single(scale3)
         assert ms3.lowest_lossless_ome_zarr_version == "0.6"
 
     def test_lowest_lossless_version_legacy_t_scale_flag(self):
         """Would be reached via Multiscale.from_ome_zarr with json that follows the legacy t-scale convention"""
-        base = Multiscale.from_single(Scale(shape=Shape(t=5, y=10, x=10), pixel_size=PixelSize(t=2.0, y=0.5, x=0.5)))
+        base = Multiscale.from_single(
+            Scale(shape=Shape(t=5, y=10, x=10), pixel_size=PixelSize(t=2.0, y=0.5, x=0.5), ome_zarr_axes=_TSPACE_TYX)
+        )
         ms = Multiscale(
             base.items(),
             _transform_graph=base._transform_graph,

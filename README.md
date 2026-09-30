@@ -29,7 +29,7 @@ pixel_size = PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
 unit       = Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
 
 # 4. Write metadata: Scale -> Multiscale -> Group -> attrs
-base       = Scale(shape, pixel_size, unit)
+base       = Scale(shape, pixel_size, unit, ome_zarr_axes="infer")
 ms         = Multiscale.from_single(base, blueprint=scaling_blueprint)
 group_meta = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 zarr_group.attrs.update(group_meta)
@@ -97,23 +97,29 @@ from clearscale import OmeZarrGroup, Multiscale, Scale
 # You have some array
 image = np.random.random((128, 1024, 1024)).astype(np.float32)
 
-# 1. (not clearscale) Create a zarr group to write it to
-# (zarr-format v3 because we specify OME-Zarr version 0.5 below, which must be written in zarr-format v3)
+# 1. Create a zarr group to write it to
 group = zarr.open_group("demo-output/example1.ome.zarr", mode="w", zarr_format=3)
 
-# 2. (not clearscale) Write data
+# 2. Write data
 array_path = "s0"
 group.create_array(array_path, data=image)
 
-# 3. (clearscale) Write metadata
-# (Make a Scale, expand it to a Multiscale, put that in an OME-Zarr group)
-scale = Scale.from_lists("zyx")  # Axis keys are the minimum you really must specify
+# 3. Write metadata: Scale -> Multiscale -> Group -> attrs
+scale = Scale.from_lists("zyx", ome_zarr_axes="infer")
 group.attrs.update(
     OmeZarrGroup
-    .from_single(Multiscale.from_single(scale, scale_key=array_path))
+    .from_single(
+        Multiscale.from_single(scale, scale_key=array_path)
+    )
     .to_attrs(version="0.5")
 )
 ```
+
+This shows the absolute minimum requirements of OME-Zarr:
+* axis keys (`"zyx"`)
+* axis types (provided by `ome_zarr_axes="infer"`)
+* writing the data to a zarr *array* inside a zarr *group* (and recording the array sub-path)
+* `zarr_format=3` for OME-Zarr `version="0.5"`
 
 ### Downsample a numpy array and save it as OME-Zarr
 

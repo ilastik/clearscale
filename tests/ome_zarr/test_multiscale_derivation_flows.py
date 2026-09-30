@@ -2,6 +2,10 @@ from clearscale._multiscale import Multiscale
 from clearscale._spatial_relations import PermutationTo, ProjectionTo
 
 
+def _axis(name):
+    return {"name": name} if name == "c" else {"name": name, "type": "time" if name == "t" else "space"}
+
+
 def _global_scale(result):
     (scale_dict,) = [t for t in result.get("coordinateTransformations", []) if t["type"] == "scale"]
     return scale_dict["scale"]
@@ -16,7 +20,7 @@ def _dataset_scale(result, key="s0"):
 def test_full_flow_carries_axis_insertion_relation_into_legacy_output():
     raw_source = {
         "version": "0.4",
-        "axes": [{"name": a} for a in "zyx"],
+        "axes": [_axis(a) for a in "zyx"],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [0.3, 20.0, 30.0]}]},
             {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [0.6, 40.0, 60.0]}]},
@@ -39,7 +43,7 @@ def test_full_flow_carries_axis_insertion_relation_into_legacy_output():
 def test_full_flow_carries_axis_drop_relation_into_legacy_output():
     raw_source = {
         "version": "0.4",
-        "axes": [{"name": a} for a in "czyx"],
+        "axes": [_axis(a) for a in "czyx"],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 0.3, 20.0, 30.0]}]},
         ],
@@ -63,7 +67,7 @@ def test_full_flow_carries_axis_drop_relation_into_legacy_output():
 def test_full_flow_carries_combined_projection_and_permutation_relations_into_legacy_output():
     raw_source = {
         "version": "0.4",
-        "axes": [{"name": a} for a in "txyz"],
+        "axes": [_axis(a) for a in "txyz"],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [5.0, 10.0, 20.0, 0.3]}]},
         ],
@@ -87,7 +91,7 @@ def test_full_flow_carries_combined_projection_and_permutation_relations_into_le
 def test_full_flow_carries_axis_reordering_relation_into_legacy_output():
     raw_source = {
         "version": "0.4",
-        "axes": [{"name": a} for a in "czyx"],
+        "axes": [_axis(a) for a in "czyx"],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 0.2, 30.0, 40.0]}]},
         ],
@@ -113,7 +117,7 @@ def test_full_flow_preserves_t_scale_convention_after_axis_insertion():
     # the t component ([0.5, 1.0, 1.0, 1.0]) of pixel size.
     raw_source = {
         "version": "0.4",
-        "axes": [{"name": a} for a in "tzyx"],
+        "axes": [_axis(a) for a in "tzyx"],
         "coordinateTransformations": [{"type": "scale", "scale": [0.5, 1.0, 1.0, 1.0]}],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 0.3, 20.0, 30.0]}]},
@@ -143,7 +147,7 @@ def test_full_flow_carries_axis_insertion_relation_into_generic_global_transform
     # Plain 0.4 metadata, no multiscale-level transform, ordinary per-dataset scale.
     raw_source = {
         "version": "0.4",
-        "axes": [{"name": a} for a in "yx"],
+        "axes": [_axis(a) for a in "yx"],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [20.0, 30.0]}]},
             {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [40.0, 60.0]}]},

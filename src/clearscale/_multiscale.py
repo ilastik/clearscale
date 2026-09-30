@@ -1734,6 +1734,21 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         source_axes = self.axes
         target_axes = relation.target_axes(source_axes) if relation else source_axes
         target_ome_axes = _reconcile_axis_prop_params(target_axes, self.ome_zarr_axes, ome_zarr_axes, unit)
+        # Coordinate systems inside multiscale metadata must be valid OME-Zarr. Types are usually not known yet, so
+        # only reject what no assignment of types to the still untyped axes could fix; the rest is left to validation.
+        if not ome_zarr.MIN_NDIM <= len(target_axes) <= ome_zarr.MAX_NDIM:
+            raise ValueError(
+                f"Coordinate system {name!r} would have {len(target_axes)} axes {list(target_axes)}. "
+                f"Coordinate systems of a Multiscale must have {ome_zarr.MIN_NDIM} to "
+                f"{ome_zarr.MAX_NDIM} axes."
+            )
+        if not ome_zarr.has_enough_potential_space_axes(target_ome_axes):
+            raise ValueError(
+                f"Coordinate system {name!r} with axes {list(target_axes)} cannot have "
+                f"{ome_zarr.MIN_SPACE_AXES} or {ome_zarr.MAX_SPACE_AXES} axes of type 'space': "
+                f"too many axes already have other types (or too many are already 'space'). Axis types: "
+                f"{ {a: ax.type for a, ax in target_ome_axes.items()} }."
+            )
 
         target_ref = CoordinateSystem(target_ome_axes)._as_ref(name)
         transform = (relation_to_transform_canonic(relation, source_axes) if relation else IdentityTransform()).bound(
@@ -1952,16 +1967,41 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         new_ms.has_shapes = self.has_shapes or blueprint is not None
         return new_ms.as_derived_from(self, by=derived_by)
 
+    def validate_for_ome_zarr(self, *, missing_axis_types: Optional[ome_zarr.MissingAxisTypes] = None) -> None:
+        """
+        Raise a ValueError describing the problem if this Multiscale cannot be written as OME-Zarr.
+        Call it before doing expensive data processing to avoid failing at the very end.
+
+        Checks the requirements common to all OME-Zarr versions: valid scale keys, 2 to 5 axes, 2 or 3 axes of
+        type "space", and time-channel-others axis type order.
+        Checks all of this Multiscale's coordinate systems. `to_ome_zarr` for versions before 0.6 only writes,
+        and hence only requires validity of, the Multiscale's own system.
+
+        `missing_axis_types`: Same as in `to_ome_zarr`; validates as if the missing types were filled in.
+        """
+        ome_zarr.validate_multiscale(self, missing_axis_types)
+
     # Ignore narrowing of `version: str` to Literal (nicer to be explicit)
     def to_ome_zarr(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         *,
         version: Literal["0.4", "0.5", "0.6"],
         name: Optional[str] = None,
+        missing_axis_types: Optional[ome_zarr.MissingAxisTypes] = None,
     ) -> Dict[str, Any]:
+        """
+        Raises ValueError if this Multiscale cannot be represented as OME-Zarr metadata (see `validate_for_ome_zarr`).
+        Before 0.6, only this Multiscale's own axes are written, so only they are required to be valid.
+
+        `missing_axis_types`: Escape hatch for Multiscales whose axes lack types. Prefer specifying types when
+        constructing the Scale (`ome_zarr_axes`). Fills in only axes that have no type, in all coordinate systems.
+        "infer" derives types from standard axis keys; a mapping {axis_key: type} sets them explicitly.
+        """
         if version not in ome_zarr.SUPPORTED_OME_ZARR_VERSIONS_WRITE:
             raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.")
-        ome_zarr.validate_multiscale(self)
+        system_axes = ome_zarr.validate_multiscale(
+            self, missing_axis_types, all_systems=version not in PRE_TRANSFORMS_VERSIONS
+        )
         result: Dict[str, Any] = {"version": version, "datasets": []}
         if self.ome:
             result.update(self.ome.to_ome_zarr())
@@ -1971,7 +2011,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         # Modern: Multiscale is graph + datasets
         if version not in PRE_TRANSFORMS_VERSIONS:
-            result.update(self._transform_graph.to_ome_zarr(version=version))
+            result.update(self._transform_graph.to_ome_zarr(version=version, system_axes=system_axes))
             for key, scale in self.items():
                 dataset = ome_zarr.build_dataset_dict(
                     version,
@@ -1986,7 +2026,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         # Legacy: Determine axes, coordinateTransformations, and datasets, and handle legacy t-scale convention
         assert self._intrinsic_ref.owner, "dev error: must always have intrinsic"
-        intrinsic_system_dict = self._intrinsic_ref.owner.to_ome_zarr(name="", version=version)
+        intrinsic_system_dict = CoordinateSystem(system_axes[self._intrinsic_ref]).to_ome_zarr(name="", version=version)
         result["axes"] = intrinsic_system_dict["axes"]
 
         multiscale_transforms = self._find_legacy_compatible_coordinate_system()

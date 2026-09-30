@@ -13,7 +13,7 @@ def test_simple_dump_example():
 
     # Write metadata
     # Make a Scale, expand it to a Multiscale, put that in an OME-Zarr group.
-    scale = Scale.from_lists("zyx")  # Axis keys are the minimum you really must specify
+    scale = Scale.from_lists("zyx", ome_zarr_axes="infer")  # Axis keys are the minimum you really must specify
     written = OmeZarrGroup.from_single(Multiscale.from_single(scale, scale_key=array_path)).to_attrs(version="0.5")
 
     assert "ome" in written
@@ -25,7 +25,11 @@ def test_simple_dump_example():
         "ome": {
             "multiscales": [
                 {
-                    "axes": [{"name": "z"}, {"name": "y"}, {"name": "x"}],
+                    "axes": [
+                        {"name": "z", "type": "space"},
+                        {"name": "y", "type": "space"},
+                        {"name": "x", "type": "space"},
+                    ],
                     "datasets": [
                         {
                             "coordinateTransformations": [{"scale": [1.0, 1.0, 1.0], "type": "scale"}],
@@ -61,7 +65,7 @@ def test_downscale_2_example():
     # noop for this test
 
     # 4. Expand and write metadata
-    base = Scale(shape, pixel_size, unit)
+    base = Scale(shape, pixel_size, unit, ome_zarr_axes="infer")
     ms = Multiscale.from_single(base, blueprint=scaling_blueprint)
     written = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 
@@ -77,10 +81,10 @@ def test_downscale_2_example():
         "coordinateSystems": [
             {
                 "axes": [
-                    {"name": "t", "unit": "s"},
-                    {"name": "z", "unit": "micrometer"},
-                    {"name": "y", "unit": "micrometer"},
-                    {"name": "x", "unit": "micrometer"},
+                    {"name": "t", "type": "time", "unit": "s", "discrete": False},
+                    {"name": "z", "type": "space", "unit": "micrometer", "discrete": False},
+                    {"name": "y", "type": "space", "unit": "micrometer", "discrete": False},
+                    {"name": "x", "type": "space", "unit": "micrometer", "discrete": False},
                 ],
                 "name": written_system_name,
             }

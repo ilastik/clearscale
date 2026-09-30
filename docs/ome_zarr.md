@@ -234,7 +234,8 @@ The absolute minimum path when you really have no metadata at all:
 ```python
 # If you don't even know axes, you can't use OME-Zarr
 scale = Scale(
-  shape=Shape.fromkeys("zyx")
+  shape=Shape.fromkeys("zyx"),
+  ome_zarr_axes="infer"  # Recognises the standard axis keys "tczyx" and knows their OME-Zarr types
 )
 
 multiscale = Multiscale.from_single(
@@ -244,6 +245,8 @@ multiscale = Multiscale.from_single(
 ```
 
 If more metadata is available (pixel size, units, etc.), pass it to the `Scale`.
+
+If you're not using standard axis keys, specify at least two axes as "space" like `ome_zarr_axes={your_axis_key: clearscale.ome_zarr.Axis(type="space")}`.
 
 If you're scaling the data, make a matching blueprint and add the `blueprint=your_blueprint` parameter to expand the single Scale to multiple scales matching your blueprint.
 Don't forget to supply how your scaling method handles `pixel_sizing`, `translating` and `rounding`.
@@ -270,6 +273,30 @@ If you also scale the processing output derived from that scale, provide the mat
 You can use it to specify *how* the new Multiscale was derived from the source Scale.
 Note that when it comes to writing output metadata, only OME-Zarr version 0.6 can fully express all `SpatialRelations`.
 When generating OME-Zarr versions 0.5 or 0.4, clearscale will express the relation in the output metadata only if possible (e.g. if it only consists of `Factor`, `Translation` and/or `AxisRearrangementTo`).
+
+### Axis types
+
+OME-Zarr has a few requirements for the axes of a multiscale that clearscale checks when you write metadata:
+
+* There must be 2 to 5 axes.
+* 2 or 3 of the axes must be of type `"space"`.
+* If any axis has type `"time"`, it must be first, and if any has type `"channel"`, it must come right after `"time"` (or be first).
+
+Axis types are part of the `Scale`.
+The easiest way to provide them is `ome_zarr_axes="infer"`, which assigns types to the standard axis keys (`t`, `c`, `z`, `y`, `x`).
+For any other axis keys, or to set other axis properties, pass the `ome_zarr_axes` explicitly:
+
+```python
+from clearscale import Scale, Shape
+from clearscale.ome_zarr import Axis
+
+scale = Scale(
+    shape=Shape(w=3, u=100, v=100),
+    ome_zarr_axes={"w": Axis(type="channel"), "u": Axis(type="space"), "v": Axis(type="space")},
+)
+```
+
+Writing raises an error that names the offending axes if the requirements are not met.
 
 ## Making new OmeZarrGroups
 

@@ -95,7 +95,7 @@ OME_ZARR_MIN_MS_0_1 = {"datasets": [{"path": "s0"}]}
 OME_ZARR_MIN_MS_0_2 = {"datasets": [{"path": "s0"}]}
 OME_ZARR_MIN_MS_0_3 = {"axes": ["x", "y"], "datasets": [{"path": "s0"}]}
 OME_ZARR_MIN_MS_0_4 = {
-    "axes": [{"name": "x"}, {"name": "y"}],
+    "axes": [{"name": "x", "type": "space"}, {"name": "y", "type": "space"}],
     "datasets": [
         {
             "path": "s0",

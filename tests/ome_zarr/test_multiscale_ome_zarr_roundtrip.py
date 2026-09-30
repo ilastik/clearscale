@@ -115,7 +115,7 @@ def test_multiscale_roundtrip_preserves_coordinate_system_order(
 
 def test_multiscale_roundtrips_zero_scale_values_from_ome_zarr():
     metadata = {
-        "axes": [{"name": "c"}, {"name": "y"}, {"name": "x"}],
+        "axes": [{"name": "c"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]},
         ],
@@ -129,7 +129,7 @@ def test_multiscale_roundtrips_zero_scale_values_from_ome_zarr():
 
 def test_new_multiscale_writes_normalized_zero_scale_values():
     metadata = {
-        "axes": [{"name": "c"}, {"name": "y"}, {"name": "x"}],
+        "axes": [{"name": "c"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]},
         ],

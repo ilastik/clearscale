@@ -11,6 +11,7 @@ from clearscale._scene import Scene
 from clearscale._transforms import FileRef
 from clearscale._services.ome_zarr import (
     SUPPORTED_OME_ZARR_VERSIONS_WRITE,
+    MissingAxisTypes,
     ImageLabel,
     Omero,
 )
@@ -254,7 +255,13 @@ class OmeZarrGroup:
         """
         return cls.from_attrs(group.attrs, shape_source=shape_source or group)
 
-    def to_attrs(self, version: Literal["0.4", "0.5", "0.6"], *, override_multi_multiscales=False) -> Dict[str, Any]:
+    def to_attrs(
+        self,
+        version: Literal["0.4", "0.5", "0.6"],
+        *,
+        override_multi_multiscales=False,
+        missing_axis_types: Optional[MissingAxisTypes] = None,
+    ) -> Dict[str, Any]:
         """Return attributes for the zarr group described by this OmeZarrGroup metadata.
         Pass this to `zarr_group.attrs.update()` to make zarr_group an OME-Zarr dataset.
 
@@ -262,6 +269,8 @@ class OmeZarrGroup:
           arbitrary collections of multiple multiscales. It is technically possible to specify multiple "multiscales",
           but this is badly supported across the tool ecosystem. Pass True to write multiple entries in "multiscales"
           anyway. Only do this if all Multiscales describe different ways of downsampling the same raw data.
+        missing_axis_types: Escape hatch for Multiscales whose axes lack types. See `Multiscale.to_ome_zarr`.
+          Applies to every Multiscale written; has no effect on scenes.
         """
         if version not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
             raise ValueError(f"Cannot write OME-Zarr with {version=}")
@@ -270,7 +279,7 @@ class OmeZarrGroup:
         self._validate_for_version(version, override_multi_multiscales)
         ome: Dict[str, Any] = {}
         if self.kind is GroupKind.MULTISCALE:
-            ome.update(self._multiscales_to_attrs(version))
+            ome.update(self._multiscales_to_attrs(version, missing_axis_types))
         elif self.kind is GroupKind.SCENE:
             ome["scene"] = self.scenes[0].to_ome_zarr(version=version)
         elif self.kind is GroupKind.LABELS:
@@ -292,7 +301,7 @@ class OmeZarrGroup:
             )
         elif self.kind is GroupKind.COLLECTION:
             if self.multiscales and not self.scenes and not self.children and override_multi_multiscales:
-                ome.update(self._multiscales_to_attrs(version))
+                ome.update(self._multiscales_to_attrs(version, missing_axis_types))
             else:
                 raise NotImplementedError("No version of OME-Zarr currently supports collections.")
         if version == "0.4":
@@ -321,9 +330,13 @@ class OmeZarrGroup:
                 f"Cannot write this group in OME-Zarr version {version}: {self.kind.value} groups are not supported."
             )
 
-    def _multiscales_to_attrs(self, version: Literal["0.4", "0.5", "0.6"]) -> Dict[str, Any]:
+    def _multiscales_to_attrs(
+        self, version: Literal["0.4", "0.5", "0.6"], missing_axis_types: Optional[MissingAxisTypes]
+    ) -> Dict[str, Any]:
         multiscale_group_attrs: Dict[str, Any] = {
-            "multiscales": [ms.to_ome_zarr(version=version) for ms in self.multiscales]
+            "multiscales": [
+                ms.to_ome_zarr(version=version, missing_axis_types=missing_axis_types) for ms in self.multiscales
+            ]
         }
 
         unique_omero = None
