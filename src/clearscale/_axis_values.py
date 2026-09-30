@@ -110,12 +110,16 @@ class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, A
         This is just to stay consistent with the plain dict interface."""
         return self.__class__(self._mapping)
 
-    @property
-    def value_tuple(self) -> Tuple[AxisMappedHashable, ...]:
+    def keys_tuple(self) -> Tuple[AxisKeyT, ...]:
+        return tuple(self.keys())
+
+    def keys_list(self) -> List[AxisKeyT]:
+        return list(self.keys())
+
+    def values_tuple(self) -> Tuple[AxisMappedHashable, ...]:
         return tuple(self.values())
 
-    @property
-    def value_list(self) -> List[AxisMappedHashable]:
+    def values_list(self) -> List[AxisMappedHashable]:
         return list(self.values())
 
     def with_axes_order(self: _AxisMappingSelf, axes: OrderedAxesT) -> _AxisMappingSelf:

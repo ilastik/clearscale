@@ -21,7 +21,7 @@ scaling_blueprint = BlueprintShapes.downscale_powers_of_2_xyz(
 
 # 2. Scale data according to the blueprint
 for scale_key, target_shape in scaling_blueprint.items():
-    scaled_data = do_my_scaling(my_data, target_shape.value_tuple)
+    scaled_data = do_my_scaling(my_data, target_shape.values_tuple())
     zarr_group.create_array(scale_key, data=scaled_data)
 
 # 3. Annotate

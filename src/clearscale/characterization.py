@@ -216,7 +216,7 @@ def characterize_shape_factor_scaling_method(
     Feed the result to `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())`.
 
     Note that clearscale.Factor is a shape *divisor*, so when calling such a scaling function
-    to execute the blueprint, pass `factor.inverted().value_tuple`.
+    to execute the blueprint, pass `factor.inverted().values_tuple()`.
     """
     rounding_rules: RoundingRuleTable = {
         "floor": lambda p: math.floor(p.source_length * p.factor),
@@ -258,7 +258,7 @@ def characterize_step_factor_scaling_method(
     Feed the result to `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())`.
 
     Since clearscale.Factor is itself a shape divisor, you can directly pass the blueprint's
-    factors into such a scaling function, usually like `factor.value_tuple`.
+    factors into such a scaling function, usually like `factor.values_tuple()`.
     Most such methods only accept integer scaling factors.
     """
     rounding_rules: RoundingRuleTable = {

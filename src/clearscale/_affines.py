@@ -200,10 +200,10 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
         return self.__class__(replaced_items)
 
     def to_tuples(self) -> Tuple[Tuple[float, ...], ...]:
-        return tuple(coeff.value_tuple for coeff in self.values())
+        return tuple(coeff.values_tuple() for coeff in self.values())
 
     def to_lists(self) -> List[List[float]]:
-        return [coeff.value_list for coeff in self.values()]
+        return [coeff.values_list() for coeff in self.values()]
 
     def to_dict(self) -> OrderedDict[AxisKey, OrderedDict[AxisKey, float]]:
         return OrderedDict([(axis, OrderedDict(coeff)) for axis, coeff in self.items()])
@@ -365,13 +365,13 @@ class Affine:
         return replace(self, translation=translation)
 
     def to_tuples(self) -> Tuple[Tuple[float, ...], ...]:
-        return tuple(row.value_tuple + (self.translation[axis],) for axis, row in self.linear.items())
+        return tuple(row.values_tuple() + (self.translation[axis],) for axis, row in self.linear.items())
 
     def to_tuples_homogenous(self) -> Tuple[Tuple[float, ...], ...]:
         return self.to_tuples() + ((*(0.0 for _ in self.linear), 1.0),)
 
     def to_lists(self) -> List[List[float]]:
-        return [row.value_list + [self.translation[axis]] for axis, row in self.linear.items()]
+        return [row.values_list() + [self.translation[axis]] for axis, row in self.linear.items()]
 
     def to_lists_homogenous(self) -> List[List[float]]:
         return self.to_lists() + [[*(0.0 for _ in self.linear), 1.0]]
