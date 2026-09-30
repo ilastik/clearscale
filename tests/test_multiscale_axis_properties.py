@@ -284,13 +284,13 @@ class TestMultiscale:
     def test_unit_and_ome_zarr_axes_properties_reflect_scales(self):
         ms = Multiscale(
             {
-                "s0": Scale(shape=Shape(x=100), unit=Unit(x="micrometer")),
-                "s1": Scale(shape=Shape(x=50), unit=Unit(x="micrometer")),
+                "s0": Scale(shape=Shape(x=100, y=100), unit=Unit(x="micrometer", y="micrometer")),
+                "s1": Scale(shape=Shape(x=50, y=50)),  # blank unit
             }
         )
-        assert ms.unit == Unit(x="micrometer")
+        assert ms.unit == Unit(x="micrometer", y="micrometer")
         assert ms.ome_zarr_axes["x"].unit == "micrometer"
-        assert ms["s0"].ome_zarr_axes is ms["s1"].ome_zarr_axes
+        assert ms["s0"].ome_zarr_axes is ms["s1"].ome_zarr_axes, "scales should share same instance for ome axes"
 
     def test_to_ome_zarr_output_matches_unit_property(self):
         ms = Multiscale({"s0": Scale(shape=Shape(y=100, x=100), unit=Unit(x="micrometer"), ome_zarr_axes="infer")})
@@ -299,44 +299,34 @@ class TestMultiscale:
         assert ms.unit["x"] == "micrometer", "sanity check"
         assert serialized_unit == ms.unit["x"]
 
-    def test_all_scales_share_canonical_unit_and_axes_instances(self):
-        ms = Multiscale(
-            {
-                "s0": Scale(shape=Shape(x=100), unit=Unit(x="micrometer")),
-                "s1": Scale(shape=Shape(x=50)),  # blank unit
-            }
-        )
-        assert ms["s0"].unit == ms["s1"].unit == Unit(x="micrometer")
-        assert ms["s0"].ome_zarr_axes == ms["s1"].ome_zarr_axes
-
     def test_complementary_axis_info_merges_without_conflict(self):
-        s0 = Scale(shape=Shape(x=100), unit=Unit(x="micrometer"))
-        s1 = Scale(shape=Shape(x=50), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})
+        s0 = Scale(shape=Shape(x=100, y=100), unit=Unit(x="micrometer"))
+        s1 = Scale(shape=Shape(x=50, y=50), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})
         ms = Multiscale({"s0": s0, "s1": s1})
         assert ms.ome_zarr_axes["x"].unit == "micrometer"
         assert ms.ome_zarr_axes["x"].type == "space"
 
     def test_conflicting_unit_across_scales_raises(self):
-        s0 = Scale(shape=Shape(x=100), unit=Unit(x="micrometer"))
-        s1 = Scale(shape=Shape(x=50), unit=Unit(x="nanometer"))
+        s0 = Scale(shape=Shape(x=100, y=100), unit=Unit(x="micrometer"))
+        s1 = Scale(shape=Shape(x=50, y=50), unit=Unit(x="nanometer"))
         with pytest.raises(ValueError, match="Conflicting 'unit'"):
             Multiscale({"s0": s0, "s1": s1})
 
     def test_conflicting_type_across_scales_raises(self):
-        s0 = Scale(shape=Shape(x=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})
-        s1 = Scale(shape=Shape(x=50), ome_zarr_axes={"x": ome_zarr.Axis(type="channel")})
+        s0 = Scale(shape=Shape(x=100, y=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})
+        s1 = Scale(shape=Shape(x=50, y=50), ome_zarr_axes={"x": ome_zarr.Axis(type="channel")})
         with pytest.raises(ValueError, match="Conflicting 'type'"):
             Multiscale({"s0": s0, "s1": s1})
 
     def test_conflicting_other_axis_property_across_scales_raises(self):
-        s0 = Scale(shape=Shape(x=100), ome_zarr_axes={"x": ome_zarr.Axis(long_name="cool")})
-        s1 = Scale(shape=Shape(x=50), ome_zarr_axes={"x": ome_zarr.Axis(long_name="story")})
+        s0 = Scale(shape=Shape(x=100, y=100), ome_zarr_axes={"x": ome_zarr.Axis(long_name="cool")})
+        s1 = Scale(shape=Shape(x=50, y=50), ome_zarr_axes={"x": ome_zarr.Axis(long_name="story")})
         with pytest.raises(ValueError, match="Conflicting 'long_name'"):
             Multiscale({"s0": s0, "s1": s1})
 
     def test_merge_is_order_independent(self):
-        s_with_unit = Scale(shape=Shape(x=100), unit=Unit(x="micrometer"))
-        s_with_type = Scale(shape=Shape(x=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})
+        s_with_unit = Scale(shape=Shape(x=100, y=100), unit=Unit(x="micrometer"))
+        s_with_type = Scale(shape=Shape(x=100, y=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})
         ms_a = Multiscale({"s0": s_with_unit, "s1": s_with_type})
         ms_b = Multiscale({"s0": s_with_type, "s1": s_with_unit})
         assert ms_a.ome_zarr_axes["x"] == ms_b.ome_zarr_axes["x"]
@@ -491,7 +481,7 @@ class TestMultiscaleTransfer:
     def test_with_coordinate_system_rejects_conflicting_unit_arguments(self):
         ms = Multiscale(
             {
-                "s0": Scale(shape=Shape(x=100), unit=Unit(x="micrometer")),
+                "s0": Scale(shape=Shape(x=100, y=100), unit=Unit(x="micrometer")),
             }
         )
 
@@ -505,7 +495,11 @@ class TestMultiscaleTransfer:
 
     def test_with_coordinate_system_inserted_axes_default_to_empty_properties(self):
         ms = Multiscale(
-            {"s0": Scale(shape=Shape(x=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space", unit="micrometer")})}
+            {
+                "s0": Scale(
+                    shape=Shape(x=100, y=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space", unit="micrometer")}
+                )
+            }
         )
 
         ms2 = ms.with_coordinate_system(
@@ -540,7 +534,7 @@ class TestMultiscaleTransfer:
         assert cs["c"] == ome_zarr.Axis(name="c", type="channel", discrete=True)
 
     def test_with_coordinate_system_accepts_unit_for_inserted_axes(self):
-        ms = Multiscale({"s0": Scale(shape=Shape(x=100))})
+        ms = Multiscale({"s0": Scale(shape=Shape(x=100, y=100))})
 
         ms2 = ms.with_coordinate_system("world", reached_by=AxisRearrangementTo(("c", "x")), unit=Unit(c="index"))
 
@@ -565,7 +559,7 @@ class TestMultiscaleTransfer:
         assert axis.type == "space"
 
     def test_with_coordinate_system_ignores_excess_properties_and_unit(self):
-        ms = Multiscale({"s0": Scale(shape=Shape(x=100))})
+        ms = Multiscale({"s0": Scale(shape=Shape(x=100, y=100))})
 
         ms2 = ms.with_coordinate_system(
             "world",
@@ -594,14 +588,14 @@ class TestMultiscaleTransfer:
         parent = Multiscale(
             {
                 "s0": Scale(
-                    shape=Shape(x=100),
+                    shape=Shape(x=100, y=100),
                     ome_zarr_axes={
                         "x": ome_zarr.Axis(type="space", unit="micrometer", discrete=True, long_name="position")
                     },
                 )
             }
         )
-        child = Multiscale({"s0": Scale(shape=Shape(x=50), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})})
+        child = Multiscale({"s0": Scale(shape=Shape(x=50, y=50), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})})
 
         result = child.as_derived_from(parent)
 
@@ -612,10 +606,14 @@ class TestMultiscaleTransfer:
 
     def test_as_derived_from_preserves_child_axis_properties(self):
         parent = Multiscale(
-            {"s0": Scale(shape=Shape(x=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space", unit="micrometer")})}
+            {
+                "s0": Scale(
+                    shape=Shape(x=100, y=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space", unit="micrometer")}
+                )
+            }
         )
         child = Multiscale(
-            {"s0": Scale(shape=Shape(x=50), ome_zarr_axes={"x": ome_zarr.Axis(type="channel", unit="nanometer")})}
+            {"s0": Scale(shape=Shape(x=50, y=50), ome_zarr_axes={"x": ome_zarr.Axis(type="channel", unit="nanometer")})}
         )
 
         result = child.as_derived_from(parent)
@@ -627,19 +625,19 @@ class TestMultiscaleTransfer:
         parent = Multiscale(
             {
                 "s0": Scale(
-                    shape=Shape(c=3, x=100),
+                    shape=Shape(c=3, x=100, y=100),
                     ome_zarr_axes={"c": ome_zarr.Axis(type="channel"), "x": ome_zarr.Axis(type="space")},
                 )
             }
         )
-        child = Multiscale({"s0": Scale(shape=Shape(x=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})})
+        child = Multiscale({"s0": Scale(shape=Shape(x=100, y=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})})
 
-        result = child.as_derived_from(parent, by=AxisRearrangementTo(("x",)))
+        result = child.as_derived_from(parent, by=AxisRearrangementTo(("x", "y")))
 
-        assert set(result.ome_zarr_axes) == {"x"}
+        assert set(result.ome_zarr_axes) == {"x", "y"}
 
     def test_as_derived_from_leaves_inserted_child_axes_unchanged(self):
-        parent = Multiscale({"s0": Scale(shape=Shape(x=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})})
+        parent = Multiscale({"s0": Scale(shape=Shape(x=100, y=100), ome_zarr_axes={"x": ome_zarr.Axis(type="space")})})
         child = Multiscale(
             {
                 "s0": Scale(
@@ -662,9 +660,9 @@ class TestMultiscaleTransfer:
                 )
             }
         )
-        child = Multiscale({"s0": Scale(shape=Shape(x=50), ome_zarr_axes={"x": ome_zarr.Axis()})})
+        child = Multiscale({"s0": Scale(shape=Shape(c=1, x=50), ome_zarr_axes={"x": ome_zarr.Axis()})})
 
-        result = child.as_derived_from(parent, by=AxisRearrangementTo(("x",)))
+        result = child.as_derived_from(parent, by=AxisRearrangementTo(("c", "x")))
 
         assert result.ome_zarr_axes["x"].unit == "micrometer"
         assert "y" not in result.ome_zarr_axes
@@ -674,8 +672,8 @@ class TestMultiscaleTransfer:
         # Conflicting axis properties indicate that the axis by the same ID is actually a different axis on the child.
         # This should be specified as a drop-reinsert relation as in the test below.
         # But SpatialRelation can't track axis provenance yet (tbd).
-        parent = Multiscale({"s0": Scale(shape=Shape(c=3), ome_zarr_axes={"c": ome_zarr.Axis(type="channel")})})
-        child = Multiscale({"s0": Scale(shape=Shape(c=3), ome_zarr_axes={"c": ome_zarr.Axis(type="label")})})
+        parent = Multiscale({"s0": Scale(shape=Shape(c=3, x=1), ome_zarr_axes={"c": ome_zarr.Axis(type="channel")})})
+        child = Multiscale({"s0": Scale(shape=Shape(c=3, x=1), ome_zarr_axes={"c": ome_zarr.Axis(type="label")})})
 
         # with pytest.raises(ValueError, match="Conflicting type for axis 'c'"):  # Should raise but doesn't yet. Document actual behaviour instead.
         result = child.as_derived_from(parent)

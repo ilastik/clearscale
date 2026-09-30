@@ -46,15 +46,6 @@ class TestToOmeZarr:
         with pytest.raises(ValueError, match="type 'space'.*ome_zarr_axes='infer'"):
             _untyped().to_ome_zarr(version=version)
 
-    @pytest.mark.parametrize("axes", ["x", "tczyxa"])
-    def test_rejects_wrong_ndim(self, version, axes):
-        # TODO: ndim requirements should actually be enforced already during Multiscale construction.
-        # There is no way to fix a 1D or 5D+ Multiscale by the time to_ome_zarr is called, so their
-        # existence should be prevented.
-        ms = Multiscale.from_single(Scale.from_lists(axes, ome_zarr_axes=[SPACE for _ in axes]))
-        with pytest.raises(ValueError, match="2 to 5 axes"):
-            ms.to_ome_zarr(version=version)
-
     @pytest.mark.parametrize("n_space", [0, 1, 4, 5])
     def test_rejects_one_space_axis(self, version, n_space):
         ome_axes: List[ome_zarr.Axis] = ([SPACE] * n_space) + ([ome_zarr.Axis()] * (5 - n_space))

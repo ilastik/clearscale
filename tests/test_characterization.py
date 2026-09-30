@@ -441,6 +441,11 @@ class TestCharacterizeExactDivisionOnlyFunction:
             characterize_shape_factor_scaling_method(always_broken)
 
 
+def _as_xy(obj):
+    """To satisfy the requirement that Multiscales must be at least 2D"""
+    return obj.with_axes("xy")
+
+
 class TestCharacterizationKwargsApply:
     """Whole-pipeline: characterize_* -> to_shape_kwargs()/to_factor_kwargs() -> apply_to_scale"""
 
@@ -458,15 +463,15 @@ class TestCharacterizationKwargsApply:
         assert characterization.pixel_sizing == "shape_ratio"
         assert characterization.rounding is None
 
-        base = Scale(shape=Shape(x=1000), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0))
+        base = _as_xy(Scale(shape=Shape(x=1000), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
         real_output = resize_like([float(i) for i in range(1000)], 327)  # (1000, 327) is not probed internally
 
-        blueprint = BlueprintShapes({"s0": base.shape, "s1": Shape(x=327)})
+        blueprint = BlueprintShapes({"s0": base.shape, "s1": _as_xy(Shape(x=327))})
         multiscale = blueprint.apply_to_scale(base, **characterization.to_shape_kwargs())
 
-        assert multiscale["s1"].shape == Shape(x=len(real_output))
-        assert multiscale["s1"].pixel_size == PixelSize(x=real_output[1] - real_output[0])
-        assert multiscale["s1"].translation == Translation(x=real_output[0])
+        assert multiscale["s1"].shape == _as_xy(Shape(x=len(real_output)))
+        assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=real_output[1] - real_output[0]))
+        assert multiscale["s1"].translation == _as_xy(Translation(x=real_output[0]))
 
     def test_pipeline_corner_ratio_align_corners_style_method_feeds_blueprint_shapes(self):
         """shape-parametrized method, corner_ratio + first_value_decimation, -> BlueprintShapes."""
@@ -481,15 +486,15 @@ class TestCharacterizationKwargsApply:
         assert characterization.pixel_sizing == "corner_ratio"
         assert characterization.rounding is None
 
-        base = Scale(shape=Shape(x=1000), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0))
+        base = _as_xy(Scale(shape=Shape(x=1000), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
         real_output = align_corners_resize([float(i) for i in range(1000)], 401)
 
-        blueprint = BlueprintShapes({"s0": base.shape, "s1": Shape(x=401)})
+        blueprint = BlueprintShapes({"s0": base.shape, "s1": _as_xy(Shape(x=401))})
         multiscale = blueprint.apply_to_scale(base, **characterization.to_shape_kwargs())
 
-        assert multiscale["s1"].shape == Shape(x=len(real_output))
-        assert multiscale["s1"].pixel_size == PixelSize(x=real_output[1] - real_output[0])
-        assert multiscale["s1"].translation == Translation(x=real_output[0])
+        assert multiscale["s1"].shape == _as_xy(Shape(x=len(real_output)))
+        assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=real_output[1] - real_output[0]))
+        assert multiscale["s1"].translation == _as_xy(Translation(x=real_output[0]))
 
     def test_pipeline_exact_factor_zoom_style_method_feeds_blueprint_factors(self):
         """shape-factor method, exact_factor + ceil + first_value_decimation, -> BlueprintFactors."""
@@ -505,15 +510,15 @@ class TestCharacterizationKwargsApply:
         assert characterization.pixel_sizing == "exact_factor"
         assert characterization.rounding == "ceil"
 
-        base = Scale(shape=Shape(x=1501), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0))
+        base = _as_xy(Scale(shape=Shape(x=1501), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
         real_output = zoom_like([float(i) for i in range(1501)], 0.25)  # 1501 * 0.25 = 375.25, never probed
 
         blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=4.0)})  # clearscale Factor == 1 / 0.25
         multiscale = blueprint.apply_to_scale(base, **characterization.to_factor_kwargs())
 
-        assert multiscale["s1"].shape == Shape(x=len(real_output))
-        assert multiscale["s1"].pixel_size == PixelSize(x=real_output[1] - real_output[0])
-        assert multiscale["s1"].translation == Translation(x=real_output[0])
+        assert multiscale["s1"].shape == _as_xy(Shape(x=len(real_output)))
+        assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=real_output[1] - real_output[0]))
+        assert multiscale["s1"].translation == _as_xy(Translation(x=real_output[0]))
 
     def test_pipeline_shape_ratio_block_reduce_style_method_feeds_blueprint_factors(self):
         """step-factor method, shape_ratio + floor + discrete_bin_center, -> BlueprintFactors."""
@@ -531,17 +536,17 @@ class TestCharacterizationKwargsApply:
         assert characterization.pixel_sizing == "shape_ratio"
         assert characterization.rounding == "floor"
 
-        base = Scale(shape=Shape(x=2003), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0))
+        base = _as_xy(Scale(shape=Shape(x=2003), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
         real_output = block_reduce_like([float(i) for i in range(2003)], 3)  # never probed
 
         blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=3.0)})
         multiscale = blueprint.apply_to_scale(base, **characterization.to_factor_kwargs())
 
-        assert multiscale["s1"].shape == Shape(x=len(real_output))
+        assert multiscale["s1"].shape == _as_xy(Shape(x=len(real_output)))
         assert multiscale["s1"].pixel_size.values_tuple() == pytest.approx(
-            (real_output[1] - real_output[0],), abs=1e-14
+            (real_output[1] - real_output[0], 1.0), abs=1e-14
         )
-        assert multiscale["s1"].translation == Translation(x=real_output[0])
+        assert multiscale["s1"].translation == _as_xy(Translation(x=real_output[0]))
 
     def test_pipeline_indeterminate_rounding_redirects_to_blueprint_shapes(self):
         """Not a real characterization. The implementation detail of the scaling method that would cause "indeterminate" is not important here.
@@ -558,8 +563,8 @@ class TestCharacterizationKwargsApply:
         with pytest.raises(ValueError, match="could not determine rounding behavior"):
             characterization.to_factor_kwargs()
 
-        base = Scale(shape=Shape(x=101), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0))
-        actually_produced_shape = Shape(x=37)  # whatever the real scaling call returned
+        base = _as_xy(Scale(shape=Shape(x=101), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
+        actually_produced_shape = _as_xy(Shape(x=37))  # whatever the real scaling call returned
 
         blueprint = BlueprintShapes({"s0": base.shape, "s1": actually_produced_shape})
         multiscale = blueprint.apply_to_scale(base, **characterization.to_shape_kwargs())
@@ -567,5 +572,5 @@ class TestCharacterizationKwargsApply:
         # 101/37 = 2.7297..., discrete_bin_center's implicit bin size = ceil(2.7297) = 3,
         # shift = 0.5 * (3-1) * 1.0 = 1.0
         assert multiscale["s1"].shape == actually_produced_shape
-        assert multiscale["s1"].pixel_size == PixelSize(x=101 / 37)
-        assert multiscale["s1"].translation == Translation(x=1.0)
+        assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=101 / 37))
+        assert multiscale["s1"].translation == _as_xy(Translation(x=1.0))

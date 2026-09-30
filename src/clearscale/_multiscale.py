@@ -1344,6 +1344,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             # No internals supplied - "From scratch" construction with enforcement of multiscale format requirements
             if _transform_graph:
                 raise AssertionError("Must specify _intrinsic_ref when _transform_graph is given.")
+            if not ome_zarr.MIN_NDIM <= len(self.axes) <= ome_zarr.MAX_NDIM:
+                raise ValueError(
+                    f"Multiscales must have {ome_zarr.MIN_NDIM} to {ome_zarr.MAX_NDIM} axes. If your data are "
+                    f"genuinely {len(self.axes)}D, you cannot validly write them in any supported Multiscale format. "
+                    f"Otherwise, maybe use Scale.with_axes to rearrange to a valid number of dimensions?"
+                    f"Received: {self.axes}"
+                )
             canonical_axes = self._merge_ome_zarr_axes(list(self._mapping.values()))
             self._require_ome_zarr_permitted_type_order(canonical_axes)
             self._require_non_increasing_shape_order(list(self._mapping.items()))
