@@ -40,6 +40,26 @@ from clearscale._transforms._base import _is_owner_coordinate_system
 from .ome_zarr.multiscale_examples import minimal_multiscale_examples_params, maximal_multiscale_examples_params
 
 
+def test_scale_enforces_or_adapts_axis_order_by_shape():
+    # pixel_size and translation raise
+    with pytest.raises(ValueError, match="invalid scale: Axiskeys differ"):
+        Scale(shape=Shape(y=1, x=1), pixel_size=PixelSize(x=1.0, y=1.0))
+    with pytest.raises(ValueError, match="invalid scale: Axiskeys differ"):
+        Scale(shape=Shape(y=1, x=1), translation=Translation(x=0.0, y=0.0))
+    # ome_zarr_axis can be passed in arbitrary order because it's a clunkier mapping.
+    # unit interacts with ome_zarr_axes, so it also gets aligned with shape.
+    s = Scale(
+        shape=Shape(z=1, y=1, x=1),
+        unit=Unit(x="mm", y="mm", z="mm"),
+        ome_zarr_axes=dict(
+            y=ome_zarr.Axis(type="space"),
+            x=ome_zarr.Axis(type="space"),
+        ),
+    )
+    assert tuple(s.unit.keys()) == ("z", "y", "x")
+    assert tuple(s.ome_zarr_axes.keys()) == ("z", "y", "x")
+
+
 def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
     return CoordinateSystem.fromkeys(axes)._as_ref(name)
 
@@ -889,16 +909,21 @@ class TestMultiscaleWithCoordinateSystem:
 
 
 _SPACE_YX = {"y": ome_zarr.Axis(type="space"), "x": ome_zarr.Axis(type="space")}
-"""Inferred axes also set `discrete`, which can only be written by 0.6"""
-_INSERTED_TYPES = {"c": ome_zarr.Axis(type="channel"), "z": ome_zarr.Axis(type="space")}
-"""For relations that insert axes; ignored by relations that do not"""
-_TSPACE_TYX = {"t": ome_zarr.Axis(type="time"), **_SPACE_YX}
 
 
 class TestLosslessOmeZarrVersion:
+    def test_inferred_standard_axes_are_lossless_in_0_4(self):
+        ms = Multiscale.from_single(Scale.from_lists("tczyx", ome_zarr_axes="infer"))
+        assert ms.lowest_lossless_ome_zarr_version == "0.4"
+
+    def test_unwritable_multiscale_raises(self):
+        ms = Multiscale.from_single(Scale.from_lists("zyx"))
+        with pytest.raises(ValueError, match="cannot be written as valid OME-Zarr"):
+            ms.lowest_lossless_ome_zarr_version
+
     def test_lowest_lossless_version_plain_multiscale(self):
         ms = Multiscale.from_single(
-            Scale(shape=Shape(y=10, x=10), pixel_size=PixelSize(y=0.5, x=0.5), ome_zarr_axes=_SPACE_YX)
+            Scale(shape=Shape(y=10, x=10), pixel_size=PixelSize(y=0.5, x=0.5), ome_zarr_axes="infer")
         )
         assert ms.lowest_lossless_ome_zarr_version == "0.4"
 
@@ -931,8 +956,8 @@ class TestLosslessOmeZarrVersion:
         """identity, scale and scale(+translation) can sort of be expressed in 0.4,
         and to_ome_zarr does approximate it in the legacy path, but this is lossy."""
         ms = Multiscale.from_single(
-            Scale(shape=Shape(y=10, x=10), pixel_size=PixelSize(y=0.5, x=0.5), ome_zarr_axes=_SPACE_YX)
-        ).with_coordinate_system("world", reached_by=relation, ome_zarr_axes=_INSERTED_TYPES)
+            Scale(shape=Shape(y=10, x=10), pixel_size=PixelSize(y=0.5, x=0.5), ome_zarr_axes="infer")
+        ).with_coordinate_system("world", reached_by=relation, ome_zarr_axes={"z": ome_zarr.Axis(type="space")})
         assert ms.lowest_lossless_ome_zarr_version == "0.6"
 
     def test_lowest_lossless_version_two_external_systems(self):
@@ -963,7 +988,8 @@ class TestLosslessOmeZarrVersion:
         assert ms1.lowest_lossless_ome_zarr_version == "0.4"
 
         scale2 = Scale(
-            shape=Shape(y=10, x=10), ome_zarr_axes=_SPACE_YX | {"y": ome_zarr.Axis(type="space", long_name="row")}
+            shape=Shape(y=10, x=10),
+            ome_zarr_axes={"x": ome_zarr.Axis(type="space"), "y": ome_zarr.Axis(type="space", long_name="row")},
         )
         ms2 = Multiscale.from_single(scale2)
         assert ms2.lowest_lossless_ome_zarr_version == "0.6"
@@ -982,7 +1008,7 @@ class TestLosslessOmeZarrVersion:
     def test_lowest_lossless_version_legacy_t_scale_flag(self):
         """Would be reached via Multiscale.from_ome_zarr with json that follows the legacy t-scale convention"""
         base = Multiscale.from_single(
-            Scale(shape=Shape(t=5, y=10, x=10), pixel_size=PixelSize(t=2.0, y=0.5, x=0.5), ome_zarr_axes=_TSPACE_TYX)
+            Scale(shape=Shape(t=5, y=10, x=10), pixel_size=PixelSize(t=2.0, y=0.5, x=0.5), ome_zarr_axes="infer")
         )
         ms = Multiscale(
             base.items(),

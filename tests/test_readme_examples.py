@@ -81,10 +81,10 @@ def test_downscale_2_example():
         "coordinateSystems": [
             {
                 "axes": [
-                    {"name": "t", "type": "time", "unit": "s", "discrete": False},
-                    {"name": "z", "type": "space", "unit": "micrometer", "discrete": False},
-                    {"name": "y", "type": "space", "unit": "micrometer", "discrete": False},
-                    {"name": "x", "type": "space", "unit": "micrometer", "discrete": False},
+                    {"name": "t", "type": "time", "unit": "s"},
+                    {"name": "z", "type": "space", "unit": "micrometer"},
+                    {"name": "y", "type": "space", "unit": "micrometer"},
+                    {"name": "x", "type": "space", "unit": "micrometer"},
                 ],
                 "name": written_system_name,
             }
