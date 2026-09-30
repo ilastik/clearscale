@@ -204,7 +204,7 @@ class Scale:
         assert translation is not None, "for pyright"
 
         parsed_unit = unit if isinstance(unit, Unit) or unit is None else Unit(unit)
-        keys = shape.keys()
+        keys = list(shape.keys())
         parsed_ome_axes = _normalize_ome_zarr_axes_param(ome_zarr_axes, keys)
 
         if parsed_unit is not None:
@@ -220,7 +220,13 @@ class Scale:
         final_unit = parsed_unit if parsed_unit == merged_unit else merged_unit  # preserve instance where possible
         assert final_unit is not None, "for pyright"
 
-        if not (shape.keys() == pixel_size.keys() == final_unit.keys() == translation.keys() == parsed_ome_axes.keys()):
+        if not (
+            list(shape.keys())
+            == list(pixel_size.keys())
+            == list(final_unit.keys())
+            == list(translation.keys())
+            == list(parsed_ome_axes.keys())
+        ):
             raise ValueError(
                 f"Tried to set up invalid scale: Axiskeys differ "
                 f"(shape={list(shape.keys())}, pixel_size={list(pixel_size.keys())}, "
@@ -1578,10 +1584,10 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         unit = Unit(zip(axis_keys, ["", "nm", "nm", "nm"]))
         ome_zarr_axes = OmeZarrAxes(
             [
-                ("c", OmeZarrAxis(name="c", type="channel", discrete=True)),
-                ("z", OmeZarrAxis(name="z", type="space", discrete=False)),
-                ("y", OmeZarrAxis(name="y", type="space", discrete=False)),
-                ("x", OmeZarrAxis(name="x", type="space", discrete=False)),
+                ("c", OmeZarrAxis(name="c", type="channel")),
+                ("z", OmeZarrAxis(name="z", type="space")),
+                ("y", OmeZarrAxis(name="y", type="space")),
+                ("x", OmeZarrAxis(name="x", type="space")),
             ]
         )
 
@@ -1673,12 +1679,20 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         i.e. the lowest `version` for which
         `Multiscale.from_ome_zarr(self.to_ome_zarr(version=version)) == self`
 
+        Raises ValueError if this Multiscale cannot be written as OME-Zarr in any version
+        (see `validate_for_ome_zarr`), because then no version reproduces it.
+
         Side note: Never returns 0.5, because it added no new multiscale features over 0.4
         """
         candidate_versions: Tuple[Literal["0.6", "0.4"], ...] = ("0.4", "0.6")
         written = None
         for version in candidate_versions:
-            written = self.to_ome_zarr(version=version)
+            try:
+                written = self.to_ome_zarr(version=version)
+            except ValueError as e:
+                raise ValueError(
+                    f"No lowest lossless version: this Multiscale cannot be written as valid OME-Zarr. {e}"
+                ) from e
             round_tripped = Multiscale.from_ome_zarr(written, shape_source=lambda key: self[key].shape)
             if round_tripped == self:
                 return version

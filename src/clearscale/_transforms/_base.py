@@ -235,7 +235,7 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
         If you want to infer for all axes, call `.with_types_inferred` on the result."""
         if not axes:
             raise ValueError(f"Cannot create empty OmeZarrAxes. Attempted reorder to: {axes!r}")
-        if axes == self.keys():
+        if list(axes) == list(self.keys()):
             return self
         inserts_items = [(a, self._default(a)) for a in axes if a not in self]
         if not infer_inserted_types or not inserts_items:
@@ -251,11 +251,11 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
         return replaced if replaced != self else self
 
     def with_types_inferred(self) -> "OmeZarrAxes":
-        """Infers `type` and `discrete` for any axis where `type` is None and the key is recognised.
+        """Infers `type` for any axis where `type` is None and the key is recognised.
         Raises if no axis has a recognised key (only use this method if you use standard axis keys).
 
         Recognised keys are: t, time, timestep, timepoint, c, ch, channel, channels, z, y, x
-        Inferred types are: time (discrete=False), channel (discrete=True), space (discrete=False)
+        Inferred types are: "time", "channel", "space"
         """
         inferred_types = {
             "t": "time",
@@ -270,7 +270,6 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
             "y": "space",
             "x": "space",
         }
-        inferred_discrete = {"channel": True, "space": False, "time": False}
         if not any(str(a) in inferred_types for a in self.keys()):
             raise ValueError(
                 f"Cannot infer OME-Zarr axis types: none of {list(self.keys())!r} are recognized standard "
@@ -281,9 +280,7 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
             if existing.type is not None or str(a) not in inferred_types:
                 items.append((a, existing))
                 continue
-            new_type = inferred_types[str(a)]
-            new_discrete = inferred_discrete.get(new_type)
-            items.append((a, replace(existing, type=new_type, discrete=new_discrete)))
+            items.append((a, replace(existing, type=inferred_types[str(a)])))
         return self.__class__(items)
 
     def with_blanks_filled_from(self, other: "OmeZarrAxes") -> "OmeZarrAxes":

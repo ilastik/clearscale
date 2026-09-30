@@ -1,4 +1,5 @@
 import pytest
+from clearscale import ome_zarr
 from clearscale._axis_values import PixelSize, Shape, Unit, Factor, Translation
 from clearscale._multiscale import BlueprintShapes, Multiscale, Scale
 from clearscale._services.ome_zarr import SUPPORTED_OME_ZARR_VERSIONS_WRITE
@@ -22,6 +23,26 @@ def test_serializes_ome_properties(version):
     assert written["name"] == ms.ome.name
     assert written["type"] == ms.ome.type
     assert written["metadata"] == ms.ome.metadata
+
+
+def _axis_names(result):
+    cs = result
+    if "coordinateSystems" in result:
+        assert len(result["coordinateSystems"]) == 1, "expected exactly 1 coordinate system"
+        cs = result["coordinateSystems"][0]
+    return [ax["name"] for ax in cs["axes"]]
+
+
+@pytest.mark.parametrize("version", SUPPORTED_OME_ZARR_VERSIONS_WRITE)
+def test_serializes_axes_in_order(version):
+    scale = Scale(
+        shape=Shape(y=10, x=10),
+        ome_zarr_axes={"x": ome_zarr.Axis(type="space"), "y": ome_zarr.Axis(type="space", long_name="row")},
+    )
+    ms = Multiscale.from_single(scale)
+    assert ms.axes == ("y", "x")
+    written = ms.to_ome_zarr(version=version)
+    assert _axis_names(written) == ["y", "x"]
 
 
 def _global_scale(result):

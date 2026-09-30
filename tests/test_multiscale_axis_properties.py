@@ -84,20 +84,18 @@ class TestOmeZarrAxes:
         assert expanded["c"] == ome_zarr.Axis(name="c")
         assert expanded["x"].type == "space"
 
-    def test_with_axes_infers_type_and_discrete_only_for_insertions(self):
+    def test_with_axes_infers_type_only_for_insertions(self):
         x_properties = ome_zarr.Axis(name="x", long_name="some description")
         axes = ome_zarr.Axes({"x": x_properties})
         expanded = axes.with_axes("cx", infer_inserted_types=True)
-        assert expanded["c"] == ome_zarr.Axis(name="c", type="channel", discrete=True)
+        assert expanded["c"] == ome_zarr.Axis(name="c", type="channel")
         # Modifying existing props is the privilege of with_types_inferred
         assert expanded["x"] is x_properties, "existing axes must be untouched in with_axes regardless of .type"
 
-    def test_with_types_inferred_sets_type_and_discrete(self):
+    def test_with_types_inferred_sets_type(self):
         axes = ome_zarr.Axes.fromkeys("tczyx")
         inferred = axes.with_types_inferred()
-        assert inferred["t"].type == "time" and inferred["t"].discrete is False
-        assert inferred["c"].type == "channel" and inferred["c"].discrete is True
-        assert inferred["y"].type == "space" and inferred["y"].discrete is False
+        assert [inferred[a].type for a in "tczyx"] == ["time", "channel", "space", "space", "space"]
 
     def test_with_types_inferred_uses_str_of_axis_key_objects(self):
         key = self.AxKey("x")
@@ -219,8 +217,8 @@ class TestScaleFromLists:
         assert s.unit == Unit(y="micrometer", x="micrometer")
         assert s.translation == Translation(y=1.0, x=2.0)
         assert s.ome_zarr_axes == {
-            "y": ome_zarr.Axis(name="y", type="space", discrete=False, unit="micrometer"),
-            "x": ome_zarr.Axis(name="x", type="space", discrete=False, unit="micrometer"),
+            "y": ome_zarr.Axis(name="y", type="space", unit="micrometer"),
+            "x": ome_zarr.Axis(name="x", type="space", unit="micrometer"),
         }
 
     def test_ome_zarr_axes_as_raw_dicts(self):
@@ -234,11 +232,11 @@ class TestScaleFromLists:
     def test_ome_zarr_axes_as_sole_param(self):
         # Valid OME-Zarr axes meta
         axes_json = [
-            {"name": "t", "type": "time", "unit": "sec", "discrete": False},
-            {"name": "c", "type": "channel", "discrete": True},
-            {"name": "z", "type": "space", "unit": "mm", "discrete": False},
-            {"name": "y", "type": "space", "unit": "mm", "discrete": False},
-            {"name": "x", "type": "space", "unit": "mm", "discrete": False},
+            {"name": "t", "type": "time", "unit": "sec"},
+            {"name": "c", "type": "channel"},
+            {"name": "z", "type": "space", "unit": "mm"},
+            {"name": "y", "type": "space", "unit": "mm"},
+            {"name": "x", "type": "space", "unit": "mm"},
         ]
         s = Scale.from_lists(ome_zarr_axes=axes_json)
         inferred = Scale.from_lists("tczyx", unit=["sec", "", "mm", "mm", "mm"], ome_zarr_axes="infer")
@@ -709,7 +707,7 @@ class TestMultiscaleTransfer:
         assert result.ome_zarr_axes["x"].type == "space"
 
 
-def test_precomputed_axis_properties_are_hardcoded():
+def test_precomputed_axis_types_are_hardcoded():
     info = {
         "num_channels": 2,
         "scales": [
@@ -718,6 +716,4 @@ def test_precomputed_axis_properties_are_hardcoded():
     }
     ms = Multiscale.from_precomputed(info)
     assert ms.ome_zarr_axes["c"].type == "channel"
-    assert ms.ome_zarr_axes["c"].discrete is True
     assert ms.ome_zarr_axes["z"].type == "space"
-    assert ms.ome_zarr_axes["z"].discrete is False
