@@ -43,8 +43,8 @@ from clearscale.types import ShapeValue, ShapeSource, AxisKeyT
 if TYPE_CHECKING:
     from clearscale._multiscale import Multiscale
 
-SUPPORTED_OME_ZARR_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
-SUPPORTED_OME_ZARR_VERSIONS_WRITE = ("0.4", "0.5", "0.6")
+SUPPORTED_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
+SUPPORTED_VERSIONS_WRITE = ("0.4", "0.5", "0.6")
 
 OME_ZARR_TRANSFORM = Mapping[str, Any]
 """
@@ -679,7 +679,7 @@ class InvertedMultiscaleTransforms(TransformSequence):
 def require_dataset_paths(raw: Mapping[str, Any]):
     """Light top-level checks. coordinateTransformations are validated later."""
     version = raw.get("version")
-    if version and version not in SUPPORTED_OME_ZARR_VERSIONS_READ:
+    if version and version not in SUPPORTED_VERSIONS_READ:
         warnings.warn(f"Attempting to parse unknown OME-Zarr version '{version}'. This might break...")
 
     if "datasets" not in raw or not raw["datasets"] or not isinstance(raw["datasets"], list):

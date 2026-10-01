@@ -10,7 +10,7 @@ from clearscale._transforms import (
     TranslationTransform,
     CoordinateSystem,
 )
-from clearscale.ome_zarr import make_all_singleton_shapes, SUPPORTED_OME_ZARR_VERSIONS_READ
+from clearscale.ome_zarr import make_all_singleton_shapes, SUPPORTED_VERSIONS_READ
 
 from tests.ome_zarr.multiscale_examples import (
     MultiscaleMetadataExample,
@@ -25,7 +25,7 @@ def test_all_versions_covered():
     example_params = minimal_multiscale_examples_params()
     versions = [params.id for params in example_params]
     assert set(versions) == set(
-        SUPPORTED_OME_ZARR_VERSIONS_READ
+        SUPPORTED_VERSIONS_READ
     ), "Add at least a minimal test example when adding support for new OME-Zarr versions"
 
 

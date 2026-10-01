@@ -3,7 +3,7 @@ from typing import cast
 import pytest
 from clearscale._scene import Scene
 from clearscale._collections import OmeZarrGroup, GroupKind
-from clearscale.ome_zarr import make_all_singleton_shapes, SUPPORTED_OME_ZARR_VERSIONS_WRITE
+from clearscale.ome_zarr import make_all_singleton_shapes, SUPPORTED_VERSIONS_WRITE
 
 from tests.ome_zarr.multiscale_examples import (
     group_metadata_examples_params,
@@ -115,7 +115,7 @@ class TestOmeroAndImageLabel:
 
     @pytest.mark.parametrize("example", group_metadata_examples_params("omero"))
     def test_ome_zarr_group_roundtrips_omero(self, example: MultiscaleMetadataExample):
-        if example.id not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
+        if example.id not in SUPPORTED_VERSIONS_WRITE:
             pytest.skip(f"Writing version {example.id} not supported")
         ome_group = OmeZarrGroup.from_group(
             MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
@@ -129,7 +129,7 @@ class TestOmeroAndImageLabel:
 
     @pytest.mark.parametrize("example", group_metadata_examples_params("image-label"))
     def test_ome_zarr_group_roundtrips_image_label(self, example: MultiscaleMetadataExample):
-        if example.id not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
+        if example.id not in SUPPORTED_VERSIONS_WRITE:
             pytest.skip(f"Writing version {example.id} not supported")
         ome_group = OmeZarrGroup.from_group(
             MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))

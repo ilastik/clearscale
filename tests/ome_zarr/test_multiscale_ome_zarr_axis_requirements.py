@@ -27,7 +27,7 @@ def _axis_types(written, version):
     return [a.get("type") for a in axes]
 
 
-@pytest.mark.parametrize("version", ome_zarr.SUPPORTED_OME_ZARR_VERSIONS_WRITE)
+@pytest.mark.parametrize("version", ome_zarr.SUPPORTED_VERSIONS_WRITE)
 class TestToOmeZarr:
     """
     The general principle is "the public API should not enable creation of states that cannot
@@ -58,7 +58,7 @@ class TestToOmeZarr:
         assert _axis_types(written, version) == ["space"] * 3
 
 
-@pytest.mark.parametrize("version", ome_zarr.SUPPORTED_OME_ZARR_VERSIONS_WRITE)
+@pytest.mark.parametrize("version", ome_zarr.SUPPORTED_VERSIONS_WRITE)
 class TestMissingAxisTypes:
     """
     We allow construction of untyped Multiscales because we expect intermediate states might

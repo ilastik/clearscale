@@ -2,7 +2,7 @@ import pytest
 from clearscale import ome_zarr
 from clearscale._axis_values import PixelSize, Shape, Unit, Factor, Translation
 from clearscale._multiscale import BlueprintShapes, Multiscale, Scale
-from clearscale._services.ome_zarr import SUPPORTED_OME_ZARR_VERSIONS_WRITE
+from clearscale._services.ome_zarr import SUPPORTED_VERSIONS_WRITE
 from clearscale._spatial_relations import AxisRearrangementTo
 
 
@@ -12,7 +12,7 @@ def _multiscale(axes, size=4, pixel_size=None):
     return Multiscale({"s0": Scale(shape=shape, pixel_size=ps, ome_zarr_axes="infer")})
 
 
-@pytest.mark.parametrize("version", SUPPORTED_OME_ZARR_VERSIONS_WRITE)
+@pytest.mark.parametrize("version", SUPPORTED_VERSIONS_WRITE)
 def test_serializes_ome_properties(version):
     ms = _multiscale("zyx")
     ms.ome.name = "my-image"
@@ -33,7 +33,7 @@ def _axis_names(result):
     return [ax["name"] for ax in cs["axes"]]
 
 
-@pytest.mark.parametrize("version", SUPPORTED_OME_ZARR_VERSIONS_WRITE)
+@pytest.mark.parametrize("version", SUPPORTED_VERSIONS_WRITE)
 def test_serializes_axes_in_order(version):
     scale = Scale(
         shape=Shape(y=10, x=10),

@@ -2018,7 +2018,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         constructing the Scale (`ome_zarr_axes`). Fills in only axes that have no type, in all coordinate systems.
         "infer" derives types from standard axis keys; a mapping {axis_key: type} sets them explicitly.
         """
-        if version not in ome_zarr.SUPPORTED_OME_ZARR_VERSIONS_WRITE:
+        if version not in ome_zarr.SUPPORTED_VERSIONS_WRITE:
             raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.")
         system_axes = ome_zarr.validate_multiscale(
             self, missing_axis_types, all_systems=version not in PRE_TRANSFORMS_VERSIONS

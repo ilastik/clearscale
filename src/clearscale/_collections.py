@@ -10,7 +10,7 @@ from clearscale._multiscale import Multiscale
 from clearscale._scene import Scene
 from clearscale._transforms import FileRef
 from clearscale._services.ome_zarr import (
-    SUPPORTED_OME_ZARR_VERSIONS_WRITE,
+    SUPPORTED_VERSIONS_WRITE,
     MissingAxisTypes,
     ImageLabel,
     Omero,
@@ -272,7 +272,7 @@ class OmeZarrGroup:
         missing_axis_types: Escape hatch for Multiscales whose axes lack types. See `Multiscale.to_ome_zarr`.
           Applies to every Multiscale written; has no effect on scenes.
         """
-        if version not in SUPPORTED_OME_ZARR_VERSIONS_WRITE:
+        if version not in SUPPORTED_VERSIONS_WRITE:
             raise ValueError(f"Cannot write OME-Zarr with {version=}")
         if self.kind is None:
             return {}
