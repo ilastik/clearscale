@@ -276,6 +276,10 @@ If you're willing to adapt to future changes in the API: Yes, please do try it!
 If you are looking for a stable API, please wait until the first formal release to PyPI.
 After that point, API changes will follow semver and deprecations will be avoided or give appropriate notice through DeprecationWarnings.
 
+## Contributing / Feature scope
+Any form of feedback, issues, bug reports, feature requests, pull requests and other contributions are welcome!
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 Licensed under either the [MIT license](LICENSE-MIT) or the

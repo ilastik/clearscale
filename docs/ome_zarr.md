@@ -1,3 +1,5 @@
+# Supporting OME-Zarr in Python tools with `clearscale`
+
 In a nutshell, for simple cases:
 
 ```python
@@ -8,21 +10,51 @@ from clearscale import OmeZarrGroup
 # zarr_group is whatever object your zarr library uses for group access.
 # e.g. zarr-python: zarr_group = zarr.open(path)
 #      z5py:        zarr_group = z5py.File(path)
+# clearscale expects `zarr_group.attrs` and `zarr_group[array_path].shape` to return metadata and array shape
 multiscale = OmeZarrGroup.from_group(zarr_group).multiscales[0]
 
 # Do stuff
 
-output_multiscale = make_multiscale_according_to_actual_data_processing()
+# output_multiscale = ...  # New Multiscale, describes the output data as written
 
 # Write
 
-output_group_meta = OmeZarrGroup.from_single(output_multiscale).to_attrs(version="0.5")
-output_zarr_group.attrs.update(output_group_meta)
+output_group_attrs = OmeZarrGroup.from_single(output_multiscale).to_attrs(version="0.5")
+
+output_zarr_group.attrs.update(output_group_attrs)
 ```
 
-# Micro-intro to plain zarr metadata
+
+## OME-Zarr features
+
+(Support is identical across all OME-Zarr versions; read supports all versions, write supports 0.4, 0.5 and 0.6)
+
+Fully supported:
+
+|                    | Read existing | Create new | Write |
+|--------------------|---------------|------------|-------|
+| Multiscale         | ✅             | ✅          | ✅     |
+| omero              | ✅             | ✅          | ✅     |
+| image-label        | ✅             | ✅          | ✅     |
+| Coordinate systems | ✅             | ✅          | ✅     |
+| Transform graphs   | ✅             | ✅          | ✅     |
+
+Partial support:
+
+|                | Read existing | Create new | Write | Note                                                  |
+|----------------|---------------|------------|-------|-------------------------------------------------------|
+| Scene          | ✅             | (✅)        | ✅     | Creation only through private (unstable) API          |
+| labels groups  | ✅             | (✅)        | (✅)   | Creation/writing possible but not optimized or tested |
+| HCS plates     | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only         |
+| bioformats2raw | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only         |
+
+# Micro-intro: zarr attrs
 
 OME-Zarr "datasets" are always described in the metadata (attributes) of a plain zarr "group".
+
+If you use the `zarr-python` or `z5py` packages as your zarr backend, **you don't need to think about this**.
+Both have a `Group` class that exposes `Group.attrs`, which reads from, and writes to, the correct location on disk.
+
 A zarr group is just a folder that contains:
 ```
 Folder with Zarr-format version 2:
@@ -37,16 +69,13 @@ Folder with Zarr-format version 3:
   subfolder/
 ```
 
-In the context of zarr, “the attrs” refers to a JSON object containing a zarr group’s user-defined attributes.
+In the context of zarr, "attrs" refers to a JSON object containing a zarr group’s user-defined attributes.
 The location of "the attrs" again differs by zarr-format version:
-* Zarr-format version 2: The entire contents of `.zattrs` are "the attrs" (a single JSON object)
-* Zarr-format version 3: `zarr.json` contains a JSON object, which contains the `"attributes"` key.
-  So "the attrs" are the JSON object found at `zarr.json["attributes"]`
+* Zarr-format version 2: The entire contents of `.zattrs` are the "attrs" (a single JSON object)
+* Zarr-format version 3: `zarr.json` contains a JSON object, which contains an `"attributes"` key.
+  The "attrs" are the JSON object found at `zarr.json["attributes"]`
 
-If you use the `zarr-python` or `z5py` packages as your zarr backend, **you don't need to think about this**.
-Both have a `Group` class that exposes `Group.attrs`, which reads from, and writes to, the correct location.
-
-If you use `tensorstore`, you do have to implement a small adapter to read and write "the attrs" using the logic above :)
+If you use `tensorstore`, you do have to implement a small adapter to read and write the "attrs" using the logic above :)
 
 # Reading OME-Zarr
 
@@ -66,7 +95,7 @@ python script.py --path https://someserver.org/public-data/00121
 Your zarr backend will tell you whether that path points to a zarr object at all.
 Assuming it does, the next thing you will want to know is, "Is this *zarr* object an *OME-Zarr* object?"
 
-clearscale recognises all valid OME-Zarr objects of all OME-Zarr versions, up to and including 0.6.
+`clearscale` recognises all valid OME-Zarr objects of all OME-Zarr versions, up to and including 0.6.
 
 ## "Is this zarr thing an OME-Zarr thing?"
 `clearscale.OmeZarrGroup` answers this question.

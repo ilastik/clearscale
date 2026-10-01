@@ -32,8 +32,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest"]
-dev = ["black", "pre-commit", "pytest"]
+dev = ["pre-commit", "pytest", "pyright"]
 
 [tool.hatch.version]
 source = "vcs"
