@@ -160,6 +160,92 @@ def _0_4_metadata_without_axes():
             _0_4_metadata_with(axes=[{"name": "y", "type": "space"}, {"name": "y", "type": "space"}]),
             id="duplicate-axis-names",
         ),
+        pytest.param(
+            _0_4_metadata_with(
+                axes=[{"name": "x", "type": "space"}],
+                datasets=[{"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0]}]}],
+            ),
+            id="less-than-two-axes",
+        ),
+        pytest.param(
+            _0_4_metadata_with(
+                axes=[
+                    {"name": "a"},
+                    {"name": "b"},
+                    {"name": "c"},
+                    {"name": "d"},
+                    {"name": "e", "type": "space"},
+                    {"name": "f", "type": "space"},
+                ],
+                datasets=[
+                    {
+                        "path": "s0",
+                        "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0]}],
+                    }
+                ],
+            ),
+            id="more-than-five-axes",
+        ),
+        pytest.param(
+            _0_4_metadata_with(axes=[{"name": "c"}, {"name": "y", "type": "space"}]),
+            id="less-than-two-space-axes",
+        ),
+        pytest.param(
+            _0_4_metadata_with(
+                axes=[
+                    {"name": "hyper", "type": "space"},
+                    {"name": "z", "type": "space"},
+                    {"name": "y", "type": "space"},
+                    {"name": "x", "type": "space"},
+                ],
+                datasets=[
+                    {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0, 1.0, 1.0]}]}
+                ],
+            ),
+            id="more-than-three-space-axes",
+        ),
+        pytest.param(
+            _0_4_metadata_with(
+                axes=[
+                    {"name": "a"},
+                    {"name": "b", "type": "time"},
+                    {"name": "c", "type": "space"},
+                    {"name": "d", "type": "space"},
+                ],
+                datasets=[
+                    {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0, 1.0, 1.0]}]}
+                ],
+            ),
+            id="time-not-first",
+        ),
+        pytest.param(
+            _0_4_metadata_with(
+                axes=[
+                    {"name": "a"},
+                    {"name": "b", "type": "channel"},
+                    {"name": "c", "type": "space"},
+                    {"name": "d", "type": "space"},
+                ],
+                datasets=[
+                    {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0, 1.0, 1.0]}]}
+                ],
+            ),
+            id="channel-not-first",
+        ),
+        pytest.param(
+            _0_4_metadata_with(
+                axes=[
+                    {"name": "a", "type": "channel"},
+                    {"name": "b", "type": "time"},
+                    {"name": "c", "type": "space"},
+                    {"name": "d", "type": "space"},
+                ],
+                datasets=[
+                    {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0, 1.0, 1.0]}]}
+                ],
+            ),
+            id="channel-before-time",
+        ),
         pytest.param(_0_4_metadata_with(datasets=[3]), id="dataset-not-mapping"),
         pytest.param(
             _0_4_metadata_with(
@@ -173,7 +259,7 @@ def _0_4_metadata_without_axes():
     ],
 )
 @pytest.mark.filterwarnings(IGNORE_INVALID)
-def test_from_ome_zarr_raises_when_axes_or_paths_unknown_version_0_4(metadata):
+def test_from_ome_zarr_raises_when_axes_or_paths_invalid_version_0_4(metadata):
     with pytest.raises(ValueError):
         _ = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
 
@@ -306,6 +392,173 @@ def _0_6_metadata_with_axes(axes):
             _0_6_metadata_with_axes([{"name": "y", "type": "space"}, {"name": "y", "type": "space"}]),
             id="duplicate-axis-names",
         ),
+        pytest.param(
+            _0_6_metadata_with(
+                coordinateSystems=[{"name": "sys", "axes": [{"name": "x", "type": "space"}]}],
+                datasets=[
+                    {
+                        "path": "s0",
+                        "coordinateTransformations": [
+                            {"input": {"path": "s0"}, "output": {"name": "sys"}, "type": "scale", "scale": [1.0]}
+                        ],
+                    }
+                ],
+            ),
+            id="less-than-two-axes",
+        ),
+        pytest.param(
+            _0_6_metadata_with(
+                coordinateSystems=[
+                    {
+                        "name": "sys",
+                        "axes": [
+                            {"name": "a"},
+                            {"name": "b"},
+                            {"name": "c"},
+                            {"name": "d"},
+                            {"name": "e", "type": "space"},
+                            {"name": "f", "type": "space"},
+                        ],
+                    }
+                ],
+                datasets=[
+                    {
+                        "path": "s0",
+                        "coordinateTransformations": [
+                            {
+                                "input": {"path": "s0"},
+                                "output": {"name": "sys"},
+                                "type": "scale",
+                                "scale": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+                            }
+                        ],
+                    }
+                ],
+            ),
+            id="more-than-five-axes",
+        ),
+        pytest.param(
+            _0_6_metadata_with(
+                coordinateSystems=[{"name": "sys", "axes": [{"name": "c"}, {"name": "y", "type": "space"}]}]
+            ),
+            id="less-than-two-space-axes",
+        ),
+        pytest.param(
+            _0_6_metadata_with(
+                coordinateSystems=[
+                    {
+                        "name": "sys",
+                        "axes": [
+                            {"name": "hyper", "type": "space"},
+                            {"name": "z", "type": "space"},
+                            {"name": "y", "type": "space"},
+                            {"name": "x", "type": "space"},
+                        ],
+                    }
+                ],
+                datasets=[
+                    {
+                        "path": "s0",
+                        "coordinateTransformations": [
+                            {
+                                "input": {"path": "s0"},
+                                "output": {"name": "sys"},
+                                "type": "scale",
+                                "scale": [1.0, 1.0, 1.0, 1.0],
+                            }
+                        ],
+                    }
+                ],
+            ),
+            id="more-than-three-space-axes",
+        ),
+        pytest.param(
+            _0_6_metadata_with(
+                coordinateSystems=[
+                    {
+                        "name": "sys",
+                        "axes": [
+                            {"name": "a"},
+                            {"name": "b", "type": "time"},
+                            {"name": "c", "type": "space"},
+                            {"name": "d", "type": "space"},
+                        ],
+                    }
+                ],
+                datasets=[
+                    {
+                        "path": "s0",
+                        "coordinateTransformations": [
+                            {
+                                "input": {"path": "s0"},
+                                "output": {"name": "sys"},
+                                "type": "scale",
+                                "scale": [1.0, 1.0, 1.0, 1.0],
+                            }
+                        ],
+                    }
+                ],
+            ),
+            id="time-not-first",
+        ),
+        pytest.param(
+            _0_6_metadata_with(
+                coordinateSystems=[
+                    {
+                        "name": "sys",
+                        "axes": [
+                            {"name": "a"},
+                            {"name": "b", "type": "channel"},
+                            {"name": "c", "type": "space"},
+                            {"name": "d", "type": "space"},
+                        ],
+                    }
+                ],
+                datasets=[
+                    {
+                        "path": "s0",
+                        "coordinateTransformations": [
+                            {
+                                "input": {"path": "s0"},
+                                "output": {"name": "sys"},
+                                "type": "scale",
+                                "scale": [1.0, 1.0, 1.0, 1.0],
+                            }
+                        ],
+                    }
+                ],
+            ),
+            id="channel-not-first",
+        ),
+        pytest.param(
+            _0_6_metadata_with(
+                coordinateSystems=[
+                    {
+                        "name": "sys",
+                        "axes": [
+                            {"name": "a", "type": "channel"},
+                            {"name": "b", "type": "time"},
+                            {"name": "c", "type": "space"},
+                            {"name": "d", "type": "space"},
+                        ],
+                    }
+                ],
+                datasets=[
+                    {
+                        "path": "s0",
+                        "coordinateTransformations": [
+                            {
+                                "input": {"path": "s0"},
+                                "output": {"name": "sys"},
+                                "type": "scale",
+                                "scale": [1.0, 1.0, 1.0, 1.0],
+                            }
+                        ],
+                    }
+                ],
+            ),
+            id="channel-before-time",
+        ),
         pytest.param(_0_6_metadata_with(datasets=[3]), id="dataset-not-mapping"),
         pytest.param(
             _0_6_metadata_with(
@@ -339,7 +592,7 @@ def _0_6_metadata_with_axes(axes):
     ],
 )
 @pytest.mark.filterwarnings(IGNORE_INVALID)
-def test_from_ome_zarr_raises_when_axes_or_paths_unknown_version_0_6(metadata):
+def test_from_ome_zarr_raises_when_axes_or_paths_invalid_version_0_6(metadata):
     with pytest.raises(ValueError):
         _ = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
 

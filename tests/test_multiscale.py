@@ -61,11 +61,26 @@ def test_scale_enforces_or_adapts_axis_order_by_shape():
     assert tuple(s.ome_zarr_axes.keys()) == ("z", "y", "x")
 
 
-@pytest.mark.parametrize("axes", ["x", "tczyxa"])
-def test_multiscale_forbids_construction_outside_ndim_2_to_5(axes):
-    scale = Scale.from_lists(axes)  # shouldn't error - Scales are dumb data bags without enforcement
-    with pytest.raises(ValueError, match="2 to 5 axes"):
-        Multiscale.from_single(scale)
+SPACE = ome_zarr.Axis(type="space")
+
+
+class TestConstructionAxisRequirements:
+    @pytest.mark.parametrize("axes", ["yx", "zyx", "czyx", "tczyx"])
+    def test_accepts_inferred_standard_axes(self, axes):
+        # "infer" not necessary anymore, it's now default behaviour
+        Multiscale.from_single(Scale.from_lists(axes, ome_zarr_axes="infer"))
+
+    @pytest.mark.parametrize("axes", ["x", "tczyxa"])
+    def test_rejects_wrong_ndim(self, axes):
+        scale = Scale.from_lists(axes)  # shouldn't error - Scales are dumb data bags without enforcement
+        with pytest.raises(ValueError, match="2 to 5 axes"):
+            Multiscale.from_single(scale)
+
+    @pytest.mark.parametrize("n_space", [0, 1, 4, 5])
+    def test_rejects_wrong_n_space_axes(self, n_space):
+        ome_axes: List[ome_zarr.Axis] = ([SPACE] * n_space) + ([ome_zarr.Axis()] * (5 - n_space))
+        with pytest.raises(ValueError, match=f"has {n_space}"):
+            Multiscale.from_single(Scale.from_lists("abcde", ome_zarr_axes=ome_axes))
 
 
 def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
@@ -142,39 +157,38 @@ class TestEqAndHash:
         assert len({left._as_ref("physical"), right._as_ref("physical")}) == 2
 
 
-def test_multiscale_accepts_duplicate_scale_shapes():
-    items = [
-        ("s0", Scale(shape={"x": 1, "y": 1})),
-        ("s1", Scale(shape={"x": 1, "y": 1})),
-    ]
-    _ = Multiscale(items)
-
-
-@pytest.mark.parametrize(
-    "shape1, shape2",
-    [
-        ({"x": 1, "y": 1}, {"x": 1, "y": 2}),
-        ({"t": 5, "x": 1, "y": 1}, {"t": 3, "x": 1, "y": 3}),
-    ],
-)
-def test_multiscale_rejects_increasing_scale_shapes(shape1, shape2):
-    items = [("s0", Scale(shape=shape1)), ("s1", Scale(shape=shape2))]
-    with pytest.raises(ValueError, match="Multiscales must be ordered from largest to smallest"):
+class TestMultiscaleScaleShapeRequirements:
+    def test_multiscale_accepts_duplicate_scale_shapes(self):
+        items = [
+            ("s0", Scale(shape={"x": 1, "y": 1})),
+            ("s1", Scale(shape={"x": 1, "y": 1})),
+        ]
         _ = Multiscale(items)
 
-
-def test_multiscale_rejects_increasing_scale_shapes_from_ome_zarr():
-    """Reading is not lenient either: OME-Zarr (and Precomputed) require datasets to be ordered
-    from largest to smallest."""
-    ome_meta = {
-        "axes": [{"name": "x", "type": "space"}, {"name": "y", "type": "space"}],
-        "datasets": [
-            {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [2.0, 2.0]}]},
-            {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]},
+    @pytest.mark.parametrize(
+        "shape1, shape2",
+        [
+            ({"x": 1, "y": 1}, {"x": 1, "y": 2}),
+            ({"t": 5, "x": 1, "y": 1}, {"t": 3, "x": 1, "y": 3}),
         ],
-    }
-    with pytest.raises(ValueError, match="Multiscales must be ordered from largest to smallest"):
-        Multiscale.from_ome_zarr(ome_meta, shape_source={"s0": (1, 1), "s1": (2, 2)})
+    )
+    def test_multiscale_rejects_increasing_scale_shapes(self, shape1, shape2):
+        items = [("s0", Scale(shape=shape1)), ("s1", Scale(shape=shape2))]
+        with pytest.raises(ValueError, match="Multiscales must be ordered from largest to smallest"):
+            _ = Multiscale(items)
+
+    def test_multiscale_rejects_increasing_scale_shapes_from_ome_zarr(self):
+        """Reading is not lenient either: OME-Zarr (and Precomputed) require datasets to be ordered
+        from largest to smallest."""
+        ome_meta = {
+            "axes": [{"name": "x", "type": "space"}, {"name": "y", "type": "space"}],
+            "datasets": [
+                {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [2.0, 2.0]}]},
+                {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]},
+            ],
+        }
+        with pytest.raises(ValueError, match="Multiscales must be ordered from largest to smallest"):
+            Multiscale.from_ome_zarr(ome_meta, shape_source={"s0": (1, 1), "s1": (2, 2)})
 
 
 class TestBlueprintWithSizes:
@@ -542,6 +556,22 @@ class TestProportionalBlueprint:
         bp = BlueprintShapes.from_multiscale_rescaled(ms, target_shape=target_shape, rounding="floor", scaled_axes="y")
 
         assert bp == BlueprintShapes({"s0": target_shape, "s1": Shape(c=3, y=1, x=6)})
+
+
+@pytest.mark.parametrize("key", ["", "/s0", "../s0", "s 0", "a//b"])
+def test_multiscale_rejects_invalid_scale_keys(key):
+    scale = Scale.from_lists("yx")
+    with pytest.raises(ValueError, match="not a valid relative path"):
+        Multiscale.from_single(scale, scale_key=key)
+    with pytest.raises(ValueError, match="dataset missing path|not a valid relative path"):
+        Multiscale.from_ome_zarr(
+            {
+                "version": "0.4",
+                "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
+                "datasets": ([{"path": key, "coordinateTransformations": [{"type": "scale", "scale": [1, 1]}]}]),
+            },
+            shape_source="singletons",
+        )
 
 
 def _multiscale(axes="yx", size=4) -> Multiscale:
@@ -922,6 +952,26 @@ class TestMultiscaleWithCoordinateSystem:
 
         with pytest.raises(ValueError, match="already exists"):
             ms.with_coordinate_system(ms._intrinsic_ref.name)
+
+    def test_accepts_untyped_extra_axes_alongside_two_space_axes(self):
+        ms = _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("iyx"))
+        assert ms.coordinate_systems == ("w",)
+
+    def test_rejects_too_few_axes(self):
+        with pytest.raises(ValueError, match="2 to 5 axes, but coordinate system 'w'"):
+            _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("x"))
+
+    def test_rejects_too_many_axes(self):
+        with pytest.raises(ValueError, match="2 to 5 axes"):
+            _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("tczyxa"))
+
+    def test_rejects_too_few_space_axes(self):
+        with pytest.raises(ValueError, match="'space', but coordinate system 'w' has 1"):
+            _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("yc"))
+
+    def test_rejects_untyped_axes_taking_the_place_of_space_axes(self):
+        with pytest.raises(ValueError, match="Axes without a type"):
+            _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("ix"))
 
     def test_rejects_non_spatial_relations(self):
         ms = _multiscale("zyx")
