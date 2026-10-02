@@ -1,6 +1,6 @@
 import copy
 import re
-from typing import List
+from typing import List, Callable
 
 import pytest
 from clearscale import (
@@ -82,20 +82,16 @@ class TestEqAndHash:
     @pytest.mark.parametrize(
         "make_ms",
         [
-            pytest.param(lambda: Multiscale({"s0": Scale(Shape(y=2, x=3))}), id="simple"),
+            pytest.param(lambda: _multiscale(), id="simple"),
+            pytest.param(lambda: _multiscale().with_coordinate_system("world"), id="with_coord_sys"),
             pytest.param(
-                lambda: Multiscale({"s0": Scale(Shape(y=2, x=3))}).with_coordinate_system("world"), id="with_coord_sys"
-            ),
-            pytest.param(
-                lambda: Multiscale({"s0": Scale(Shape(y=2, x=3))}).with_coordinate_system(
-                    "world", reached_by=Translation(y=2.0, x=3.0)
-                ),
+                lambda: _multiscale().with_coordinate_system("world", reached_by=Translation(y=2.0, x=3.0)),
                 id="with_transform",
             ),
-            pytest.param(lambda: Multiscale({"s0": Scale(Shape(y=2, x=3))}).derive("s0"), id="derive"),
+            pytest.param(lambda: _multiscale().derive("s0"), id="derive"),
         ],
     )
-    def test_multiscale_hash_matches_value_equality(self, make_ms):
+    def test_multiscale_hash_matches_value_equality(self, make_ms: Callable[[], Multiscale]):
         left = make_ms()
         right = make_ms()
 
@@ -104,10 +100,10 @@ class TestEqAndHash:
 
     def test_multiscale_equal_derivation_is_not_equal(self):
         """left and right here *should* be equal, but they're not, because the two constructions make different
-        intrinsic system names. On derive with a derived_by relation, the intrinsic is transferred,
+        intrinsic system names. On derive with a relation, the intrinsic is transferred,
         but the daughter no longer knows this was an intrinsic system whose name is not as strictly meaningful
         as a coordinate system added through `with_coordinate_system`."""
-        make_ms = lambda: Multiscale({"s0": Scale(Shape(y=2, x=3))}).derive("s0", derived_by=Translation(y=2.0, x=3.0))
+        make_ms = lambda: _multiscale().as_derived_from(_multiscale(), by=Factor(y=2, x=2))
 
         left = make_ms()
         right = make_ms()
@@ -816,17 +812,6 @@ class TestMultiscaleAsDerivedFrom:
             ),
         ):
             caller_ms.as_derived_from(donor_ms, by=relations)
-
-    @pytest.mark.parametrize("relation", [ProjectionTo("yx"), PermutationTo("xyz"), AxisRearrangementTo("tyx")])
-    def test_wrapper_derive_errors_early_on_axis_rearrangement(self, relation):
-        """
-        The deeper error from as_derived_from hints at the problem, but isn't exactly clear:
-        ValueError: Incompatible derivation: Provided relation chain would produce axes ('y', 'x') from ('z', 'y', 'x'), but this Multiscale has ('z', 'y', 'x'). by=ProjectionTo(_targets=('y', 'x'))
-        """
-        ms = _multiscale("zyx")
-
-        with pytest.raises(ValueError, match="cannot express relations that rearrange axes"):
-            ms.derive("s0", derived_by=relation)
 
 
 class TestMultiscaleWithCoordinateSystem:

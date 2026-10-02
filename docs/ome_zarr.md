@@ -298,11 +298,6 @@ new_multiscale = old_multiscale.derive("s3")
 
 If you also scale the processing output derived from that scale, provide the matching blueprint and scaling method characteristics as for `from_single`.
 
-`derive` accepts an additional parameter `derived_by: Union[SpatialRelation, Sequence[SpatialRelation]]`.
-You can use it to specify *how* the new Multiscale was derived from the source Scale.
-Note that when it comes to writing output metadata, only OME-Zarr version 0.6 can fully express all `SpatialRelations`.
-When generating OME-Zarr versions 0.5 or 0.4, clearscale will express the relation in the output metadata only if possible (e.g. if it only consists of `Factor`, `Translation` and/or `AxisRearrangementTo`).
-
 ### Axis types
 
 OME-Zarr has a few requirements for the axes of a multiscale that clearscale checks when you write metadata:
