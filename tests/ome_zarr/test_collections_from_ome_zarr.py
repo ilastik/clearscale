@@ -197,6 +197,22 @@ def test_ome_zarr_group_ignores_invalid_multiscale():
     assert ome_group.invalid_objects[0].error
 
 
+def test_group_records_invalid_multiscale_reason():
+    invalid_meta = {
+        "multiscales": [
+            {
+                "version": "0.4",
+                "axes": [{"name": "y"}, {"name": "x"}],  # invalid: MUST have 2 or 3 type="space" axes
+                "datasets": [{"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]}],
+            }
+        ]
+    }
+    group = OmeZarrGroup.from_attrs(invalid_meta, shape_source="singletons")
+    assert group.kind is GroupKind.INVALID and group.multiscales == ()
+    assert group.version == "0.4"
+    assert "require 2 or 3 axes of type 'space', but this Multiscale has 0" in group.invalid_objects[0].error
+
+
 def test_ome_zarr_group_parses_scene_stitching_example():
     zarr_group = MockZarrGroup(scene_to_group_attrs(scene_stitching()))
     ome_group = OmeZarrGroup.from_group(zarr_group)

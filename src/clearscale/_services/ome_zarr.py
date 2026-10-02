@@ -86,6 +86,26 @@ Replace with more robust mechanism if more special treatments within the graph b
 """
 
 
+OME_ZARR_PATH_RE = re.compile(
+    r"""
+    ^                       # start of string
+    [A-Za-z0-9._-]+         # first path segment: no empty, no special chars
+    (?:                     # additional segments: (non-capturing)
+        /                   #   forward slash as separator
+        [A-Za-z0-9._-]+     #   another valid segment
+    )*                      # zero or more additional segments
+    $                       # end of string
+    """,
+    re.VERBOSE,
+)
+
+
+MIN_NDIM = 2
+MAX_NDIM = 5
+MIN_SPACE_AXES = 2
+MAX_SPACE_AXES = 3
+
+
 @dataclass(frozen=True, slots=True)
 class InvalidObject:
     """Metadata of a multiscale or scene that clearscale could not accept, and why."""
@@ -965,26 +985,6 @@ def pixel_size_to_scale_with_reintroduced_zeros(
     zero_axes = set(serialized_zero_scale_axes)
     scale = tuple(0.0 if axis in zero_axes else pixel_size[axis] for axis in pixel_size)
     return ScaleTransform(scale=scale)
-
-
-OME_ZARR_PATH_RE = re.compile(
-    r"""
-    ^                       # start of string
-    [A-Za-z0-9._-]+         # first path segment: no empty, no special chars
-    (?:                     # additional segments: (non-capturing)
-        /                   #   forward slash as separator
-        [A-Za-z0-9._-]+     #   another valid segment
-    )*                      # zero or more additional segments
-    $                       # end of string
-    """,
-    re.VERBOSE,
-)
-
-
-MIN_NDIM = 2
-MAX_NDIM = 5
-MIN_SPACE_AXES = 2
-MAX_SPACE_AXES = 3
 
 
 def require_valid_axes(axes: OmeZarrAxes, *, system_name: Optional[str] = None) -> None:
