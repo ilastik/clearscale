@@ -70,7 +70,7 @@ class TestCoordinateSystemToLegacy:
             ([Factor(y=2, x=2), Translation(y=3, x=4)], ([0.5, 0.5], [-3.0, -4.0])),
             ([Translation(y=3, x=4), Factor(y=2, x=2)], ([0.5, 0.5], [-1.5, -2.0])),
             ([AxisRearrangementTo("zyx"), Translation(z=0, y=3, x=4)], ([1.0, 1.0], [-3.0, -4.0])),
-            ([Translation(y=3, x=4), AxisRearrangementTo("cx")], ([1.0, 1.0], [0.0, -4.0])),
+            ([Translation(y=3, x=4), AxisRearrangementTo("zx")], ([1.0, 1.0], [0.0, -4.0])),
         ],
     )
     def test_serializes_compatible_coordinate_system_as_legacy_transforms(
@@ -79,7 +79,10 @@ class TestCoordinateSystemToLegacy:
         """Axis rearrangements are not strictly compatible with legacy OME-Zarr versions.
         We accommodate them when the rest of the relation *is* compatible (scale[+translation]),
         by rearranging the relation's values directly."""
-        ms = _multiscale("yx").with_coordinate_system("world", reached_by=relation)
+        # Inserted axes need a type for the coordinate system to be valid
+        ms = _multiscale("yx").with_coordinate_system(
+            "world", reached_by=relation, ome_zarr_axes={"z": ome_zarr.Axis(type="space")}
+        )
 
         result = ms.to_ome_zarr(version="0.4")
 

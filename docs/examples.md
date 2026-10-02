@@ -42,16 +42,19 @@ template = Multiscale(
             shape=Shape(c=1, z=64, y=1024, x=1024),
             pixel_size=PixelSize(c=1, z=0.5, y=0.25, x=0.25),
             unit=Unit(c="", z="micrometer", y="micrometer", x="micrometer"),
+            ome_zarr_axes="infer",
         ),
         "s1": Scale(
             shape=Shape(c=1, z=32, y=512, x=512),
             pixel_size=PixelSize(c=1, z=1.0, y=0.5, x=0.5),
             unit=Unit(c="", z="micrometer", y="micrometer", x="micrometer"),
+            ome_zarr_axes="infer",
         ),
         "s2": Scale(
             shape=Shape(c=1, z=16, y=256, x=256),
             pixel_size=PixelSize(c=1, z=2.0, y=1.0, x=1.0),
             unit=Unit(c="", z="micrometer", y="micrometer", x="micrometer"),
+            ome_zarr_axes="infer",
         ),
     }
 )
@@ -60,6 +63,7 @@ target_base = Scale(
     shape=Shape(t=65, c=3, z=40, y=2048, x=2048),
     pixel_size=PixelSize(t=0.5, c=1.0, z=0.7, y=0.1, x=0.1),
     unit=Unit(t="seconds", c="", z="micrometer", y="micrometer", x="micrometer"),
+    ome_zarr_axes="infer",
 )
 
 blueprint = BlueprintShapes.from_multiscale_rescaled(

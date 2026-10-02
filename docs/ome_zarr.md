@@ -120,7 +120,7 @@ You can now find out whether the metadata describes an OME-Zarr dataset, and if 
 
 ```python
 if ome_meta.kind is None:
-  print("Looks like this isn't an OME-Zarr group at all")
+  print("Looks like this isn't an OME-Zarr group at all (or its multiscale metadata violates the spec)")
 else:
   print(ome_meta.version)  # "0.4", "0.5", ... (could still be None if not actually written, even if the metadata was valid)
 ```
@@ -300,7 +300,8 @@ If you also scale the processing output derived from that scale, provide the mat
 
 ### Axis types
 
-OME-Zarr has a few requirements for the axes of a multiscale that clearscale checks when you write metadata:
+OME-Zarr has a few requirements for the axes of a multiscale.
+clearscale enforces them whenever a `Multiscale` is created, including when it reads OME-Zarr metadata:
 
 * There must be 2 to 5 axes.
 * 2 or 3 of the axes must be of type `"space"`.
@@ -320,7 +321,7 @@ scale = Scale(
 )
 ```
 
-Writing raises an error that names the offending axes if the requirements are not met.
+Creating a `Multiscale` raises an error that names the offending axes if the requirements are not met.
 
 ## Making new OmeZarrGroups
 

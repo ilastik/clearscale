@@ -1,6 +1,7 @@
 import pytest
 from clearscale import Multiscale, Scale, Shape, FileRef
 from clearscale._transforms import (
+    OmeZarrAxes,
     CoordinateSystem,
     Transform,
     NodeRef,
@@ -49,9 +50,11 @@ def test_transform_name_round_trips():
 def test_resolving_transform_revalidates_endpoint_axes():
 
     def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
-        return CoordinateSystem.fromkeys(axes)._as_ref(name)
+        return CoordinateSystem(OmeZarrAxes.fromkeys(axes).with_types_inferred())._as_ref(name)
 
-    multiscale = Multiscale({"s0": Scale(Shape(z=1, y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+    multiscale = Multiscale(
+        {"s0": Scale(Shape(z=1, y=2, x=3), ome_zarr_axes="infer")}, _intrinsic_ref=_ref("yx", "physical")
+    )
     world = _sys_ref("world", "yx")
     transform = TranslationTransform(
         translation=(0, 0),

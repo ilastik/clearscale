@@ -1300,11 +1300,8 @@ class TransformGraph:
         self,
         version="0.6",
         nodes_by_path: Optional[NodesByPath] = None,
-        system_axes: Optional[Mapping[NodeRef["CoordinateSystem"], OmeZarrAxes]] = None,
     ) -> Dict[str, Any]:
         """
-        `system_axes`: Serialize these axes instead of the referenced systems' own, for the systems included.
-
         Returns dict like {
             "coordinateSystems": List[Dict] (required for Multiscale, optional for Scene)
             "coordinateTransformations: List[Dict] (required for Scene, optional for Multiscale)
@@ -1313,9 +1310,7 @@ class TransformGraph:
         if version != "0.6":
             raise ValueError(f"Unsupported OME-Zarr version {version!r}. Graphs can only be written to '0.6'.")
         systems = [
-            (CoordinateSystem(system_axes[ref]) if system_axes and ref in system_axes else ref.owner).to_ome_zarr(
-                name=ref.name, version=version
-            )
+            ref.owner.to_ome_zarr(name=ref.name, version=version)
             for ref in self.all_system_refs
             if isinstance(ref.owner, CoordinateSystem)
         ]
