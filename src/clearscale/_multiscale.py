@@ -293,6 +293,31 @@ class Scale:
             )
 
 
+def _require_non_increasing_shapes(items: Sequence[Tuple[ScaleKey, Shape]], owner: str) -> None:
+    """
+    All existing multiscale formats require scales to be ordered from largest to smallest (shape).
+    Enforced on construction so that no invalid scaling plan or Multiscale can exist.
+    """
+    for (prev_key, prev_shape), (key, shape) in zip(items, items[1:]):
+        increased = [a for a in shape if shape[a] > prev_shape[a]]
+        if increased:
+            raise ValueError(
+                f"{owner} must be ordered from largest to smallest. Shape increases along "
+                f"{increased} between {prev_key!r} and {key!r} ({prev_shape} -> {shape})."
+            )
+
+
+def _require_non_decreasing_factors(items: Sequence[Tuple[ScaleKey, Factor]]) -> None:
+    """The factor-blueprint equivalent of `_require_non_increasing_shapes`: Factors are divisors for shape."""
+    for (prev_key, prev_factor), (key, factor) in zip(items, items[1:]):
+        decreased = [a for a in factor if factor[a] < prev_factor[a]]
+        if decreased:
+            raise ValueError(
+                f"Blueprints must be ordered from largest to smallest scale. Factor decreases along "
+                f"{decreased} between {prev_key!r} and {key!r} ({prev_factor} -> {factor})."
+            )
+
+
 class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
     """Common base class for Multiscale, BlueprintShapes and BlueprintFactors"""
 
@@ -302,6 +327,7 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
             raise ValueError(f"Cannot instantiate empty {self.__class__.__name__}")
         if any(v is None for v in self._mapping.values()):
             raise ValueError(f"None values not allowed. Received: {list(self._mapping.values())}")
+        ome_zarr.require_valid_scale_keys(self._mapping.keys())
 
     def __repr__(self):
         map_substr = self._mapping.__repr__()[len(type(self._mapping).__name__) :]
@@ -655,6 +681,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         super().__init__(*args, **kwargs)
         for k, v in self._mapping.items():
             self._mapping[k] = Shape(v)
+        _require_non_increasing_shapes(list(self._mapping.items()), "Blueprints")
 
     @classmethod
     def from_multiscale(cls, multiscale: "Multiscale") -> "BlueprintShapes":
@@ -1003,6 +1030,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         super().__init__(*args, **kwargs)
         for k, v in self._mapping.items():
             self._mapping[k] = Factor(v)
+        _require_non_decreasing_factors(list(self._mapping.items()))
 
     @classmethod
     def from_shapes(cls, shapes: Mapping[ScaleKey, ShapeLike], reference: Shape) -> "BlueprintFactors":
@@ -1353,8 +1381,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             if _transform_graph:
                 raise AssertionError("Must specify _intrinsic_ref when _transform_graph is given.")
             canonical_axes = self._merge_ome_zarr_axes(list(self._mapping.values()))
-            self._require_ome_zarr_permitted_type_order(canonical_axes)
-            self._require_non_increasing_shape_order(list(self._mapping.items()))
             canonical_unit = Unit([(a, ax.unit or "") for a, ax in canonical_axes.items()])
             # Dedup: every Scale shares the same canonical Unit/OmeZarrAxes instances.
             self._mapping = OrderedDict(
@@ -1382,7 +1408,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             self._transform_graph = transform_graph
             self._intrinsic_ref = _intrinsic_ref
         # Make sure we never construct Multiscales that cannot be serialized (-> enforce OME-Zarr MUSTs for multiscales).
-        # The spec requirements apply to *all* coordinate systems in multiscale metadata.
+        _require_non_increasing_shapes([(key, scale.shape) for key, scale in self._mapping.items()], "Multiscales")
+        # Axis requirements apply to *all* coordinate systems in multiscale metadata per spec.
         for ref in self._transform_graph.all_system_refs:
             ome_zarr.require_valid_axes(
                 OmeZarrAxes(ref.owner), system_name=None if ref == self._intrinsic_ref else ref.name
@@ -1693,7 +1720,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         `Multiscale.from_ome_zarr(self.to_ome_zarr(version=version)) == self`
 
         Raises ValueError if this Multiscale cannot be written as OME-Zarr in any version
-        (i.e. its scale keys are not valid relative paths), because then no version reproduces it.
+        (i.e. its mutable `.ome` properties were modified to hold unserializable metadata),
+        because then no version reproduces it.
 
         Side note: Never returns 0.5, because it added no new multiscale features over 0.4
         """
@@ -1821,7 +1849,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             transform_graph = self._transform_graph
             mapping_items = list(self.items())
         else:
-            self._require_ome_zarr_permitted_type_order(merged_ome_axes)  # should be unnecessary but might as well
             merged_unit = merged_ome_axes.get_unit()
             intrinsic_ref = CoordinateSystem(merged_ome_axes)._as_ref(self._intrinsic_ref.name)
             transform_graph = TransformGraph(
@@ -1972,11 +1999,10 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Raises ValueError if the scale keys are not valid relative paths.
+        Raises ValueError for unrecognised `version`, or if `self.ome` contains invalid metadata.
         """
         if version not in ome_zarr.SUPPORTED_VERSIONS_WRITE:
             raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.")
-        ome_zarr.require_valid_scale_keys(self.keys())
         result: Dict[str, Any] = {"version": version, "datasets": []}
         if self.ome:
             result.update(self.ome.to_ome_zarr())
@@ -2087,34 +2113,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     )
                 merged[a][field_name] = next(iter(values), None)
         return OmeZarrAxes([(a, OmeZarrAxis(name=a, **merged[a])) for a in axes])
-
-    @staticmethod
-    def _require_ome_zarr_permitted_type_order(axes: "OmeZarrAxes") -> None:
-        """As long as the only format we can serialize to is OME-Zarr, we should enforce the order as early as possible"""
-        type_order_ranks = {"time": 0, "channel": 1, None: 99999}
-        ranks = [type_order_ranks.get(ax.type, 99999) for a, ax in axes.items()]
-        if ranks != sorted(ranks):
-            raise ValueError(
-                f"When OME-Zarr axis types are specified, axes must be ordered time-channel-others. "
-                f"(Reorder using `.with_axes` first?) Received: {axes!r}"
-            )
-
-    @staticmethod
-    def _require_non_increasing_shape_order(items: Sequence[Tuple[ScaleKey, Scale]]):
-        """
-        Like _require_ome_zarr_permitted_type_order, this exists to prevent creating Multiscales that will not be
-        valid in any serialized format.
-        All existing multiscale formats require scales to be ordered from largest to smallest (shape).
-        """
-        for (prev_key, prev_scale), (key, scale) in zip(items, items[1:]):
-            shape = scale.shape
-            prev_shape = prev_scale.shape
-            increased = [a for a in shape if shape[a] > prev_shape[a]]
-            if increased:
-                raise ValueError(
-                    f"Multiscales must be ordered from largest to smallest. Scale shape increases along "
-                    f"{increased} between {prev_key!r} and {key!r} ({prev_shape} -> {shape})."
-                )
 
     def _with_items(self, items: Iterable[Tuple[ScaleKey, Scale]]) -> "Multiscale":
         """Shared cloner for "with_" methods.

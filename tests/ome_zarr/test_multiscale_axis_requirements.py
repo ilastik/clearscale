@@ -3,7 +3,7 @@ no matter how it was constructed."""
 
 import pytest
 
-from clearscale import AxisRearrangementTo, Multiscale, OmeZarrGroup, Scale, Shape, ome_zarr
+from clearscale import AxisRearrangementTo, GroupKind, Multiscale, OmeZarrGroup, Scale, Shape, ome_zarr
 
 SPACE = ome_zarr.Axis(type="space")
 
@@ -88,11 +88,13 @@ class TestReading:
         ms = Multiscale.from_ome_zarr(_0_6_metadata(system), shape_source="singletons")
         assert ms.coordinate_systems == ("other",)
 
-    def test_group_reports_invalid_multiscale_as_no_ome_zarr_content(self):
+    def test_group_reports_invalid_multiscale_as_invalid_with_reason(self):
         group = OmeZarrGroup.from_attrs(
             {"multiscales": [_0_4_metadata([{"name": "y"}, {"name": "x"}])]}, shape_source="singletons"
         )
-        assert group.kind is None and group.multiscales == ()
+        assert group.kind is GroupKind.INVALID and group.multiscales == ()
+        assert group.version == "0.4"
+        assert "'space'" in group.invalid_objects[0].error
 
 
 class TestCoordinateSystems:
@@ -117,7 +119,21 @@ class TestCoordinateSystems:
         assert ms.coordinate_systems == ("w",)
 
 
-def test_to_ome_zarr_still_rejects_invalid_scale_keys():
-    ms = Multiscale.from_single(Scale.from_lists("yx", ome_zarr_axes="infer"), scale_key="../bad")
-    with pytest.raises(ValueError, match="not a valid relative"):
-        ms.to_ome_zarr(version="0.5")
+@pytest.mark.parametrize("key", ["", "/s0", "../s0", "s 0", "a//b"])
+def test_invalid_scale_keys_are_rejected_on_every_path(key):
+    scale = Scale.from_lists("yx", ome_zarr_axes="infer")
+    with pytest.raises(ValueError, match="not a valid relative path"):
+        Multiscale.from_single(scale, scale_key=key)
+    with pytest.raises(ValueError, match="not a valid relative path"):
+        Multiscale.from_ome_zarr(
+            {
+                "version": "0.4",
+                "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
+                "datasets": (
+                    [{"path": key or "x", "coordinateTransformations": [{"type": "scale", "scale": [1, 1]}]}]
+                    if key
+                    else [{"path": "../x", "coordinateTransformations": [{"type": "scale", "scale": [1, 1]}]}]
+                ),
+            },
+            shape_source="singletons",
+        )

@@ -165,8 +165,8 @@ def test_multiscale_rejects_increasing_scale_shapes(shape1, shape2):
         _ = Multiscale(items)
 
 
-def test_multiscale_accepts_increasing_scale_shapes_from_ome_zarr():
-    """Leniency when reading existing datasets - even though OME-Zarr (and Precomputed) require datasets to be ordered
+def test_multiscale_rejects_increasing_scale_shapes_from_ome_zarr():
+    """Reading is not lenient either: OME-Zarr (and Precomputed) require datasets to be ordered
     from largest to smallest."""
     ome_meta = {
         "axes": [{"name": "x", "type": "space"}, {"name": "y", "type": "space"}],
@@ -175,52 +175,77 @@ def test_multiscale_accepts_increasing_scale_shapes_from_ome_zarr():
             {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]},
         ],
     }
-    ms = Multiscale.from_ome_zarr(ome_meta, shape_source={"s0": (1, 1), "s1": (2, 2)})
-    assert tuple(ms["s0"].shape.values()) < tuple(ms["s1"].shape.values())
+    with pytest.raises(ValueError, match="Multiscales must be ordered from largest to smallest"):
+        Multiscale.from_ome_zarr(ome_meta, shape_source={"s0": (1, 1), "s1": (2, 2)})
 
 
 class TestBlueprintWithSizes:
     def test_broadcasts_single_shape_to_all_scales(self):
-        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+        shapes = BlueprintShapes({"s0": Shape(x=30, y=40), "s1": Shape(x=10, y=20)})
 
-        result = shapes.with_sizes({"x": 100})
-        assert result == BlueprintShapes({"s0": Shape(x=100, y=20), "s1": Shape(x=100, y=40)})
+        result = shapes.with_sizes({"x": 5})
+        assert result == BlueprintShapes({"s0": Shape(x=5, y=40), "s1": Shape(x=5, y=20)})
 
     def test_updates_only_specified_scales(self):
-        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+        shapes = BlueprintShapes({"s0": Shape(x=30, y=40), "s1": Shape(x=10, y=20)})
 
-        result = shapes.with_sizes({"s1": {"y": 99}})
-        assert result == BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=99)})
+        result = shapes.with_sizes({"s1": {"y": 9}})
+        assert result == BlueprintShapes({"s0": Shape(x=30, y=40), "s1": Shape(x=10, y=9)})
 
     def test_updates_multiple_scales_independently(self):
-        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+        shapes = BlueprintShapes({"s0": Shape(x=30, y=40), "s1": Shape(x=10, y=20)})
 
-        result = shapes.with_sizes({"s0": {"x": 1}, "s1": {"y": 2}})
-        assert result == BlueprintShapes({"s0": Shape(x=1, y=20), "s1": Shape(x=30, y=2)})
+        result = shapes.with_sizes({"s0": {"x": 11}, "s1": {"y": 2}})
+        assert result == BlueprintShapes({"s0": Shape(x=11, y=40), "s1": Shape(x=10, y=2)})
 
     def test_ignores_unknown_scale_keys(self):
-        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+        shapes = BlueprintShapes({"s0": Shape(x=30, y=40), "s1": Shape(x=10, y=20)})
 
         result = shapes.with_sizes({"unknown": {"z": 1}})
         assert result == shapes
 
     def test_only_axes_limits_broadcast_update(self):
-        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+        shapes = BlueprintShapes({"s0": Shape(x=30, y=40), "s1": Shape(x=10, y=20)})
 
         result = shapes.with_sizes({"x": 5, "y": 6}, only_axes="x")
-        assert result == BlueprintShapes({"s0": Shape(x=5, y=20), "s1": Shape(x=5, y=40)})
+        assert result == BlueprintShapes({"s0": Shape(x=5, y=40), "s1": Shape(x=5, y=20)})
 
     def test_only_axes_limits_nested_update(self):
-        shapes = BlueprintShapes({"s0": Shape(x=10, y=20), "s1": Shape(x=30, y=40)})
+        shapes = BlueprintShapes({"s0": Shape(x=30, y=40), "s1": Shape(x=10, y=20)})
 
-        result = shapes.with_sizes({"s0": {"x": 5, "y": 6}}, only_axes="x")
-        assert result == BlueprintShapes({"s0": Shape(x=5, y=20), "s1": Shape(x=30, y=40)})
+        result = shapes.with_sizes({"s0": {"x": 35, "y": 6}}, only_axes="x")
+        assert result == BlueprintShapes({"s0": Shape(x=35, y=40), "s1": Shape(x=10, y=20)})
 
     def test_with_factors_works_like_with_sizes(self):
         shapes = BlueprintFactors({"s0": Factor(x=1.0, y=2.0), "s1": Factor(x=3.0, y=4.0)})
 
-        result = shapes.with_factors({"s0": {"x": 10.0, "y": 11.0}}, only_axes="x")
-        assert result == BlueprintFactors({"s0": Factor(x=10.0, y=2.0), "s1": Factor(x=3.0, y=4.0)})
+        result = shapes.with_factors({"s1": {"x": 10.0, "y": 11.0}}, only_axes="x")
+        assert result == BlueprintFactors({"s0": Factor(x=1.0, y=2.0), "s1": Factor(x=10.0, y=4.0)})
+
+
+class TestBlueprintOrderValidation:
+    def test_shapes_must_not_increase(self):
+        with pytest.raises(ValueError, match="Blueprints must be ordered from largest to smallest"):
+            BlueprintShapes({"s0": Shape(x=10, y=10), "s1": Shape(x=20, y=5)})
+
+    def test_factors_must_not_decrease(self):
+        with pytest.raises(ValueError, match="Blueprints must be ordered from largest to smallest"):
+            BlueprintFactors({"s0": Factor(x=2.0, y=2.0), "s1": Factor(x=1.0, y=4.0)})
+
+    def test_equal_neighbours_are_allowed(self):
+        BlueprintShapes({"s0": Shape(x=10), "s1": Shape(x=10)})
+        BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=1.0)})
+
+    @pytest.mark.parametrize("key", ["", "/s0", "../s0", "s 0", "s0/", "a//b"])
+    def test_scale_keys_must_be_valid_relative_paths(self, key):
+        with pytest.raises(ValueError, match="not a valid relative path"):
+            BlueprintShapes({key: Shape(x=10)})
+        with pytest.raises(ValueError, match="not a valid relative path"):
+            BlueprintFactors({key: Factor(x=1.0)})
+
+    def test_with_keys_validates(self):
+        with pytest.raises(ValueError, match="not a valid relative path"):
+            BlueprintShapes({"s0": Shape(x=10)}).with_keys(["../bad"])
 
 
 class TestBlueprintApply:
@@ -945,9 +970,10 @@ class TestLosslessOmeZarrVersion:
         assert ms.lowest_lossless_ome_zarr_version == "0.4"
 
     def test_unwritable_multiscale_raises(self):
-        # The scale key is what remains that can make a Multiscale unwritable
-        ms = Multiscale.from_single(Scale.from_lists("zyx", ome_zarr_axes="infer"), scale_key="../bad")
-        with pytest.raises(ValueError, match="cannot be written as valid OME-Zarr.*not a valid relative"):
+        # Everything structural is guaranteed by construction. Only the mutable `.ome` can still make it unwritable
+        ms = Multiscale.from_single(Scale.from_lists("zyx", ome_zarr_axes="infer"))
+        ms.ome.metadata = "not a dict"  # type: ignore[assignment]
+        with pytest.raises(ValueError, match="cannot be written as valid OME-Zarr.*Must not replace"):
             ms.lowest_lossless_ome_zarr_version
 
     def test_lowest_lossless_version_plain_multiscale(self):

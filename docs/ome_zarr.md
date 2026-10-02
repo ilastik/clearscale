@@ -120,10 +120,20 @@ You can now find out whether the metadata describes an OME-Zarr dataset, and if 
 
 ```python
 if ome_meta.kind is None:
-  print("Looks like this isn't an OME-Zarr group at all (or its multiscale metadata violates the spec)")
+  print("This doesn't look like an OME-Zarr group at all")
+
+elif ome_meta.kind is clearscale.GroupKind.INVALID:
+  print("This claims to be OME-Zarr, but its metadata violates the spec:")
+  for invalid in ome_meta.invalid_objects:
+    print(invalid.error)
+
 else:
-  print(ome_meta.version)  # "0.4", "0.5", ... (could still be None if not actually written, even if the metadata was valid)
+  print(ome_meta.version)  # "0.4", "0.5", ... (or None, if the version wasn't written down)
 ```
+
+`.kind` describes the group's *valid* contents.
+`.invalid_objects` can be non-empty for any kind, for example next to a valid `MULTISCALE`, if the group's metadata contains further objects that violate the spec.
+Invalid objects are excluded from `.multiscales` and `.scenes`.
 
 ```python
 if ome_meta.kind is clearscale.GroupKind.MULTISCALE:
@@ -131,7 +141,7 @@ if ome_meta.kind is clearscale.GroupKind.MULTISCALE:
     multiscale = ome_meta.multiscales[0]
 
 if ome_meta.kind is clearscale.GroupKind.COLLECTION:
-    print("Hm, there's more stuff here.")
+    print("There's more stuff here.")
     print("This zarr group describes:")
     print(f"- {len(ome_meta.multiscales)} multiscales")
     print(f"- {len(ome_meta.scenes)} scenes (OME-Zarr 0.6)")
@@ -140,7 +150,7 @@ if ome_meta.kind is clearscale.GroupKind.COLLECTION:
 
 ## Obtaining actual image data at a particular scale
 
-In the `MULTISCALE` case, you now know that there is exactly one multiscale you can find here:
+In the `MULTISCALE` case, you now know that there is exactly one (valid) multiscale you can find here:
 ```python
 if ome_meta.kind is GroupKind.MULTISCALE:
     assert (
@@ -223,6 +233,7 @@ assert "raw/scale3" in parent2_meta.multiscales[0], "Scale key is the full relat
 ```
 
 In practice, the only way to be sure the provided path really is not OME-Zarr, is to iterate all the way up all parents.
+A group of kind `INVALID` does contain OME-Zarr metadata, but it's broken, so looking further up won't necessarily help.
 
 ## Retrieving paths for multiple multiscales or collections
 
@@ -307,6 +318,8 @@ clearscale enforces them whenever a `Multiscale` is created, including when it r
 * 2 or 3 of the axes must be of type `"space"`.
 * If any axis has type `"time"`, it must be first, and if any has type `"channel"`, it must come right after `"time"` (or be first).
 
+Likewise, scale keys must be valid relative paths (letters, digits, `.`, `_`, `-`, separated by `/`), and scales must be ordered from largest to smallest.
+
 Axis types are part of the `Scale`.
 The easiest way to provide them is `ome_zarr_axes="infer"`, which assigns types to the standard axis keys (`t`, `c`, `z`, `y`, `x`).
 For any other axis keys, or to set other axis properties, pass the `ome_zarr_axes` explicitly:
@@ -377,6 +390,8 @@ new_zarr_group.attrs.update(
 ```
 
 That's all.
+
+When re-writing group metadata (like `OmeZarrGroup.from_group(...).to_attrs(...)`), if there were any `invalid_objects`, these are excluded from the output.
 
 ## OME-Zarr version specifics
 

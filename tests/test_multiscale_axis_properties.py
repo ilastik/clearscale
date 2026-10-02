@@ -9,6 +9,7 @@ from clearscale import (
     PixelSize,
     Translation,
     ProjectionTo,
+    PermutationTo,
     AxisRearrangementTo,
 )
 
@@ -337,24 +338,25 @@ class TestMultiscale:
 class TestMultiscaleAxisOrderValidation:
     def test_init_with_bad_order_infer_raises(self):
         # adding the ome_zarr_axes param explicitly opts in to OME-Zarr rules
-        s0 = Scale(shape=Shape(x=2, c=2), ome_zarr_axes="infer")
-        with pytest.raises(ValueError, match="axes must be ordered time-channel-others"):
+        s0 = Scale(shape=Shape(y=2, x=2, c=2), ome_zarr_axes="infer")
+        with pytest.raises(ValueError, match="time, then channel, before all others"):
             Multiscale({"s0": s0})
 
     def test_init_with_bad_order_explicit_axes_raises(self):
         s0 = Scale(
-            shape=Shape(x=2, c=2),
-            ome_zarr_axes=dict(x=ome_zarr.Axis(type="space"), c=ome_zarr.Axis(type="channel")),
+            shape=Shape(y=2, x=2, c=2),
+            ome_zarr_axes=dict(
+                y=ome_zarr.Axis(type="space"), x=ome_zarr.Axis(type="space"), c=ome_zarr.Axis(type="channel")
+            ),
         )
-        with pytest.raises(ValueError, match="axes must be ordered time-channel-others"):
+        with pytest.raises(ValueError, match="time, then channel, before all others"):
             Multiscale({"s0": s0})
 
     def test_init_with_good_order_does_not_raise(self):
         s0 = Scale(shape=dict(zip("tcyx", [1, 3, 10, 10])), ome_zarr_axes="infer")
         _ = Multiscale({"s0": s0})
 
-    def test_bad_axis_order_round_trips(self, recwarn):
-        # Handle existing metadata permissively
+    def test_bad_axis_order_is_rejected_when_reading(self):
         bad_multiscale_dict = {
             "version": "0.5",
             "axes": [
@@ -364,12 +366,13 @@ class TestMultiscaleAxisOrderValidation:
             ],
             "datasets": [{"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0, 1.0]}]}],
         }
-        ms = Multiscale.from_ome_zarr(bad_multiscale_dict, shape_source=lambda _: (10, 10, 3))
-        assert ms.ome_zarr_axes["c"].type == "channel"
+        with pytest.raises(ValueError, match="time, then channel, before all others"):
+            Multiscale.from_ome_zarr(bad_multiscale_dict, shape_source=lambda _: (10, 10, 3))
 
-        result = ms.to_ome_zarr(version="0.5")
-        assert result == bad_multiscale_dict
-        assert len(recwarn) == 0
+    def test_bad_axis_order_is_rejected_in_additional_coordinate_systems(self):
+        ms = Multiscale({"s0": Scale(shape=Shape(c=2, y=2, x=2), ome_zarr_axes="infer")})
+        with pytest.raises(ValueError, match="time, then channel.*coordinate system 'w'"):
+            ms.with_coordinate_system("w", reached_by=PermutationTo("yxc"))
 
 
 class TestMultiscaleTransfer:
@@ -427,11 +430,11 @@ class TestMultiscaleTransfer:
         )
 
         ms2 = ms.with_coordinate_system(
-            "world", reached_by=AxisRearrangementTo(("z", "y", "x")), ome_zarr_axes={"x": ome_zarr.Axis(type="channel")}
+            "world", reached_by=AxisRearrangementTo(("z", "y", "x")), ome_zarr_axes={"x": ome_zarr.Axis(type="custom")}
         )
 
         axis = ms2.coordinate_system_ome_zarr_axes("world")["x"]
-        assert axis.type == "channel"  # overridden
+        assert axis.type == "custom"  # overridden
         assert axis.unit == "micrometer"  # inherited
 
     def test_with_coordinate_system_overrides_inherited_axis_properties_from_unit(self):
@@ -468,11 +471,11 @@ class TestMultiscaleTransfer:
             "world",
             reached_by=AxisRearrangementTo(("z", "y", "x")),
             unit={"x": "nm"},
-            ome_zarr_axes={"x": ome_zarr.Axis(type="channel")},
+            ome_zarr_axes={"x": ome_zarr.Axis(type="custom")},
         )
 
         axis = ms2.coordinate_system_ome_zarr_axes("world")["x"]
-        assert axis == ome_zarr.Axis(name="x", type="channel", unit="nm")  # both overridden
+        assert axis == ome_zarr.Axis(name="x", type="custom", unit="nm")  # both overridden
 
     def test_with_coordinate_system_rejects_conflicting_unit_arguments(self):
         ms = Multiscale(

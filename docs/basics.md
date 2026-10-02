@@ -12,17 +12,25 @@ If you've been coding for a bit already, you most likely just need to know:
 * `.with_axes(new_axis_keys)` reorders, inserts and drops as needed. Each class has its respective default value for inserted axes (`1` for Shape, `""` for Unit etc.)
 * Mathematical operations are axis-wise (PixelSize * Factor, etc.)
 * Blueprints and Multiscale are immutable, ordered `Mapping[ScaleKey, <Shape/Factor/Scale respectively>]`
-* Multiscale is the central metadata class
+* Multiscale is the central (smart) metadata class; Scale is the dumb bag-of-metadata you use to describe an individual data array
 
-*Caveat: Axis keys (and orders) other than "tczyx" are generally badly supported across the OME-Zarr ecosystem
+*Caveat: Axis keys (and orders) other than "tczyx" are generally badly supported across the OME-Zarr ecosystem.
+
+Since OME-Zarr is the only serialization target, its minimum restrictions apply to Multiscale construction (so you don't end up with a Multiscale that you then can't write as valid OME-Zarr):
+
+* 2 to 5 axes, not more or less
+* Exactly 2 or 3 axes of type "space"
+* Axes that have types must be ordered "time-channel-space" by type
+* Scale keys must be valid relative path strings
+* Scale shape must not increase across the Multiscale (highest-resolution must come first)
 
 Potential gotchas:
 
-* When describing relative scaling, `Factor` is a _multiplier_ for `PixelSize` and a _divisor_ for `Shape`. `Factor(x=2)` means "downscale by factor 2" - doubling pixel size and halving image shape. `Shape / Factor` needs to know how your scaling method rounds uneven divisions, so must be called as `shape.scaled_by(factor, rounding="ceil")`. Note that many scaling methods like `scipy.ndimage.zoom` expect *shape multiplier* factors, so you'd need to pass `factor.inverted().values_tuple()`.
+* When describing relative scaling, `Factor` is a *multiplier* for `PixelSize` and a *divisor* for `Shape`. `Factor(x=2)` means "downscale by factor 2" - doubling pixel size and halving image shape. Dividing `Shape / Factor` needs to know how your scaling method rounds uneven divisions, so can only be called as `shape.scaled_by(factor, rounding="ceil")`. Note that many scaling methods like `scipy.ndimage.zoom` expect *shape multiplier* factors, so you'd need to pass `factor.inverted().values_tuple()`.
 * Scaled pixel size cannot be trivially determined. By default, `shape_ratio` is assumed (`output_spacing = input_spacing * input_shape / output_shape`), but some methods use `"corner_ratio"` or `"exact_factor"`.
 * Scaling usually introduces a shift, or `Translation`, to the scaled image's origin in physical space. Methods that handle `Scale` objects (and hence `Scale.translation`) compute this using a `TranslationShiftFunction`
 
-All three characteristics can be determined for your particular method using `clearscale`'s [scaling method characterization](characterization.md).
+All three characteristics (`rounding`, `pixel_sizing` and `translating`) can be determined for your particular method using [`clearscale.characterization`](characterization.md).
 
 ## Axis values: Dicts are better than tuples
 

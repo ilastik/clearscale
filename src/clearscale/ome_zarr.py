@@ -1,6 +1,7 @@
 """Parts of the public API that are specific to OME-Zarr"""
 
 from clearscale._services.ome_zarr import (
+    InvalidObject,
     GetShapeFunction,
     make_all_singleton_shapes,
     SUPPORTED_VERSIONS_READ,
@@ -15,6 +16,7 @@ from clearscale._services.ome_zarr import (
 from clearscale._transforms import OmeZarrAxis as Axis, OmeZarrAxes as Axes
 
 __all__ = [
+    "InvalidObject",
     "GetShapeFunction",
     "make_all_singleton_shapes",
     "SUPPORTED_VERSIONS_READ",
