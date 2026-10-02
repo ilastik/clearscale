@@ -273,10 +273,9 @@ The two most important methods here are: `Multiscale.from_single` and `Multiscal
 The absolute minimum path when you really have no metadata at all:
 
 ```python
-# If you don't even know axes, you can't use OME-Zarr
+# If you don't know what the axes are, you can't use OME-Zarr
 scale = Scale(
-  shape=Shape.fromkeys("zyx"),
-  ome_zarr_axes="infer"  # Recognises the standard axis keys "tczyx" and knows their OME-Zarr types
+  shape=Shape.fromkeys("zyx")
 )
 
 multiscale = Multiscale.from_single(
@@ -287,7 +286,7 @@ multiscale = Multiscale.from_single(
 
 If more metadata is available (pixel size, units, etc.), pass it to the `Scale`.
 
-If you're not using standard axis keys, specify at least two axes as "space" like `ome_zarr_axes={your_axis_key: clearscale.ome_zarr.Axis(type="space")}`.
+If you're not using standard axis keys (`t, c, z, y, x` or a subset), specify at least two axes as "space" like `ome_zarr_axes={your_axis_key: clearscale.ome_zarr.Axis(type="space")}`.
 
 If you're scaling the data, make a matching blueprint and add the `blueprint=your_blueprint` parameter to expand the single Scale to multiple scales matching your blueprint.
 Don't forget to supply how your scaling method handles `pixel_sizing`, `translating` and `rounding`.
@@ -309,33 +308,6 @@ new_multiscale = old_multiscale.derive("s3")
 ```
 
 If you also scale the processing output derived from that scale, provide the matching blueprint and scaling method characteristics as for `from_single`.
-
-### Axis types
-
-OME-Zarr has a few requirements for the axes of a multiscale.
-clearscale enforces them whenever a `Multiscale` is created, including when it reads OME-Zarr metadata:
-
-* There must be 2 to 5 axes.
-* 2 or 3 of the axes must be of type `"space"`.
-* If any axis has type `"time"`, it must be first, and if any has type `"channel"`, it must come right after `"time"` (or be first).
-
-Likewise, scale keys must be valid relative paths (letters, digits, `.`, `_`, `-`, separated by `/`), and scales must be ordered from largest to smallest.
-
-Axis types are part of the `Scale`.
-The easiest way to provide them is `ome_zarr_axes="infer"`, which assigns types to the standard axis keys (`t`, `c`, `z`, `y`, `x`).
-For any other axis keys, or to set other axis properties, pass the `ome_zarr_axes` explicitly:
-
-```python
-from clearscale import Scale, Shape
-from clearscale.ome_zarr import Axis
-
-scale = Scale(
-    shape=Shape(w=3, u=100, v=100),
-    ome_zarr_axes={"w": Axis(type="channel"), "u": Axis(type="space"), "v": Axis(type="space")},
-)
-```
-
-Creating a `Multiscale` raises an error that names the offending axes if the requirements are not met.
 
 ## Making new OmeZarrGroups
 

@@ -13,7 +13,7 @@ def test_simple_dump_example():
 
     # Write metadata
     # Make a Scale, expand it to a Multiscale, put that in an OME-Zarr group.
-    scale = Scale.from_lists("zyx", ome_zarr_axes="infer")  # Axis keys are the minimum you really must specify
+    scale = Scale.from_lists("zyx")  # Axis keys are the minimum you really must specify
     written = OmeZarrGroup.from_single(Multiscale.from_single(scale, scale_key=array_path)).to_attrs(version="0.5")
 
     assert "ome" in written
@@ -65,7 +65,7 @@ def test_downscale_2_example():
     # noop for this test
 
     # 4. Expand and write metadata
-    base = Scale(shape, pixel_size, unit, ome_zarr_axes="infer")
+    base = Scale(shape, pixel_size, unit)
     ms = Multiscale.from_single(base, blueprint=scaling_blueprint)
     written = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 
@@ -175,7 +175,6 @@ def test_skimage_pyramid_gaussian_example():
         shape=image.shape,
         pixel_size=[25, 240, 240],
         unit=["micrometer", "nanometer", "nanometer"],
-        ome_zarr_axes="infer",
     )
 
     # 4. Use the recorded scale shapes as a blueprint to expand a Multiscale

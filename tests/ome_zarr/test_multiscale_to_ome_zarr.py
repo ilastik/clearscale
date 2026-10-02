@@ -9,7 +9,7 @@ from clearscale._spatial_relations import AxisRearrangementTo
 def _multiscale(axes, size=4, pixel_size=None):
     shape = Shape(zip(axes, [size] * len(axes)))
     ps = PixelSize(zip(axes, pixel_size)) if pixel_size else None
-    return Multiscale({"s0": Scale(shape=shape, pixel_size=ps, ome_zarr_axes="infer")})
+    return Multiscale({"s0": Scale(shape=shape, pixel_size=ps)})
 
 
 @pytest.mark.parametrize("version", SUPPORTED_VERSIONS_WRITE)
@@ -79,10 +79,7 @@ class TestCoordinateSystemToLegacy:
         """Axis rearrangements are not strictly compatible with legacy OME-Zarr versions.
         We accommodate them when the rest of the relation *is* compatible (scale[+translation]),
         by rearranging the relation's values directly."""
-        # Inserted axes need a type for the coordinate system to be valid
-        ms = _multiscale("yx").with_coordinate_system(
-            "world", reached_by=relation, ome_zarr_axes={"z": ome_zarr.Axis(type="space")}
-        )
+        ms = _multiscale("yx").with_coordinate_system("world", reached_by=relation)
 
         result = ms.to_ome_zarr(version="0.4")
 
@@ -114,16 +111,8 @@ class TestLegacyGlobalTScale:
     def test_synthesizes_global_t_scale_when_uniform(self):
         ms = Multiscale(
             {
-                "s0": Scale(
-                    shape=Shape(t=4, z=2, y=2, x=2),
-                    pixel_size=PixelSize(t=0.5, z=0.3, y=20.0, x=30.0),
-                    ome_zarr_axes="infer",
-                ),
-                "s1": Scale(
-                    shape=Shape(t=4, z=1, y=1, x=1),
-                    pixel_size=PixelSize(t=0.5, z=0.6, y=40.0, x=60.0),
-                    ome_zarr_axes="infer",
-                ),
+                "s0": Scale(shape=Shape(t=4, z=2, y=2, x=2), pixel_size=PixelSize(t=0.5, z=0.3, y=20.0, x=30.0)),
+                "s1": Scale(shape=Shape(t=4, z=1, y=1, x=1), pixel_size=PixelSize(t=0.5, z=0.6, y=40.0, x=60.0)),
             },
             _legacy_convention_global_t_scale=0.5,
         )
@@ -139,16 +128,8 @@ class TestLegacyGlobalTScale:
         # Pathological: Claims to use the global-t-scale convention but actually doesn't (s1[t] != s0[t])
         ms = Multiscale(
             {
-                "s0": Scale(
-                    shape=Shape(t=4, z=2, y=2, x=2),
-                    pixel_size=PixelSize(t=0.5, z=0.3, y=20.0, x=30.0),
-                    ome_zarr_axes="infer",
-                ),
-                "s1": Scale(
-                    shape=Shape(t=4, z=1, y=1, x=1),
-                    pixel_size=PixelSize(t=0.9, z=0.6, y=40.0, x=60.0),
-                    ome_zarr_axes="infer",
-                ),
+                "s0": Scale(shape=Shape(t=4, z=2, y=2, x=2), pixel_size=PixelSize(t=0.5, z=0.3, y=20.0, x=30.0)),
+                "s1": Scale(shape=Shape(t=4, z=1, y=1, x=1), pixel_size=PixelSize(t=0.9, z=0.6, y=40.0, x=60.0)),
             },
             _legacy_convention_global_t_scale=0.5,
         )
@@ -164,12 +145,8 @@ class TestLegacyGlobalTScale:
         More important to maintain convention."""
         ms = Multiscale(
             {
-                "s0": Scale(
-                    shape=Shape(t=4, y=2, x=2), pixel_size=PixelSize(t=0.5, y=20.0, x=30.0), ome_zarr_axes="infer"
-                ),
-                "s1": Scale(
-                    shape=Shape(t=4, y=1, x=1), pixel_size=PixelSize(t=0.5, y=40.0, x=60.0), ome_zarr_axes="infer"
-                ),
+                "s0": Scale(shape=Shape(t=4, y=2, x=2), pixel_size=PixelSize(t=0.5, y=20.0, x=30.0)),
+                "s1": Scale(shape=Shape(t=4, y=1, x=1), pixel_size=PixelSize(t=0.5, y=40.0, x=60.0)),
             },
             _legacy_convention_global_t_scale=0.5,
         )
@@ -200,12 +177,8 @@ class TestLegacyGlobalTScale:
         """
         ms = Multiscale(
             {
-                "s0": Scale(
-                    shape=Shape(t=4, y=2, x=2), pixel_size=PixelSize(t=0.5, y=20.0, x=30.0), ome_zarr_axes="infer"
-                ),
-                "s1": Scale(
-                    shape=Shape(t=4, y=1, x=1), pixel_size=PixelSize(t=0.5, y=40.0, x=60.0), ome_zarr_axes="infer"
-                ),
+                "s0": Scale(shape=Shape(t=4, y=2, x=2), pixel_size=PixelSize(t=0.5, y=20.0, x=30.0)),
+                "s1": Scale(shape=Shape(t=4, y=1, x=1), pixel_size=PixelSize(t=0.5, y=40.0, x=60.0)),
             },
             _legacy_convention_global_t_scale=0.5,
         )
@@ -267,7 +240,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
 
     def test_derive_preserves_multiple_inherited_systems_and_source_lineage(self):
         source = Multiscale.from_single(
-            Scale(shape=Shape(z=4, y=4, x=4), pixel_size=PixelSize(z=2, y=1, x=1), ome_zarr_axes="infer"),
+            Scale(shape=Shape(z=4, y=4, x=4), pixel_size=PixelSize(z=2, y=1, x=1)),
             blueprint=BlueprintShapes({"s0": Shape(z=4, y=4, x=4), "s1": Shape(z=2, y=2, x=2)}),
         )
         source = source.with_coordinate_system("world", reached_by=Translation(z=1, y=2, x=3))

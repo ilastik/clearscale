@@ -61,7 +61,6 @@ multiscale = Multiscale.from_single(
         shape=Shape(z=40, y=512, x=512),
         pixel_size=PixelSize(z=2.0, y=0.5, x=0.5),
         unit=Unit(z="micrometer", y="micrometer", x="micrometer"),
-        ome_zarr_axes="infer",
     )
 )
 

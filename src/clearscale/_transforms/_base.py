@@ -252,7 +252,6 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
 
     def with_types_inferred(self) -> "OmeZarrAxes":
         """Infers `type` for any axis where `type` is None and the key is recognised.
-        Raises if no axis has a recognised key (only use this method if you use standard axis keys).
 
         Recognised keys are: t, time, timestep, timepoint, c, ch, channel, channels, z, y, x
         Inferred types are: "time", "channel", "space"
@@ -270,11 +269,6 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
             "y": "space",
             "x": "space",
         }
-        if not any(str(a) in inferred_types for a in self.keys()):
-            raise ValueError(
-                f"Cannot infer OME-Zarr axis types: none of {list(self.keys())!r} are recognized standard "
-                f"axis keys ({sorted(set(inferred_types))!r}). Specify ome_zarr_axes explicitly instead."
-            )
         items = []
         for a, existing in self.items():
             if existing.type is not None or str(a) not in inferred_types:

@@ -13,7 +13,7 @@ from clearscale.ome_zarr import (
 
 
 def _multiscale(shape: Shape) -> Multiscale:
-    return Multiscale({"s0": Scale(shape=shape, ome_zarr_axes="infer")})
+    return Multiscale({"s0": Scale(shape=shape)})
 
 
 def _channel(color="FF0000") -> OmeroChannel:

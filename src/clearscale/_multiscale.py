@@ -125,12 +125,12 @@ class Scale:
         pixel_size: Optional[Sequence[float]] = None,
         unit: Optional[Sequence[str]] = None,
         translation: Optional[Sequence[float]] = None,
-        ome_zarr_axes: Optional[Union[Literal["infer"], Sequence[Union[Mapping[str, Any], OmeZarrAxis]]]] = None,
+        ome_zarr_axes: Optional[Union[Literal["infer"], Sequence[Union[Mapping[str, Any], OmeZarrAxis]]]] = "infer",
     ) -> "Scale":
         """
         Convenience constructor for axes given as parallel sequences rather than {axis: value} mappings.
         Enables construction of Scales
-        * with just axis keys: `Scale.from_lists("zyx")`, `Scale.from_lists("zyx", ome_zarr_axes="infer")`
+        * with just axis keys: `Scale.from_lists("zyx")`
         * directly from OME-Zarr json: `Scale.from_lists(json["axes"])`
 
         `keys` is optional if `ome_zarr_axes` is given as a sequence of dicts/ome_zarr.Axis that all
@@ -140,6 +140,10 @@ class Scale:
 
         `ome_zarr_axes` entries may be either raw OME-Zarr axis dicts (using OME-Zarr's own key
         spelling: "type", "unit", "discrete", "longName", "name") or `ome_zarr.Axis` instances directly.
+        Keep `ome_zarr_axes="infer"` (the default) if you use the standard axis key set "t", "c", "z", "y" and/or "x".
+        This will automatically set the canonical Axis.type. If you use non-standard keys, you must specify
+        Axis.type="space" for at least two axes to be able to create Multiscales from a Scale.
+        Pass `ome_zarr_axes=None` explicitly to leave axis properties unset.
         """
         parsed_ome_zarr_axes: Optional[List[OmeZarrAxis]]
         if ome_zarr_axes is None or isinstance(ome_zarr_axes, str):
@@ -196,7 +200,7 @@ class Scale:
         pixel_size: Optional[Union[PixelSize, Mapping[AxisKeyT, float]]] = None,
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         translation: Optional[Union[Translation, Mapping[AxisKeyT, float]]] = None,
-        ome_zarr_axes: Optional[OmeZarrAxesParam] = None,
+        ome_zarr_axes: Optional[OmeZarrAxesParam] = "infer",
     ):
         shape = Shape(shape)
         pixel_size = PixelSize.fromkeys(shape) if pixel_size is None else PixelSize(pixel_size)
@@ -239,10 +243,10 @@ class Scale:
         object.__setattr__(self, "translation", translation)
         object.__setattr__(self, "ome_zarr_axes", parsed_ome_axes)
 
-    def with_axes(self, axes: OrderedAxes, *, infer_inserted_types: bool = False) -> "Scale":
+    def with_axes(self, axes: OrderedAxes, *, infer_inserted_types: bool = True) -> "Scale":
         """Build a Scale with all properties produced by their respective `.with_axes`.
-        infer_types: If True, infer OME-Zarr axis types *only for newly inserted axes*.
-        If you want to infer for all axes, use `with_axis_types_inferred` after rearranging."""
+
+        infer_inserted_types: If True, infer OME-Zarr axis types (only for newly inserted axes)."""
         if not axes:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to: {axes!r}")
         return Scale(
@@ -1748,7 +1752,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         *,
         reached_by: Union[SpatialRelation, Sequence[SpatialRelation], None] = None,
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
-        ome_zarr_axes: Optional[OmeZarrAxesParam] = None,
+        ome_zarr_axes: Optional[OmeZarrAxesParam] = "infer",
     ) -> "Multiscale":
         """Add a coordinate system to this Multiscale's spatial context.
 
@@ -1771,14 +1775,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 )
 
             if provided_ome_axes == "infer":
-                authoritative = source_ome_axes.with_axes(target_axes)
-                # Drop inferred properties for already existing axes
-                extra_properties = parsed_ome_axes.without_axes_except(set(target_axes) - set(source_ome_axes.keys()))
+                result = source_ome_axes.with_axes(target_axes)
+                inserted_axes = set(target_axes) - set(source_ome_axes.keys())
+                if inserted_axes:
+                    inserted_ome_axes = parsed_ome_axes.without_axes_except(inserted_axes)
+                    result = result.with_blanks_filled_from(inserted_ome_axes)
             else:
-                authoritative = parsed_ome_axes.with_axes(target_axes)
-                extra_properties = source_ome_axes
-
-            result = authoritative.with_blanks_filled_from(extra_properties)
+                result = parsed_ome_axes.with_axes(target_axes).with_blanks_filled_from(source_ome_axes)
 
             return result.with_unit_merged(unit)
 
