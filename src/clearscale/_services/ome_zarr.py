@@ -17,6 +17,7 @@ from typing import (
     Iterable,
     TYPE_CHECKING,
     Callable,
+    Literal,
 )
 
 from clearscale._axis_values import Translation, PixelSize, AxisKey, Factor
@@ -83,6 +84,17 @@ Using a constant is convenient for now:
 - `as_derived_from` handles the duplicate on the off-chance someone multiply derives from this Multiscale
 Replace with more robust mechanism if more special treatments within the graph become necessary.
 """
+
+
+@dataclass(frozen=True, slots=True)
+class InvalidObject:
+    """Metadata of a multiscale or scene that clearscale could not accept, and why."""
+
+    kind: Literal["multiscale", "scene"]
+    metadata: Any  # Mapping[str, Any] ?
+    """The metadata exactly as found in the group's attributes."""
+    error: str
+    """Explains which requirement the metadata violates."""
 
 
 @dataclass(slots=True)
@@ -955,11 +967,6 @@ def pixel_size_to_scale_with_reintroduced_zeros(
     return ScaleTransform(scale=scale)
 
 
-####
-# Writing
-####
-
-
 OME_ZARR_PATH_RE = re.compile(
     r"""
     ^                       # start of string
@@ -994,22 +1001,33 @@ def require_valid_axes(axes: OmeZarrAxes, *, system_name: Optional[str] = None) 
             )
         raise ValueError(problem)
     space = [a for a, ax in axes.items() if ax.type == "space"]
-    if MIN_SPACE_AXES <= len(space) <= MAX_SPACE_AXES:
-        return
-    untyped = [a for a, ax in axes.items() if not ax.type]
-    problem = (
-        f"Multiscales require {MIN_SPACE_AXES} or {MAX_SPACE_AXES} axes of type 'space', "
-        f"but {where} has {len(space)} (axes: {keys}, space axes: {space})."
-    )
-    if len(space) < MIN_SPACE_AXES and untyped:
-        problem += f" Axes without a type: {untyped}. Give the axes types, e.g. `Scale(..., ome_zarr_axes='infer')`."
-    raise ValueError(problem)
+    if not MIN_SPACE_AXES <= len(space) <= MAX_SPACE_AXES:
+        untyped = [a for a, ax in axes.items() if not ax.type]
+        problem = (
+            f"Multiscales require {MIN_SPACE_AXES} or {MAX_SPACE_AXES} axes of type 'space', "
+            f"but {where} has {len(space)} (axes: {keys}, space axes: {space})."
+        )
+        if len(space) < MIN_SPACE_AXES and untyped:
+            problem += (
+                f" Axes without a type: {untyped}. Give the axes types, e.g. `Scale(..., ome_zarr_axes='infer')`."
+            )
+        raise ValueError(problem)
+    type_order_ranks: Dict[Optional[str], int] = {"time": 0, "channel": 1}
+    ranks = [type_order_ranks.get(ax.type, len(type_order_ranks)) for ax in axes.values()]
+    if ranks != sorted(ranks):
+        raise ValueError(
+            f"Multiscales require axes of type time, then channel, before all others, but {where} has axes "
+            f"ordered like this: {axes!r}. (Reorder using `.with_axes` first?)"
+        )
 
 
 def require_valid_scale_keys(scale_keys: Iterable[str]) -> None:
     for scale_key in scale_keys:
         if not _is_valid_relative_path(str(scale_key)):
-            raise ValueError(f"Scale key '{scale_key}' is not a valid relative filesystem path")
+            raise ValueError(
+                f"Scale key '{scale_key}' is not a valid relative path. Scale keys are the paths of the data arrays "
+                "inside the zarr group: One or more segments of letters, digits, '.', '_' or '-', separated by '/'."
+            )
 
 
 def _is_valid_relative_path(path: str) -> bool:

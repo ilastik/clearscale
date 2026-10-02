@@ -13,11 +13,14 @@ from clearscale._services.ome_zarr import (
     SUPPORTED_VERSIONS_WRITE,
     ImageLabel,
     Omero,
+    InvalidObject,
 )
 from clearscale.types import ZarrGroup, ShapeSource
 
 
 class GroupKind(str, Enum):
+    """The "kind" of OME-Zarr group. Any .kind (except None) may contain .invalid_objects in addition to the valid objects associated with its .kind."""
+
     MULTISCALE = "multiscale"
     """Exactly one valid Multiscale"""
     SCENE = "scene"
@@ -42,6 +45,10 @@ class GroupKind(str, Enum):
     You will need to strip the leading "../" to get paths relative to the BF2RAW-kind parent group."""
     COLLECTION = "collection"
     """Generic OME-Zarr container. Contains some combination of the other kinds (some mix of multiscales, scenes and/or children)."""
+    INVALID = "invalid"
+    """The group's metadata defines multiscales and/or a scene, but all of them are invalid (see `OmeZarrGroup.invalid_objects`
+    for the reasons), and there is nothing else (valid) in it.
+    Different from `kind=None`: None means there is no OME-Zarr metadata in the group at all."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +115,9 @@ def _children_from_attrs(attrs: Mapping[str, Any]) -> Tuple[Tuple[ChildRef, ...]
 @dataclass(frozen=True, slots=True)
 class OmeZarrGroup:
     kind: Optional[GroupKind] = None
-    """Indicator of this group's contents. None means empty."""
+    """Indicator of this group's *valid* contents. None means empty: The group holds no OME-Zarr metadata at all.
+    GroupKind.INVALID means it does, but none of it is valid. Otherwise, `kind` ignores `invalid_objects`:
+    A MULTISCALE group, for example, can still have invalid_objects next to its one valid multiscale."""
     version: Optional[str] = None
     multiscales: Tuple[Multiscale, ...] = ()
     scenes: Tuple[Scene, ...] = ()
@@ -118,7 +127,10 @@ class OmeZarrGroup:
     maybe_subgroups: Tuple[str, ...] = ()
     """Contains potentially present subgroups implied by the OME-Zarr standard. "OME" for BF2RAW or 
     "labels" for groups with .multiscales."""
-    _invalid_objects: Tuple[Dict[str, Any], ...] = ()
+    invalid_objects: Tuple[InvalidObject, ...] = ()
+    """Multiscales and scenes found in the metadata that violate OME-Zarr requirements, and the reasons.
+    Can be non-empty for any `kind`. Invalid objects are not part of `multiscales` or `scenes`, and are not written
+    by `to_attrs`."""
 
     def __post_init__(self):
         assert self.version != "", "Must not instantiate with empty version string"
@@ -139,6 +151,8 @@ class OmeZarrGroup:
                 detected_kind = GroupKind.LABELS
         elif self.multiscales or self.scenes or self.children:
             detected_kind = GroupKind.COLLECTION
+        elif self.invalid_objects:
+            detected_kind = GroupKind.INVALID
 
         if self.kind is GroupKind.BF2RAW or self.kind is GroupKind.BF2RAW_OME:
             # BF2RAW kinds are special markers that can't be detected from contents. Preset in the constructor call instead.
@@ -170,7 +184,7 @@ class OmeZarrGroup:
             version = None
         multiscale_version = scene_version = None
 
-        invalid = []
+        invalid: List[InvalidObject] = []
 
         multiscales = []
         multiscales_json = ome_attrs.get("multiscales")
@@ -179,8 +193,8 @@ class OmeZarrGroup:
             for ms_json in multiscales_json:
                 try:
                     multiscales.append(Multiscale.from_ome_zarr(ms_json, shape_source=shape_source))
-                except ValueError:
-                    invalid.append(ms_json)
+                except ValueError as e:
+                    invalid.append(InvalidObject("multiscale", ms_json, str(e)))
             if not version and multiscales:
                 for ms_json in multiscales_json:
                     if (
@@ -199,8 +213,8 @@ class OmeZarrGroup:
                 scene = Scene.from_ome_zarr(scene_json)
                 scenes.append(scene)
                 scene_children.extend(ChildRef.from_string(path, "multiscale") for path in scene.unresolved_paths)
-            except ValueError:
-                invalid.append(scene_json)
+            except ValueError as e:
+                invalid.append(InvalidObject("scene", scene_json, str(e)))
             if not version and isinstance(scene_json.get("version"), str) and scene_json.get("version"):
                 scene_version = scene_json.get("version")
 
@@ -231,7 +245,17 @@ class OmeZarrGroup:
             subgroups_dup = [str(PurePosixPath(next(iter(ms))).parent / "labels") for ms in multiscales]
             maybe_subgroups = tuple(dict.fromkeys(subgroups_dup))
 
-        version = version or multiscale_version or scene_version or child_version
+        version_from_invalid = next(
+            (
+                obj.metadata["version"]
+                for obj in invalid
+                if isinstance(obj.metadata, ABCMapping)
+                and isinstance(obj.metadata.get("version"), str)
+                and obj.metadata["version"]
+            ),
+            None,
+        )
+        version = version or multiscale_version or scene_version or child_version or version_from_invalid
 
         return cls(
             kind=kind,
@@ -240,7 +264,7 @@ class OmeZarrGroup:
             scenes=tuple(scenes),
             children=children + tuple(scene_children),
             maybe_subgroups=maybe_subgroups,
-            _invalid_objects=tuple(invalid),
+            invalid_objects=tuple(invalid),
         )
 
     @classmethod
@@ -272,6 +296,11 @@ class OmeZarrGroup:
             raise ValueError(f"Cannot write OME-Zarr with {version=}")
         if self.kind is None:
             return {}
+        if self.kind is GroupKind.INVALID:
+            raise ValueError(
+                "Cannot write a group that holds only invalid OME-Zarr metadata. "
+                f"Errors: {[obj.error for obj in self.invalid_objects]}"
+            )
         self._validate_for_version(version, override_multi_multiscales)
         ome: Dict[str, Any] = {}
         if self.kind is GroupKind.MULTISCALE:

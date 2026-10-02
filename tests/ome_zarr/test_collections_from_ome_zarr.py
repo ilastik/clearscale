@@ -188,9 +188,13 @@ def test_ome_zarr_group_ignores_invalid_multiscale():
     zarr_group = MockZarrGroup(invalid_meta, make_all_singleton_shapes(1))
     ome_group = OmeZarrGroup.from_group(zarr_group)
 
-    assert ome_group.kind is None
+    assert ome_group.kind is GroupKind.INVALID
     assert len(ome_group.multiscales) == 0
     assert ome_group.version is None
+    assert [(obj.kind, obj.metadata) for obj in ome_group.invalid_objects] == [
+        ("multiscale", invalid_meta["multiscales"][0])
+    ]
+    assert ome_group.invalid_objects[0].error
 
 
 def test_ome_zarr_group_parses_scene_stitching_example():
@@ -232,6 +236,7 @@ def test_ome_zarr_group_ignores_scene_invalid_examples(meta):
     zarr_group = MockZarrGroup(scene_to_group_attrs(meta))
     ome_group = OmeZarrGroup.from_group(zarr_group)
 
-    assert ome_group.kind is None
+    assert ome_group.kind is GroupKind.INVALID
     assert not ome_group.scenes
     assert ome_group.version == "0.6"
+    assert [obj.kind for obj in ome_group.invalid_objects] == ["scene"]
