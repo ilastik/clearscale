@@ -1943,7 +1943,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         base_key: ScaleKey,
         *,
         blueprint: Union[BlueprintShapes, BlueprintFactors, None] = None,
-        derived_by: Union[SpatialRelation, Sequence[SpatialRelation], None] = None,
         pixel_sizing: PixelSizingMethod = "shape_ratio",
         translating: Optional[TranslationShiftFunction] = None,
         rounding: Optional[RoundingMethod] = None,
@@ -1961,21 +1960,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
           - `pixel_sizing`: Your scaling method's pixel size scaling behavior. Default: "shape_ratio"
           - `translating`: Function that computes your scaling method's translation shift. Default: None
           - `rounding`: Your scaling method's shape rounding behavior. Required when `blueprint` is `BlueprintFactors`
-
-        `derived_by`: The relation(s) describing how the new Multiscale was derived from the Scale at `base_key`.
-        For example, provide a `Translation` if the derived Multiscale is shifted from its parent's origin, or
-        an `AxisRearrangementTo` if axes were dropped/inserted/reordered.
         """
-        rel = normalize_relations_param(derived_by)
-        if rel is not None:
-            targets = rel.target_axes(self.axes)
-            if targets != self.axes:
-                raise ValueError(
-                    f"Multiscale.derive cannot express relations that rearrange axes (received: "
-                    f"{self.axes} -> {targets}). Explicitly define the new Scale, make a BlueprintShapes/Factors, "
-                    f"and use `from_single` and `as_derived_from`"
-                )
-
         new_ms = Multiscale.from_single(
             self[base_key],
             scale_key=base_key,
@@ -1986,7 +1971,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         )
         # singleton marker only carried over if shapes are unmodified
         new_ms.has_shapes = self.has_shapes or blueprint is not None
-        return new_ms.as_derived_from(self, by=derived_by)
+        return new_ms.as_derived_from(self)
 
     def validate_for_ome_zarr(self, *, missing_axis_types: Optional[ome_zarr.MissingAxisTypes] = None) -> None:
         """

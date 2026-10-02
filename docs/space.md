@@ -106,57 +106,50 @@ source = OmeZarrGroup.from_group(zarr_group).multiscales[0]   # has coordinate s
 result = source.derive("s1")
 ```
 
-`derive` creates a new Multiscale from one scale of `source` (here `"s1"`), optionally expanded by a scaling `blueprint`, exactly like `Multiscale.from_single`. What makes it different from `from_single` is that the result stays in the spatial context of `source`:
+`derive` creates a new Multiscale from one scale of `source` (here `"s1"`), optionally expanded by a scaling `blueprint`, exactly like `Multiscale.from_single`.
 
-* All the source's coordinate systems (`"stage"` and so on) are available on the result too, with their connections preserved.
-* The result's own space is new.
-    It is related to the source's space by the relation you specify in `derived_by`.
-    By default, the relation is "nothing changed": both describe the same space.
+What makes it different from `from_single` is that the result stays in the spatial context of `source`:
 
-When writing OME-Zarr 0.6, all of this is stored in the output metadata.
+All the source's coordinate systems (`"stage"` and so on) are available on the result too, with their connections preserved.
+
+When writing OME-Zarr 0.6, this is stored in the output metadata.
 
 ### Deriving by a spatial relation
-Often, something *did* change between the source and the result.
-Maybe you cropped the data, or you projected it along one axis.
-State this with `derived_by`:
-
-```python
-from clearscale import PixelOffset
-
-# The result is a crop. The crop's origin is the crop offset in pixels, scaled to physical units
-crop_offset = PixelOffset(z=0, y=100, x=200)
-crop_translation = crop_offset * source["s0"].pixel_size
-crop = source.derive("s0", derived_by=crop_translation)
-```
-
-`derived_by` takes the same spatial relations as `with_coordinate_system(reached_by=...)`, because the question is the same: "how do I get from one space to the other?"
-Here the question is asked between the source's space and the result's space. 
-clearscale uses the answer to carry all the source's other coordinate systems across, so `"stage"` is still correct on the result, even though the result is shifted relative to the source.
-
-### Deriving with changed axes
-
 `derive` is a convenience shortcut for simple cases.
-It only accepts relations that keep the axes as they are (like `Translation`).
-If your result has different axes (a 2D projection of a 3D volume, a transposed image, an added channel axis), build the result yourself and connect it with `as_derived_from`:
+
+If something else changed between the source and the result — maybe you cropped the data, projected it along one axis, or otherwise transformed it — build the result yourself and connect it to the source using `as_derived_from`:
 
 ```python
 from clearscale import Multiscale, PixelSize, ProjectionTo, Scale, Shape
 
-projection = Multiscale.from_single(
-    Scale(shape=Shape(y=512, x=512), pixel_size=PixelSize(y=0.5, x=0.5)),
-    scale_key="s1",
-).as_derived_from(volume, by=ProjectionTo("yx"))
+projection = (
+    Multiscale
+    .from_single(
+        Scale(shape=Shape(y=512, x=512), pixel_size=PixelSize(y=0.5, x=0.5)),
+        scale_key="s1"
+    )
+    .as_derived_from(volume, by=ProjectionTo("yx"))
+)
 ```
 
 `projection.as_derived_from(volume, by=...)` says "`projection` was derived from `volume`, in this way".
-It performs the same context transfer as `derive`.
+
+`by` takes the same spatial relations as `with_coordinate_system(reached_by=...)`, because the question is the same: "how do I get from one space to the other?"
+
+The direction to think about is the opposite in this case, as the method and parameter names suggest:
+
+* `with_coordinate_system("other", reached_by=...)`: self --relation-> "other" (*How do you reach the new coordinate system, from me?*)
+* `as_derived_from(source, by=...)`: source --relation-> self (*How do you reach me, from `source`?*)
+
+`as_derived_from` uses the answer to carry the source's other coordinate systems across wherever they remain well-defined.
 
 Not every relation can be carried over.
 A relation that drops an axis loses information, so connections to the source's other coordinate systems can only be carried over where they remain well-defined.
 
-Without `by`, `as_derived_from` requires both Multiscales to have identical axes. It also fills in axis properties you left blank (type, unit, ...) from `volume`.
+Without `by`, `as_derived_from` requires both Multiscales to have identical axes.
+It also fills in axis properties you left blank (type, unit, ...) from `volume`.
 
-## What does it mean to derive "by" a spatial relation?
+## Spatial relation vs coordinate transformation
 
 A **spatial relation** answers the question: *If I have an image in space A, and I do `<operation>` to it, how is the resulting image's space B related to A?*
 
@@ -167,57 +160,46 @@ This is exactly the inverse of coordinate arithmetic, if this is what you are us
 * downscaling by a `Factor` divides A-coordinates by that factor (downscaled B has a smaller coordinate space than A),
 * shifting by a `Translation` subtracts that from A-coordinates (shifted B's origin is somewhere inside A-space).
 
-Note also the opposite direction compared to `with_coordinate_system`:
+In addition, also note the opposite directions of thinking in `as_derived_from` vs `with_coordinate_system`:
 
-* When deriving, the spatial relation says *I made the derived output by doing `<operation>`*.
-* When specifying a new coordinate system, the spatial relation says *To reach this other space, you need to do `<operation>`*
+* When deriving, the spatial relation says, *I made the derived output by doing `<operation>`*.
+* When specifying a new coordinate system, the spatial relation says, *To reach this other space, you need to do `<operation>`*
+
+For example, a numerically identical crop shift could be expressed in two different ways:
 
 ```python
-# Crop translation example from earlier
 crop_offset = PixelOffset(z=0, y=100, x=200)
 crop_translation = crop_offset * source["s0"].pixel_size
 
-crop_expressed_as_derivation = source.derive(
-    "s0", 
-    derived_by=crop_translation
+# "I made a new image by cropping `source["s0"]`"
+crop_expressed_as_derivation = (
+    Multiscale
+    .from_single(source["s0"], scale_key="s0")
+    .as_derived_from(source, by=crop_translation)
 )
 
-crop_expressed_as_coordinate_system = source.derive(
-    "s0"
-).with_coordinate_system(
-    "source_image", 
-    reached_by=crop_translation.inverted()
+# "You can reach original_image by undoing a crop that I know about"
+crop_expressed_as_coordinate_system = processed_image.with_coordinate_system(
+    "original_image", 
+    reached_by=crop_translation.inverted()  # <- same translation, but inverted
 )
 ```
 
-The resulting coordinate transformations
+This example is a bit contrived, because it is unlikely that the same shift (in physical units) applies to two different scenarios like this.
 
-* `crop_expressed_as_derivation --> source`, and 
-* `crop_expressed_as_coordinate_system --> "source_image"`
+This is just to illustrate that the resulting coordinate transformations
 
-are arithmetically identical in this example.
-(Although the former is internally stored as `source --> crop_expressed_as_derivation`, because this is the direction of the derivation statement.)
+* `(crop_expressed_as_derivation --> source) = [0.0, 50.0, 100.0]`
+* `(crop_expressed_as_coordinate_system --> "original_image") = [0.0, 50.0, 100.0]`
 
-The resulting Multiscale objects are still substantially different:
+are arithmetically identical, despite passing `Translation` to `as_derived_from` and `Translation.inverted()` to `with_coordinate_system`.
 
-`crop_expressed_as_derivation` said:
-
-> I am derived from `source` by this Translation.
-
-It is not only translated relative to `source`, but also relative to any other coordinate systems that `source` might already know.
-
-`crop_expressed_as_coordinate_system` said: 
-
-> I am derived from `source` without modification, and I know another coordinate system called "source_image" that is translated relative to me.
-
-If `source` knew any other coordinate systems, the derived result is *not* translated relative to them.
-
+(Although `crop_expressed_as_derivation --> source` is internally stored as the inverse `(source --> crop_expressed_as_derivation) = [0.0, -50.0, -100.0]`, because this is the direction of the derivation statement.)
 
 ## Available spatial relations
 
 All spatial relations can be used in `with_coordinate_system(reached_by=...)` and `as_derived_from(by=...)`.
-`derive(derived_by=...)` only accepts a restricted subset, because axis modifications are not supported through it.
-Pass a list to chain relations; they are applied in order.
+To chain relations, pass a list; they are applied in order.
 
 | Relation              | What you did                     | Coordinates in the new space                    |
 |-----------------------|----------------------------------|-------------------------------------------------|

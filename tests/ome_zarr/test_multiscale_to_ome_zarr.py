@@ -270,14 +270,14 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         source = source.with_coordinate_system("world", reached_by=Translation(z=1, y=2, x=3))
         source = source.with_coordinate_system("other", reached_by=Factor(z=1, y=2, x=2))
 
-        derived = source.derive("s1", derived_by=Factor(z=1, y=2, x=2))
+        derived = source.derive("s1")
 
         result = derived.to_ome_zarr(version="0.6")
         names = {s["name"] for s in result["coordinateSystems"]}
         # Both inherited satellites, plus a direct lineage link back to the source's own intrinsic system.
-        assert names == {derived._intrinsic_ref.name, source._intrinsic_ref.name, "world", "other"}
+        assert names == {derived._intrinsic_ref.name, "world", "other"}
 
         read_back = Multiscale.from_ome_zarr(result, shape_source=lambda p: (2, 2, 2))
-        assert set(read_back.coordinate_systems) == {source._intrinsic_ref.name, "world", "other"}
+        assert set(read_back.coordinate_systems) == {"world", "other"}
         assert read_back == derived
         assert read_back.to_ome_zarr(version="0.6") == result
