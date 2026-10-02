@@ -12,7 +12,7 @@ from tests.ome_zarr.scene_examples import (
 
 
 def _multiscale():
-    ms = Multiscale({"s0": Scale(Shape(y=2, x=3))})
+    ms = Multiscale({"s0": Scale(Shape(y=2, x=3), ome_zarr_axes="infer")})
     object.__setattr__(ms._intrinsic_ref, "name", "physical")
     return ms
 

@@ -21,6 +21,7 @@ from clearscale.characterization import (
     half_pixel_space_preservation,
 )
 from clearscale._transforms import (
+    OmeZarrAxes,
     CoordinateSystem,
     IdentityTransform,
     TransformGraph,
@@ -62,13 +63,15 @@ def test_scale_enforces_or_adapts_axis_order_by_shape():
 
 @pytest.mark.parametrize("axes", ["x", "tczyxa"])
 def test_multiscale_forbids_construction_outside_ndim_2_to_5(axes):
-    scale = Scale.from_lists(axes)  # shouldn't error - Scales are dumb data bags without enforcement
-    with pytest.raises(ValueError, match="Multiscales must have 2 to 5 axes"):
+    scale = Scale.from_lists(
+        axes, ome_zarr_axes="infer"
+    )  # shouldn't error - Scales are dumb data bags without enforcement
+    with pytest.raises(ValueError, match="2 to 5 axes"):
         Multiscale.from_single(scale)
 
 
 def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
-    return CoordinateSystem.fromkeys(axes)._as_ref(name)
+    return CoordinateSystem(OmeZarrAxes.fromkeys(axes).with_types_inferred())._as_ref(name)
 
 
 class TestEqAndHash:
@@ -114,8 +117,8 @@ class TestEqAndHash:
     @pytest.mark.parametrize(
         "make_ms",
         [
-            lambda name: Multiscale({"s0": Scale(Shape(y=2, x=3))}).with_coordinate_system(name),
-            lambda name: Multiscale({"s0": Scale(Shape(y=2, x=3))}).with_coordinate_system(
+            lambda name: Multiscale({"s0": Scale(Shape(y=2, x=3), ome_zarr_axes="infer")}).with_coordinate_system(name),
+            lambda name: Multiscale({"s0": Scale(Shape(y=2, x=3), ome_zarr_axes="infer")}).with_coordinate_system(
                 name, reached_by=Translation(y=2.0, x=3.0)
             ),
         ],
@@ -128,21 +131,24 @@ class TestEqAndHash:
         assert hash(left) != hash(right)
 
     def test_multiscale_equality_and_hash_are_value_based(self):
-        left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
-        right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+        left = Multiscale({"s0": Scale(Shape(y=2, x=3), ome_zarr_axes="infer")}, _intrinsic_ref=_ref("yx", "physical"))
+        right = Multiscale({"s0": Scale(Shape(y=2, x=3), ome_zarr_axes="infer")}, _intrinsic_ref=_ref("yx", "physical"))
 
         assert left == right
         assert {left, right} == {left}, "Value hash should lead to collapse in sets"
 
     def test_multiscale_refs_are_hashable(self):
-        left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
-        right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+        left = Multiscale({"s0": Scale(Shape(y=2, x=3), ome_zarr_axes="infer")}, _intrinsic_ref=_ref("yx", "physical"))
+        right = Multiscale({"s0": Scale(Shape(y=2, x=3), ome_zarr_axes="infer")}, _intrinsic_ref=_ref("yx", "physical"))
 
         assert len({left._as_ref("physical"), right._as_ref("physical")}) == 2
 
 
 def test_multiscale_accepts_duplicate_scale_shapes():
-    items = [("s0", Scale(shape={"x": 1, "y": 1})), ("s1", Scale(shape={"x": 1, "y": 1}))]
+    items = [
+        ("s0", Scale(shape={"x": 1, "y": 1}, ome_zarr_axes="infer")),
+        ("s1", Scale(shape={"x": 1, "y": 1}, ome_zarr_axes="infer")),
+    ]
     _ = Multiscale(items)
 
 
@@ -163,7 +169,7 @@ def test_multiscale_accepts_increasing_scale_shapes_from_ome_zarr():
     """Leniency when reading existing datasets - even though OME-Zarr (and Precomputed) require datasets to be ordered
     from largest to smallest."""
     ome_meta = {
-        "axes": [{"name": "x"}, {"name": "y"}],
+        "axes": [{"name": "x", "type": "space"}, {"name": "y", "type": "space"}],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [2.0, 2.0]}]},
             {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]},
@@ -224,6 +230,7 @@ class TestBlueprintApply:
             pixel_size=PixelSize(c=1.0, y=0.5, x=2.0),
             unit=Unit(c="", y="um", x="um"),
             translation=Translation(c=0.0, y=1.0, x=2.0),
+            ome_zarr_axes="infer",
         )
 
         blueprint = BlueprintShapes({"s0": Shape(c=3, y=8, x=12), "s1": Shape(c=3, y=4, x=3)})
@@ -237,6 +244,7 @@ class TestBlueprintApply:
                     pixel_size=PixelSize(c=1.0, y=1.0, x=8.0),
                     unit=base.unit,
                     translation=base.translation,
+                    ome_zarr_axes="infer",
                 ),
             }
         )
@@ -247,6 +255,7 @@ class TestBlueprintApply:
             shape=Shape(y=8, x=8),
             pixel_size=PixelSize(y=2.0, x=3.0),
             translation=Translation(y=10.0, x=-5.0),
+            ome_zarr_axes="infer",
         )
 
         multiscale = blueprint.apply_to_scale(base, translating=half_pixel_space_preservation)
@@ -266,6 +275,7 @@ class TestBlueprintApply:
             shape=Shape(y=5, x=8),
             pixel_size=PixelSize(y=0.6, x=2.0),
             translation=Translation(y=10.0, x=-5.0),
+            ome_zarr_axes="infer",
         )
 
         multiscale = blueprint.apply_to_scale(base, translating=discrete_bin_center)
@@ -292,7 +302,7 @@ class TestBlueprintApply:
 
     def test_shapes_can_use_corner_ratio_pixel_sizing(self):
         blueprint = BlueprintShapes({"s0": Shape(y=5, x=9), "s1": Shape(y=5, x=3)})
-        base = Scale(shape=Shape(y=5, x=9), pixel_size=PixelSize(y=2.0, x=1.5))
+        base = Scale(shape=Shape(y=5, x=9), pixel_size=PixelSize(y=2.0, x=1.5), ome_zarr_axes="infer")
 
         multiscale = blueprint.apply_to_scale(base, pixel_sizing="corner_ratio")
 
@@ -302,7 +312,7 @@ class TestBlueprintApply:
 
     def test_shapes_corner_ratio_falls_back_to_shape_ratio_for_collapsed_axes(self):
         blueprint = BlueprintShapes({"s0": Shape(y=5, x=9), "s1": Shape(y=2, x=1)})
-        base = Scale(shape=Shape(y=5, x=9), pixel_size=PixelSize(y=2.0, x=1.5))
+        base = Scale(shape=Shape(y=5, x=9), pixel_size=PixelSize(y=2.0, x=1.5), ome_zarr_axes="infer")
 
         multiscale = blueprint.apply_to_scale(base, pixel_sizing="corner_ratio")
 
@@ -324,6 +334,7 @@ class TestBlueprintApply:
             pixel_size=PixelSize(y=0.5, x=2.0),
             unit=Unit(y="um", x="um"),
             translation=Translation(y=1.0, x=2.0),
+            ome_zarr_axes="infer",
         )
 
         blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=4.0)})
@@ -337,6 +348,7 @@ class TestBlueprintApply:
                     pixel_size=PixelSize(y=0.5, x=8.0),
                     unit=base.unit,
                     translation=base.translation,
+                    ome_zarr_axes="infer",
                 ),
             }
         )
@@ -344,7 +356,7 @@ class TestBlueprintApply:
     @staticmethod
     def _as_xy(obj):
         """To satisfy the requirement that Multiscales must be at least 2D"""
-        return obj.with_axes("xy")
+        return obj.with_axes("xy", infer_inserted_types=True) if isinstance(obj, Scale) else obj.with_axes("xy")
 
     @pytest.mark.parametrize(
         "rounding, source_length, factor, expected_length",
@@ -360,7 +372,7 @@ class TestBlueprintApply:
     )
     def test_factors_respects_rounding(self, source_length, rounding, factor, expected_length):
         blueprint = BlueprintFactors({"s0": Factor(x=factor)})
-        base = self._as_xy(Scale(shape=Shape(x=source_length)))
+        base = self._as_xy(Scale(shape=Shape(x=source_length), ome_zarr_axes="infer"))
 
         multiscale = blueprint.apply_to_scale(base, rounding=rounding)
 
@@ -380,7 +392,9 @@ class TestBlueprintApply:
         needs pixel_sizing="exact_factor" to reflect that literal factor, not the post-rounding shape ratio.
         """
         blueprint = BlueprintFactors({"s0": Factor(x=4.0)})
-        base = self._as_xy(Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0)))  # 11/4.0 = 2.75 -> ceil -> 3
+        base = self._as_xy(
+            Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0), ome_zarr_axes="infer")
+        )  # 11/4.0 = 2.75 -> ceil -> 3
 
         exact_factor_result = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="exact_factor")
 
@@ -394,7 +408,7 @@ class TestBlueprintApply:
 
     def test_factors_exact_factor_uses_each_scale_keys_own_factor(self):
         blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=4.0), "s2": Factor(x=8.0)})
-        base = self._as_xy(Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0)))
+        base = self._as_xy(Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0), ome_zarr_axes="infer"))
 
         multiscale = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="exact_factor")
 
@@ -404,7 +418,9 @@ class TestBlueprintApply:
 
     def test_factors_exact_factor_still_applies_translating(self):
         blueprint = BlueprintFactors({"s0": Factor(x=4.0)})
-        base = self._as_xy(Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
+        base = self._as_xy(
+            Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0), ome_zarr_axes="infer")
+        )
 
         multiscale = blueprint.apply_to_scale(
             base, rounding="ceil", pixel_sizing="exact_factor", translating=half_pixel_space_preservation
@@ -416,7 +432,9 @@ class TestBlueprintApply:
 
     def test_factors_forwards_shape_ratio_and_corner_ratio_pixel_sizing(self):
         blueprint = BlueprintFactors({"s0": Factor(x=4.0)})
-        base = self._as_xy(Scale(shape=Shape(x=9), pixel_size=PixelSize(x=1.0)))  # 9/4.0 = 2.25 -> ceil -> 3
+        base = self._as_xy(
+            Scale(shape=Shape(x=9), pixel_size=PixelSize(x=1.0), ome_zarr_axes="infer")
+        )  # 9/4.0 = 2.25 -> ceil -> 3
 
         shape_ratio_result = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="shape_ratio")
 
@@ -428,7 +446,7 @@ class TestBlueprintApply:
 
     def test_factors_keeps_all_scale_keys_even_with_duplicate_shapes(self):
         blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=100.0), "s2": Factor(x=200.0)})
-        base = self._as_xy(Scale(shape=Shape(x=4)))  # both s1 and s2 round down to shape x=1
+        base = self._as_xy(Scale(shape=Shape(x=4), ome_zarr_axes="infer"))  # both s1 and s2 round down to shape x=1
 
         multiscale = blueprint.apply_to_scale(base, rounding="floor")
 
@@ -453,12 +471,14 @@ class TestProportionalBlueprint:
                     pixel_size=PixelSize(c=1.0, y=1.0, x=2.0),
                     unit=Unit(c="", y="nm", x="nm"),
                     translation=Translation.identity("cyx"),
+                    ome_zarr_axes="infer",
                 ),
                 "s1": Scale(
                     shape=Shape(c=3, y=4, x=3),
                     pixel_size=PixelSize(c=1.0, y=2.0, x=8.0),
                     unit=Unit(c="", y="nm", x="nm"),
                     translation=Translation.identity("cyx"),
+                    ome_zarr_axes="infer",
                 ),
             }
         )
@@ -476,12 +496,14 @@ class TestProportionalBlueprint:
                     pixel_size=PixelSize(c=1.0, y=1.0, x=2.0),
                     unit=Unit(c="", y="nm", x="nm"),
                     translation=Translation.identity("cyx"),
+                    ome_zarr_axes="infer",
                 ),
                 "s1": Scale(
                     shape=Shape(c=3, y=4, x=3),
                     pixel_size=PixelSize(c=1.0, y=2.0, x=8.0),
                     unit=Unit(c="", y="nm", x="nm"),
                     translation=Translation.identity("cyx"),
+                    ome_zarr_axes="infer",
                 ),
             }
         )
@@ -499,12 +521,14 @@ class TestProportionalBlueprint:
                     pixel_size=PixelSize(c=1.0, y=1.0, x=2.0),
                     unit=Unit(c="", y="nm", x="nm"),
                     translation=Translation.identity("cyx"),
+                    ome_zarr_axes="infer",
                 ),
                 "s1": Scale(
                     shape=Shape(c=3, y=4, x=3),
                     pixel_size=PixelSize(c=1.0, y=2.0, x=8.0),
                     unit=Unit(c="", y="nm", x="nm"),
                     translation=Translation.identity("cyx"),
+                    ome_zarr_axes="infer",
                 ),
             }
         )
@@ -538,7 +562,7 @@ def _with_intrinsic_system_name(ms: Multiscale, name: str) -> Multiscale:
 
 def _with_extra_system(ms: Multiscale, name: str) -> Multiscale:
     """Attach one additional named coordinate system to `ms` via an identity edge from its intrinsic ref."""
-    extra_ref = CoordinateSystem.fromkeys(ms.axes)._as_ref(name)
+    extra_ref = CoordinateSystem(OmeZarrAxes.fromkeys(ms.axes).with_types_inferred())._as_ref(name)
     edge = IdentityTransform().bound(source=ms._intrinsic_ref, target=extra_ref)
     graph = TransformGraph(transforms=ms._transform_graph.transforms + (edge,))
     return Multiscale(ms.items(), _transform_graph=graph, _intrinsic_ref=ms._intrinsic_ref)
@@ -621,8 +645,12 @@ class TestMultiscaleAsDerivedFrom:
     def test_transfers_t_scale_convention_even_when_graph_unchanged(self):
         # caller pixel_size[t] == donor's global legacy t-scale. Satisfies that caller is really derived, so it should
         # also follow donor's serialization convention.
-        caller_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4), pixel_size=PixelSize(t=0.5, y=1.0, x=1.0))})
-        donor_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4))}, _legacy_convention_global_t_scale=0.5)
+        caller_ms = Multiscale(
+            {"s0": Scale(shape=Shape(t=4, y=4, x=4), pixel_size=PixelSize(t=0.5, y=1.0, x=1.0), ome_zarr_axes="infer")}
+        )
+        donor_ms = Multiscale(
+            {"s0": Scale(shape=Shape(t=4, y=4, x=4), ome_zarr_axes="infer")}, _legacy_convention_global_t_scale=0.5
+        )
 
         result = caller_ms.as_derived_from(donor_ms)
 
@@ -637,8 +665,12 @@ class TestMultiscaleAsDerivedFrom:
         The user might have some reason why they didn't supply a Factor(t=0.9/0.5) as the relation though.
         More important to carry forward the convention; but with the correct value in the derived multiscale.
         """
-        caller_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4), pixel_size=PixelSize(t=0.9, y=1.0, x=1.0))})
-        donor_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4))}, _legacy_convention_global_t_scale=0.5)
+        caller_ms = Multiscale(
+            {"s0": Scale(shape=Shape(t=4, y=4, x=4), pixel_size=PixelSize(t=0.9, y=1.0, x=1.0), ome_zarr_axes="infer")}
+        )
+        donor_ms = Multiscale(
+            {"s0": Scale(shape=Shape(t=4, y=4, x=4), ome_zarr_axes="infer")}, _legacy_convention_global_t_scale=0.5
+        )
 
         result = caller_ms.as_derived_from(donor_ms)
 
@@ -913,8 +945,9 @@ class TestLosslessOmeZarrVersion:
         assert ms.lowest_lossless_ome_zarr_version == "0.4"
 
     def test_unwritable_multiscale_raises(self):
-        ms = Multiscale.from_single(Scale.from_lists("zyx"))
-        with pytest.raises(ValueError, match="cannot be written as valid OME-Zarr"):
+        # The scale key is what remains that can make a Multiscale unwritable
+        ms = Multiscale.from_single(Scale.from_lists("zyx", ome_zarr_axes="infer"), scale_key="../bad")
+        with pytest.raises(ValueError, match="cannot be written as valid OME-Zarr.*not a valid relative"):
             ms.lowest_lossless_ome_zarr_version
 
     def test_lowest_lossless_version_plain_multiscale(self):

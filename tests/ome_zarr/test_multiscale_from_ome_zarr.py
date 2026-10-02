@@ -3,6 +3,7 @@ import pytest
 from clearscale import Multiscale, PixelSize, Shape, Scale, FileRef, Factor, Translation
 from clearscale._services.ome_zarr import SYNTHETIC_EXTERNAL_NAME
 from clearscale._transforms import (
+    OmeZarrAxes,
     TransformSequence,
     TransformGraph,
     _UnresolvedRef,
@@ -55,7 +56,7 @@ def test_from_ome_zarr_parses_maximal_multiscale_examples(example: MultiscaleMet
 def _0_4_metadata_with(**updates):
     meta = {
         "version": "0.4",
-        "axes": [{"name": "y"}, {"name": "x"}],
+        "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]},
         ],
@@ -85,11 +86,11 @@ def test_from_ome_zarr_parses_valid_0_4_global_scale_as_coordinate_system():
 
     assert read.coordinate_systems == (SYNTHETIC_EXTERNAL_NAME,)
 
-    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
+    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), ome_zarr_axes="infer")})
     dangling = TransformSequence(
         # equal to what _0_4_metadata_with_global_transforms produces
         source=expected_base._intrinsic_ref,
-        target=CoordinateSystem.fromkeys("yx")._as_ref(SYNTHETIC_EXTERNAL_NAME),
+        target=CoordinateSystem(OmeZarrAxes.fromkeys("yx").with_types_inferred())._as_ref(SYNTHETIC_EXTERNAL_NAME),
         transforms=(ScaleTransform((0.5, 0.5)),),
     )
     expected = Multiscale(
@@ -115,11 +116,11 @@ def test_from_ome_zarr_parses_valid_0_4_global_translation_as_coordinate_system(
 
     assert read.coordinate_systems == (SYNTHETIC_EXTERNAL_NAME,)
 
-    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
+    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), ome_zarr_axes="infer")})
     dangling = TransformSequence(
         # equal to what _0_4_metadata_with_global_transforms produces
         source=expected_base._intrinsic_ref,
-        target=CoordinateSystem.fromkeys("yx")._as_ref(SYNTHETIC_EXTERNAL_NAME),
+        target=CoordinateSystem(OmeZarrAxes.fromkeys("yx").with_types_inferred())._as_ref(SYNTHETIC_EXTERNAL_NAME),
         transforms=(ScaleTransform((1.0, 1.0)), TranslationTransform((0.2, 0.3))),
     )
     expected = Multiscale(
@@ -154,8 +155,11 @@ def _0_4_metadata_without_axes():
         pytest.param(_0_4_metadata_with(axes="yx"), id="axes-not-list"),
         pytest.param(_0_4_metadata_with(axes=[]), id="empty-axes"),
         pytest.param(_0_4_metadata_with(axes=[{}]), id="axis-missing-name"),
-        pytest.param(_0_4_metadata_with(axes=[3, {"name": "x"}]), id="axis-not-mapping"),
-        pytest.param(_0_4_metadata_with(axes=[{"name": "y"}, {"name": "y"}]), id="duplicate-axis-names"),
+        pytest.param(_0_4_metadata_with(axes=[3, {"name": "x", "type": "space"}]), id="axis-not-mapping"),
+        pytest.param(
+            _0_4_metadata_with(axes=[{"name": "y", "type": "space"}, {"name": "y", "type": "space"}]),
+            id="duplicate-axis-names",
+        ),
         pytest.param(_0_4_metadata_with(datasets=[3]), id="dataset-not-mapping"),
         pytest.param(
             _0_4_metadata_with(
@@ -252,7 +256,9 @@ def _0_4_metadata_with_s0_transforms(transformations):
 @pytest.mark.filterwarnings(IGNORE_INVALID)
 def test_from_ome_zarr_ignores_invalid_transforms_metadata_version_0_4(metadata):
     read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
-    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), pixel_size=PixelSize(y=1.0, x=1.0))})
+    expected = Multiscale(
+        {"s0": Scale(shape=Shape(y=1, x=2), pixel_size=PixelSize(y=1.0, x=1.0), ome_zarr_axes="infer")}
+    )
     assert read == expected
 
 
@@ -261,7 +267,7 @@ def _0_6_metadata_with(**updates):
         "coordinateSystems": [
             {
                 "name": "physical",
-                "axes": [{"name": "y"}, {"name": "x"}],
+                "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
             }
         ],
         "datasets": [
@@ -297,8 +303,11 @@ def _0_6_metadata_with_axes(axes):
         pytest.param(_0_6_metadata_with_axes("yx"), id="axes-not-list"),
         pytest.param(_0_6_metadata_with_axes([]), id="empty-axes"),
         pytest.param(_0_6_metadata_with_axes([{}]), id="axis-missing-name"),
-        pytest.param(_0_6_metadata_with_axes([3, {"name": "x"}]), id="axis-not-mapping"),
-        pytest.param(_0_6_metadata_with_axes([{"name": "y"}, {"name": "y"}]), id="duplicate-axis-names"),
+        pytest.param(_0_6_metadata_with_axes([3, {"name": "x", "type": "space"}]), id="axis-not-mapping"),
+        pytest.param(
+            _0_6_metadata_with_axes([{"name": "y", "type": "space"}, {"name": "y", "type": "space"}]),
+            id="duplicate-axis-names",
+        ),
         pytest.param(_0_6_metadata_with(datasets=[3]), id="dataset-not-mapping"),
         pytest.param(
             _0_6_metadata_with(
@@ -358,8 +367,8 @@ def _0_6_metadata_with_coord_sys_transform_with(**updates):
     transform.update(updates)
     return _0_6_metadata_with(
         coordinateSystems=[
-            {"name": "physical", "axes": [{"name": "y"}, {"name": "x"}]},
-            {"name": "additional", "axes": [{"name": "y"}, {"name": "x"}]},
+            {"name": "physical", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]},
+            {"name": "additional", "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]},
         ],
         coordinateTransformations=[transform],
     )
@@ -383,7 +392,7 @@ def _0_6_metadata_with_coord_sys_transform_with(**updates):
 )
 def test_from_ome_zarr_parses_valid_0_6_multiscale_transforms_as_coordinate_systems(metadata, expected_relation):
     read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
-    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))}).with_coordinate_system(
+    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), ome_zarr_axes="infer")}).with_coordinate_system(
         "additional", reached_by=expected_relation
     )
     assert read == expected
@@ -439,7 +448,7 @@ def test_from_ome_zarr_parses_valid_label_transform():
         type="sequence",
         transformations=[{"type": "scale", "scale": [2.0, 1.0]}, {"type": "translation", "translation": [0.0, 3.0]}],
     )
-    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
+    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), ome_zarr_axes="infer")})
     dangling = TransformSequence(
         # equal to what _0_6_metadata_with_labels_transform_with produces
         source=_UnresolvedRef(name="physical", file=FileRef.from_string("labels/nuclei")),
@@ -534,13 +543,13 @@ def test_from_ome_zarr_ignores_invalid_transforms_metadata_version_0_6(metadata)
     # Note regarding cases with multiscale-transforms / label-transforms: Only cases where these transforms are
     # *invalid* end up eq to the expected plain Multiscale in this test.
     read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
-    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
+    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), ome_zarr_axes="infer")})
     assert read == expected
 
 
 def test_from_ome_zarr_accepts_shape_mapping():
     metadata = {
-        "axes": [{"name": "y"}, {"name": "x"}],
+        "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]},
             {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [2.0, 2.0]}]},
@@ -555,7 +564,7 @@ def test_from_ome_zarr_accepts_shape_mapping():
 
 def test_from_ome_zarr_normalizes_zero_scale_values():
     metadata = {
-        "axes": [{"name": "c"}, {"name": "y"}, {"name": "x"}],
+        "axes": [{"name": "c", "type": "channel"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]},
         ],
@@ -568,7 +577,7 @@ def test_from_ome_zarr_normalizes_zero_scale_values():
 
 def test_from_ome_zarr_normalizes_zero_scale_values_with_singleton_shape_source():
     metadata = {
-        "axes": [{"name": "c"}, {"name": "y"}, {"name": "x"}],
+        "axes": [{"name": "c", "type": "channel"}, {"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
         "datasets": [
             {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]},
             {"path": "s1", "coordinateTransformations": [{"type": "scale", "scale": [0.0, 2.0, 2.0]}]},
@@ -589,7 +598,7 @@ def test_from_ome_zarr_accepts_array_mapping():
             self.shape = shape
 
     metadata = {
-        "axes": [{"name": "y"}, {"name": "x"}],
+        "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
         "datasets": [{"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]}],
     }
 
@@ -600,7 +609,7 @@ def test_from_ome_zarr_accepts_array_mapping():
 
 def test_from_ome_zarr_accepts_shape_values():
     metadata = {
-        "axes": [{"name": "y"}, {"name": "x"}],
+        "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
         "datasets": [{"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]}],
     }
 
@@ -611,7 +620,7 @@ def test_from_ome_zarr_accepts_shape_values():
 
 def test_from_ome_zarr_rejects_plain_string_shape_source():
     metadata = {
-        "axes": [{"name": "y"}, {"name": "x"}],
+        "axes": [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}],
         "datasets": [{"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]}],
     }
 

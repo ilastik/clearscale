@@ -223,11 +223,11 @@ clearscale calls these "scale mappings".
 ```python
 from clearscale import Shape, BlueprintShapes, Factor, BlueprintFactors, Scale, Multiscale
 
-bps = BlueprintShapes({"s0": Shape(x=1, y=1)})          # scale_key -> Shape
+bps = BlueprintShapes({"s0": Shape(x=1, y=1)})       # scale_key -> Shape
 
-bpf = BlueprintFactors({"s0": Factor(x=2.0, y=2.0)})    # scale_key -> Factor
+bpf = BlueprintFactors({"s0": Factor(x=2.0, y=2.0)}) # scale_key -> Factor
 
-ms  = Multiscale({"s0": Scale(shape=Shape(x=1, y=1))})  # scale_key -> Scale
+ms  = Multiscale({"s0": Scale(shape=...)})           # scale_key -> Scale
 ```
 
 Scale keys are relative paths that point to data arrays, so they are naturally plain strings.
@@ -242,6 +242,7 @@ base = Scale(
     shape=Shape(z=40, y=512, x=512),
     pixel_size=PixelSize(z=0.5, y=0.25, x=0.25),
     unit=Unit(z="micrometer", y="micrometer", x="micrometer"),
+    ome_zarr_axes="infer",
 )
 
 blueprint = BlueprintShapes.uniform_steps(

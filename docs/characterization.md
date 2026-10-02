@@ -184,6 +184,7 @@ base = Scale(
     pixel_size=PixelSize(y=0.3, x=0.3),
     unit=Unit(y="micrometer", x="micrometer"),
     translation=Translation(y=0.0, x=0.0),
+    ome_zarr_axes="infer",
 )
 
 blueprint = BlueprintShapes.uniform_steps(
@@ -250,6 +251,7 @@ base = Scale(
     pixel_size=PixelSize(y=0.25, x=0.25),
     unit=Unit(y="micrometer", x="micrometer"),
     translation=Translation(y=0.0, x=0.0),
+    ome_zarr_axes="infer",
 )
 
 block_factors = BlueprintFactors(
@@ -312,6 +314,7 @@ base = Scale(
     pixel_size=PixelSize(y=0.25, x=0.25),
     unit=Unit(y="micrometer", x="micrometer"),
     translation=Translation(y=12.0, x=-3.0),
+    ome_zarr_axes="infer",
 )
 
 stride_factors = BlueprintFactors(

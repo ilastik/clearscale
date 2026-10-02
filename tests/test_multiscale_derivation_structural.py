@@ -3,15 +3,21 @@ import pytest
 from clearscale._axis_values import Shape
 from clearscale._multiscale import Multiscale, Scale
 from clearscale._spatial_relations import ProjectionTo
-from clearscale._transforms import CoordinateSystem, IdentityTransform, ProjectAxisTransform, TransformGraph
+from clearscale._transforms import (
+    CoordinateSystem,
+    IdentityTransform,
+    ProjectAxisTransform,
+    TransformGraph,
+    OmeZarrAxes,
+)
 
 
 def _multiscale(axes="zyx", size=4):
-    return Multiscale({"s0": Scale(shape=Shape(zip(axes, [size] * len(axes))))})
+    return Multiscale({"s0": Scale(shape=Shape(zip(axes, [size] * len(axes))), ome_zarr_axes="infer")})
 
 
 def _with_edge(ms, name, target_axes, *, direction="forward", via=None):
-    target_ref = CoordinateSystem.fromkeys(target_axes)._as_ref(name)
+    target_ref = CoordinateSystem(OmeZarrAxes.fromkeys(target_axes).with_types_inferred())._as_ref(name)
     transform = via if via is not None else IdentityTransform()
     edge = (
         transform.bound(source=ms._intrinsic_ref, target=target_ref)
