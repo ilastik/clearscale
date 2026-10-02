@@ -40,10 +40,6 @@ def _0_6_metadata(system_axes):
 
 
 class TestConstruction:
-    def test_rejects_untyped_axes_naming_the_fix(self):
-        with pytest.raises(ValueError, match="'space'.*Axes without a type.*ome_zarr_axes='infer'"):
-            Multiscale.from_single(Scale.from_lists("zyx"))
-
     @pytest.mark.parametrize("axes", ["x", "tczyxa"])
     def test_rejects_wrong_ndim(self, axes):
         scale = Scale.from_lists(axes, ome_zarr_axes=[SPACE for _ in axes])
@@ -61,7 +57,7 @@ class TestConstruction:
 
     @pytest.mark.parametrize("axes", ["yx", "zyx", "czyx", "tczyx"])
     def test_accepts_inferred_standard_axes(self, axes):
-        Multiscale.from_single(Scale.from_lists(axes, ome_zarr_axes="infer"))
+        Multiscale.from_single(Scale.from_lists(axes))
 
 
 class TestReading:
@@ -112,7 +108,7 @@ class TestCoordinateSystems:
 
     def test_with_coordinate_system_rejects_untyped_axes_taking_the_place_of_space_axes(self):
         with pytest.raises(ValueError, match="Axes without a type"):
-            _typed_yx().with_coordinate_system("w", reached_by=AxisRearrangementTo("zx"))
+            _typed_yx().with_coordinate_system("w", reached_by=AxisRearrangementTo("ix"))
 
     def test_with_coordinate_system_accepts_untyped_extra_axes_alongside_two_space_axes(self):
         ms = _typed_yx().with_coordinate_system("w", reached_by=AxisRearrangementTo("cyx"))
@@ -121,7 +117,7 @@ class TestCoordinateSystems:
 
 @pytest.mark.parametrize("key", ["", "/s0", "../s0", "s 0", "a//b"])
 def test_invalid_scale_keys_are_rejected_on_every_path(key):
-    scale = Scale.from_lists("yx", ome_zarr_axes="infer")
+    scale = Scale.from_lists("yx")
     with pytest.raises(ValueError, match="not a valid relative path"):
         Multiscale.from_single(scale, scale_key=key)
     with pytest.raises(ValueError, match="not a valid relative path"):

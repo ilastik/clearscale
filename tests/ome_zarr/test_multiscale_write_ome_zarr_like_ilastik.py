@@ -502,7 +502,7 @@ def test_write_ome_zarr_test_transformations_multi_scale_export():
     axes = "tczyx"
     shape = Shape(zip(axes, (2, 2, 5, 5, 5)))
     input_multiscale = clearscale.Multiscale.from_shapes(
-        clearscale.BlueprintShapes({input_scale_key: shape}), base=clearscale.Scale(shape, ome_zarr_axes="infer")
+        clearscale.BlueprintShapes({input_scale_key: shape}), base=clearscale.Scale(shape)
     )
     export_offset = PixelOffset(zip(axes, offset_tuple))
     result = write_ome_zarr_like_ilastik(

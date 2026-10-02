@@ -29,7 +29,7 @@ def _scale(pixel_size_items):
     Pixel size will always be the precise source of information for what scaling was done."""
     ps = PixelSize(pixel_size_items)
     sh = Shape.all_singletons(ps)
-    return Scale(shape=sh, pixel_size=ps, ome_zarr_axes="infer")
+    return Scale(shape=sh, pixel_size=ps)
 
 
 class TestShiftFunctions:
@@ -486,11 +486,7 @@ class TestCharacterizationKwargsApply:
         assert characterization.pixel_sizing == "corner_ratio"
         assert characterization.rounding is None
 
-        base = _as_xy(
-            Scale(
-                shape=Shape(x=1000), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0), ome_zarr_axes="infer"
-            )
-        )
+        base = _as_xy(Scale(shape=Shape(x=1000), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
         real_output = align_corners_resize([float(i) for i in range(1000)], 401)
 
         blueprint = BlueprintShapes({"s0": base.shape, "s1": _as_xy(Shape(x=401))})
@@ -514,11 +510,7 @@ class TestCharacterizationKwargsApply:
         assert characterization.pixel_sizing == "exact_factor"
         assert characterization.rounding == "ceil"
 
-        base = _as_xy(
-            Scale(
-                shape=Shape(x=1501), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0), ome_zarr_axes="infer"
-            )
-        )
+        base = _as_xy(Scale(shape=Shape(x=1501), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
         real_output = zoom_like([float(i) for i in range(1501)], 0.25)  # 1501 * 0.25 = 375.25, never probed
 
         blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=4.0)})  # clearscale Factor == 1 / 0.25
@@ -544,11 +536,7 @@ class TestCharacterizationKwargsApply:
         assert characterization.pixel_sizing == "shape_ratio"
         assert characterization.rounding == "floor"
 
-        base = _as_xy(
-            Scale(
-                shape=Shape(x=2003), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0), ome_zarr_axes="infer"
-            )
-        )
+        base = _as_xy(Scale(shape=Shape(x=2003), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
         real_output = block_reduce_like([float(i) for i in range(2003)], 3)  # never probed
 
         blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=3.0)})
@@ -575,11 +563,7 @@ class TestCharacterizationKwargsApply:
         with pytest.raises(ValueError, match="could not determine rounding behavior"):
             characterization.to_factor_kwargs()
 
-        base = _as_xy(
-            Scale(
-                shape=Shape(x=101), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0), ome_zarr_axes="infer"
-            )
-        )
+        base = _as_xy(Scale(shape=Shape(x=101), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
         actually_produced_shape = _as_xy(Shape(x=37))  # whatever the real scaling call returned
 
         blueprint = BlueprintShapes({"s0": base.shape, "s1": actually_produced_shape})

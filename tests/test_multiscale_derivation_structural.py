@@ -13,7 +13,7 @@ from clearscale._transforms import (
 
 
 def _multiscale(axes="zyx", size=4):
-    return Multiscale({"s0": Scale(shape=Shape(zip(axes, [size] * len(axes))), ome_zarr_axes="infer")})
+    return Multiscale({"s0": Scale(shape=Shape(zip(axes, [size] * len(axes))))})
 
 
 def _with_edge(ms, name, target_axes, *, direction="forward", via=None):

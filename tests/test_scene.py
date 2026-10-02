@@ -15,7 +15,7 @@ from clearscale._transforms import (
 
 
 def _multiscale(**shape: int) -> Multiscale:
-    return Multiscale({"s0": Scale(Shape(**shape), ome_zarr_axes="infer")})
+    return Multiscale({"s0": Scale(Shape(**shape))})
 
 
 def test_from_graph_edges_binds_between_multiscales():

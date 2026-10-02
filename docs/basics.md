@@ -250,7 +250,6 @@ base = Scale(
     shape=Shape(z=40, y=512, x=512),
     pixel_size=PixelSize(z=0.5, y=0.25, x=0.25),
     unit=Unit(z="micrometer", y="micrometer", x="micrometer"),
-    ome_zarr_axes="infer",
 )
 
 blueprint = BlueprintShapes.uniform_steps(
@@ -329,3 +328,37 @@ Take note that Factors in clearscale are *divisors for shape*:
 `1024 pixels downscaled by factor 2 = 1024 / 2 = 512 pixels`. Scaling functions that accept factors as parameters may expect the inverse.
 For example, to downscale by 2, you could use `skimage.transform.rescale(image, 0.5)` or `scipy.ndimage.zoom(image, 0.5)`.
 In this case you would use `scale_factor.inverted().values_tuple()`.
+
+
+### Axis types
+
+clearscale enforces OME-Zarr's axis requirements whenever a `Multiscale` is created.
+
+This is to avoid situations where you created a Multiscale and then cannot write the metadata.
+Since OME-Zarr is currently the only way to write metadata supported, its requirements apply to all Multiscales.
+
+* There must be 2 to 5 axes.
+* 2 or 3 of the axes must have `Axis.type="space"`.
+* If any axis has type `"time"`, it must be first, and if any has type `"channel"`, it must come right after `"time"` (or be first).
+
+Likewise, scale keys must be valid relative paths (letters, digits, `.`, `_`, `-`, separated by `/`), and scales must be ordered from largest to smallest.
+
+Axis types are part of the `Scale`.
+If you are using the standard axis keys (`t`, `c`, `z`, `y`, `x`), they are automatically inferred.
+For any other axis keys, or to set other axis properties, pass the `ome_zarr_axes` explicitly:
+
+```python
+from clearscale import Scale, Shape
+from clearscale.ome_zarr import Axis
+
+scale = Scale(
+    shape=Shape(w=3, u=100, v=100),
+    ome_zarr_axes={"w": Axis(type="channel"), "u": Axis(type="space"), "v": Axis(type="space")},
+)
+```
+
+> [!WARNING]
+> The upcoming version of OME-Zarr will remove the requirement for axis types to be specified.
+> If you write logic that relies on axis types, it will be brittle when this version becomes official.
+> In other words, for now you must specify types (or use standard axis keys), but you should not expect types to exist in the future.
+> See https://ngff.openmicroscopy.org/specifications/dev/index.html#multiscales-metadata

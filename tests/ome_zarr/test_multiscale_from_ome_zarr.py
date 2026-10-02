@@ -86,7 +86,7 @@ def test_from_ome_zarr_parses_valid_0_4_global_scale_as_coordinate_system():
 
     assert read.coordinate_systems == (SYNTHETIC_EXTERNAL_NAME,)
 
-    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), ome_zarr_axes="infer")})
+    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
     dangling = TransformSequence(
         # equal to what _0_4_metadata_with_global_transforms produces
         source=expected_base._intrinsic_ref,
@@ -116,7 +116,7 @@ def test_from_ome_zarr_parses_valid_0_4_global_translation_as_coordinate_system(
 
     assert read.coordinate_systems == (SYNTHETIC_EXTERNAL_NAME,)
 
-    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), ome_zarr_axes="infer")})
+    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
     dangling = TransformSequence(
         # equal to what _0_4_metadata_with_global_transforms produces
         source=expected_base._intrinsic_ref,
@@ -256,9 +256,7 @@ def _0_4_metadata_with_s0_transforms(transformations):
 @pytest.mark.filterwarnings(IGNORE_INVALID)
 def test_from_ome_zarr_ignores_invalid_transforms_metadata_version_0_4(metadata):
     read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
-    expected = Multiscale(
-        {"s0": Scale(shape=Shape(y=1, x=2), pixel_size=PixelSize(y=1.0, x=1.0), ome_zarr_axes="infer")}
-    )
+    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), pixel_size=PixelSize(y=1.0, x=1.0))})
     assert read == expected
 
 
@@ -392,7 +390,7 @@ def _0_6_metadata_with_coord_sys_transform_with(**updates):
 )
 def test_from_ome_zarr_parses_valid_0_6_multiscale_transforms_as_coordinate_systems(metadata, expected_relation):
     read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
-    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), ome_zarr_axes="infer")}).with_coordinate_system(
+    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))}).with_coordinate_system(
         "additional", reached_by=expected_relation
     )
     assert read == expected
@@ -448,7 +446,7 @@ def test_from_ome_zarr_parses_valid_label_transform():
         type="sequence",
         transformations=[{"type": "scale", "scale": [2.0, 1.0]}, {"type": "translation", "translation": [0.0, 3.0]}],
     )
-    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), ome_zarr_axes="infer")})
+    expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
     dangling = TransformSequence(
         # equal to what _0_6_metadata_with_labels_transform_with produces
         source=_UnresolvedRef(name="physical", file=FileRef.from_string("labels/nuclei")),
@@ -543,7 +541,7 @@ def test_from_ome_zarr_ignores_invalid_transforms_metadata_version_0_6(metadata)
     # Note regarding cases with multiscale-transforms / label-transforms: Only cases where these transforms are
     # *invalid* end up eq to the expected plain Multiscale in this test.
     read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
-    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), ome_zarr_axes="infer")})
+    expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
     assert read == expected
 
 

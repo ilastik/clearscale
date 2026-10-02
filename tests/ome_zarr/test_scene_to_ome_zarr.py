@@ -7,7 +7,7 @@ from tests.ome_zarr.scene_examples import scene_stitching
 
 
 def _multiscale(**shape: int) -> Multiscale:
-    return Multiscale({"s0": Scale(Shape(**shape), ome_zarr_axes="infer")})
+    return Multiscale({"s0": Scale(Shape(**shape))})
 
 
 def test_stitching_example_roundtrip():
