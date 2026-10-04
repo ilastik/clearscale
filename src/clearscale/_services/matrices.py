@@ -4,7 +4,7 @@ AxisIndices = Tuple[int, ...]
 FloatVector = Tuple[float, ...]
 FloatMatrix = Tuple[FloatVector, ...]
 
-DETERMINANT_SINGULARITY_TOLERANCE = 1e-12
+DEFAULT_SINGULARITY_TOLERANCE = 1e-13
 
 
 def matrix_shape(matrix: FloatMatrix) -> Tuple[int, int]:
@@ -32,7 +32,7 @@ def is_identity_scale(scale: FloatVector, *, tolerance: float) -> bool:
     return all(abs(value - 1.0) <= tolerance for value in scale)
 
 
-def is_identity_matrix(matrix: FloatMatrix, *, tolerance: float = DETERMINANT_SINGULARITY_TOLERANCE) -> bool:
+def is_identity_matrix(matrix: FloatMatrix, *, tolerance: float) -> bool:
     rows, cols = matrix_shape(matrix)
     if rows != cols:
         return False
@@ -46,23 +46,21 @@ def is_identity_matrix(matrix: FloatMatrix, *, tolerance: float = DETERMINANT_SI
     return True
 
 
-def is_diagonal_matrix(matrix: FloatMatrix, *, tolerance: float = DETERMINANT_SINGULARITY_TOLERANCE) -> bool:
+def is_diagonal_matrix(matrix: FloatMatrix, *, tolerance: float) -> bool:
     return all(abs(value) < tolerance for i, row in enumerate(matrix) for j, value in enumerate(row) if i != j)
 
 
-def zero_matrix_rows(matrix: FloatMatrix, *, tolerance: float = DETERMINANT_SINGULARITY_TOLERANCE) -> AxisIndices:
+def zero_matrix_rows(matrix: FloatMatrix, *, tolerance: float) -> AxisIndices:
     """Return the indices of rows whose values are all zero within ``tolerance``."""
     return tuple(i for i, row in enumerate(matrix) if all(abs(value) <= tolerance for value in row))
 
 
-def zero_matrix_columns(matrix: FloatMatrix, *, tolerance: float = DETERMINANT_SINGULARITY_TOLERANCE) -> AxisIndices:
+def zero_matrix_columns(matrix: FloatMatrix, *, tolerance: float) -> AxisIndices:
     """Return the indices of columns whose values are all zero within ``tolerance``."""
     return zero_matrix_rows(matrix_transpose(matrix), tolerance=tolerance)
 
 
-def monomial_matrix_decompose(
-    matrix: FloatMatrix, *, tolerance: float = DETERMINANT_SINGULARITY_TOLERANCE
-) -> Optional[Tuple[AxisIndices, FloatVector]]:
+def monomial_matrix_decompose(matrix: FloatMatrix, *, tolerance: float) -> Optional[Tuple[AxisIndices, FloatVector]]:
     """Decompose a square monomial matrix into a permutation and row factors.
 
     A monomial matrix has exactly one non-zero value in every row and column. The
@@ -87,11 +85,11 @@ def monomial_matrix_decompose(
     return tuple(selected_columns), tuple(factors)
 
 
-def is_rotation_matrix(rotation: FloatMatrix, *, tolerance: float = DETERMINANT_SINGULARITY_TOLERANCE) -> bool:
+def is_rotation_matrix(rotation: FloatMatrix, *, tolerance: float) -> bool:
     rows, cols = matrix_shape(rotation)
     if rows != cols:
         return False
-    determinant = matrix_determinant(rotation)
+    determinant = matrix_determinant(rotation, tolerance=tolerance)
     if abs(determinant - 1.0) > tolerance:
         return False
     for i, row in enumerate(rotation):
@@ -102,11 +100,12 @@ def is_rotation_matrix(rotation: FloatMatrix, *, tolerance: float = DETERMINANT_
             dot = sum(x * y for x, y in zip(row, other_row))
             if abs(dot) > tolerance:
                 return False
-    # No need to check cols: For square matrices, all rows normal + orthogonal also implies orthonormal columns.
+    # No need to check cols: Non-square matrices run into the early exit above.
+    # For square matrices, all rows normal + orthogonal also implies orthonormal columns.
     return True
 
 
-def matrix_determinant(matrix: FloatMatrix) -> float:
+def matrix_determinant(matrix: FloatMatrix, *, tolerance: float) -> float:
     """
     Calculate for arbitrary matrices using Gaussian elimination with partial pivoting.
 
@@ -124,7 +123,7 @@ def matrix_determinant(matrix: FloatMatrix) -> float:
     for col in range(rows):
         # Partial pivoting: Pivot is the row with the largest absolute value in this column
         pivot_row = max(range(col, rows), key=lambda row: abs(work[row][col]))
-        if abs(work[pivot_row][col]) <= DETERMINANT_SINGULARITY_TOLERANCE:
+        if abs(work[pivot_row][col]) <= tolerance:
             return 0.0  # Max across this col is 0 = entire col is 0 = singular
         if pivot_row != col:
             work[col], work[pivot_row] = work[pivot_row], work[col]
@@ -138,7 +137,7 @@ def matrix_determinant(matrix: FloatMatrix) -> float:
     return determinant  # `work` is now upper-triangular; det has already been accumulated
 
 
-def matrix_invert(matrix: FloatMatrix) -> FloatMatrix:
+def matrix_invert(matrix: FloatMatrix, *, tolerance: float) -> FloatMatrix:
     """
     Calculate using a Gaussian elimination process.
     First expand MxM into 2MxM by appending an MxM identity matrix on the right side.
@@ -152,7 +151,7 @@ def matrix_invert(matrix: FloatMatrix) -> FloatMatrix:
     for col in range(rows):
         # Partial pivoting: Pivot is the row with the largest absolute value in this column
         pivot = max(range(col, rows), key=lambda row: abs(work[row][col]))
-        if abs(work[pivot][col]) <= DETERMINANT_SINGULARITY_TOLERANCE:
+        if abs(work[pivot][col]) <= tolerance:
             # Max across this col is 0 = entire col is 0 = singular
             raise ValueError("Matrix is singular and cannot be inverted.")
         if pivot != col:

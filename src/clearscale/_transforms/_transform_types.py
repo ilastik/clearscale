@@ -36,19 +36,18 @@ from clearscale._services.matrices import (
     matrix_determinant,
     zero_matrix_columns,
     zero_matrix_rows,
-    DETERMINANT_SINGULARITY_TOLERANCE,
+    DEFAULT_SINGULARITY_TOLERANCE,
     is_identity_scale,
 )
 from clearscale._transforms._base import (
     _EndpointDimensionConstraints,
     IdentityTransform,
-    NodeRef,
     RelativePath,
     Transform,
     TransformSequence,
 )
 
-IDENTITY_TOLERANCE = 1e-13
+IDENTITY_TOLERANCE = DEFAULT_SINGULARITY_TOLERANCE
 
 
 def _max_optional(*values: Optional[int]) -> Optional[int]:
@@ -512,7 +511,7 @@ class RotationTransform(AffineRepresentableTransform):
             rows, cols = matrix_shape(rotation)
             if rows != cols:
                 raise ValueError(f"RotationTransform matrix must be square. Received shape: {(rows, cols)}")
-            if not is_rotation_matrix(rotation):
+            if not is_rotation_matrix(rotation, tolerance=DEFAULT_SINGULARITY_TOLERANCE):
                 raise ValueError(f"RotationTransform matrix must define a rotation. Received: {self.rotation!r}.")
             object.__setattr__(self, "rotation", rotation)
         elif not isinstance(self._ome_zarr_path, str) or not self._ome_zarr_path:
@@ -526,18 +525,18 @@ class AffineTransform(AffineRepresentableTransform):
     _ome_zarr_path: Optional[str] = None
 
     @property
-    def is_invertible(self) -> bool:
+    def is_invertible(self, *, tolerance: float = DEFAULT_SINGULARITY_TOLERANCE) -> bool:
         if self.affine is None:
             return False
         ndim = self._ndim_by_payload()
         if ndim.is_unconstrained() or ndim.source != ndim.target:
             return False
-        return abs(matrix_determinant(self._linear())) > DETERMINANT_SINGULARITY_TOLERANCE
+        return abs(matrix_determinant(self._linear(), tolerance=tolerance)) > tolerance
 
-    def inverted(self) -> "AffineTransform":
+    def inverted(self, *, tolerance: float = DEFAULT_SINGULARITY_TOLERANCE) -> "AffineTransform":
         if not self.is_invertible:
             raise ValueError("This AffineTransform is not invertible.")
-        inverse_linear = matrix_invert(self._linear())
+        inverse_linear = matrix_invert(self._linear(), tolerance=tolerance)
         inverse_offset = tuple(-v for v in matrix_vector_multiply(inverse_linear, self._translation()))
         inverse_affine = tuple(row + (inverse_offset[i],) for i, row in enumerate(inverse_linear))
         return replace(
@@ -772,7 +771,7 @@ class AffineTransform(AffineRepresentableTransform):
         if AffineTransform._are_any_zeros(scale, tolerance=IDENTITY_TOLERANCE):
             return None
         rotation = tuple(tuple(value / scale[i] for value in row) for i, row in enumerate(linear))
-        if matrix_determinant(rotation) < 0:
+        if matrix_determinant(rotation, tolerance=DEFAULT_SINGULARITY_TOLERANCE) < 0:
             # Absorb reflection into first scale and first rotation row
             scale[0] *= -1
             rotation = (tuple(-value for value in rotation[0]),) + rotation[1:]
