@@ -79,9 +79,15 @@ class TestOmeZarrAxes:
         with pytest.raises(ValueError, match="does not match its axis key"):
             ome_zarr.Axes({"x": ome_zarr.Axis(name="y")})
 
-    def test_with_axes_inserts_blank_for_new_axes(self):
+    def test_with_axes_infers_by_default(self):
         axes = ome_zarr.Axes({"x": ome_zarr.Axis(type="space")})
         expanded = axes.with_axes("cx")
+        assert expanded["c"] == ome_zarr.Axis(name="c", type="channel")
+        assert expanded["x"].type == "space"
+
+    def test_with_axes_infer_false_turns_it_off(self):
+        axes = ome_zarr.Axes({"x": ome_zarr.Axis(type="space")})
+        expanded = axes.with_axes("cx", infer_inserted_types=False)
         assert expanded["c"] == ome_zarr.Axis(name="c")
         assert expanded["x"].type == "space"
 
@@ -148,10 +154,11 @@ class TestScale:
         s = Scale(
             shape=Shape(x=10, y=10),
             unit=Unit(x="micrometer", y="micrometer"),
-            ome_zarr_axes={"x": ome_zarr.Axis(unit="micrometer")},  # y missing
+            ome_zarr_axes={"x": ome_zarr.Axis(type="space", unit="micrometer")},  # y missing
         )
         assert list(s.ome_zarr_axes.keys()) == ["x", "y"]
-        assert s.ome_zarr_axes["y"] == ome_zarr.Axis(name="y", unit="micrometer")
+        assert s.ome_zarr_axes["x"] == ome_zarr.Axis(name="x", type="space", unit="micrometer")
+        assert s.ome_zarr_axes["y"] == ome_zarr.Axis(name="y", type="space", unit="micrometer")
 
     def test_both_consistent_merge_without_error(self):
         s = Scale(

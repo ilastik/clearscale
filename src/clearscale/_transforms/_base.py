@@ -229,7 +229,7 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
     def fromkeys(cls, axes: OrderedAxes) -> "OmeZarrAxes":
         return cls([(a, cls._default(a)) for a in axes])
 
-    def with_axes(self, axes: OrderedAxes, *, infer_inserted_types: bool = False) -> "OmeZarrAxes":
+    def with_axes(self, axes: OrderedAxes, *, infer_inserted_types: bool = True) -> "OmeZarrAxes":
         """Order like axes. Insert a blank OmeZarrAxis for target axes not already present.
         infer_inserted_types: If True, infer types *only for newly inserted axes*.
         If you want to infer for all axes, call `.with_types_inferred` on the result."""
