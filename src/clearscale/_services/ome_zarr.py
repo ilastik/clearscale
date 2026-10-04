@@ -15,13 +15,12 @@ from typing import (
     Optional,
     Tuple,
     Iterable,
-    TYPE_CHECKING,
     Callable,
     Literal,
 )
 
 from clearscale._axis_values import Translation, PixelSize, AxisKey, Factor
-from clearscale._services.matrices import is_identity_scale, DETERMINANT_SINGULARITY_TOLERANCE
+from clearscale._services.matrices import is_identity_scale
 from clearscale._transforms import (
     TransformSequence,
     ScaleTransform,
@@ -35,11 +34,9 @@ from clearscale._transforms import (
     PRE_TRANSFORMS_VERSIONS,
     Transform,
     TransformSignature,
+    IDENTITY_TOLERANCE,
 )
 from clearscale.types import ShapeValue, ShapeSource
-
-if TYPE_CHECKING:
-    from clearscale._multiscale import Multiscale
 
 SUPPORTED_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
 SUPPORTED_VERSIONS_WRITE = ("0.4", "0.5", "0.6")
@@ -657,14 +654,14 @@ class MultiscaleTransforms(TransformSequence):
         assert isinstance(scale_product, ScaleTransform), "scales can always compose"
         earlier_translation_rescaled = None
         if earlier.translation_transform is not None and not is_identity_scale(
-            self.scale_transform.scale, tolerance=DETERMINANT_SINGULARITY_TOLERANCE
+            self.scale_transform.scale, tolerance=IDENTITY_TOLERANCE
         ):
             earlier_translation_rescaled = TranslationTransform(
                 tuple(t * s for t, s in zip(earlier.translation_transform.translation, self.scale_transform.scale))
             )
         later_translation_rescaled = None
         if self.translation_transform is not None and not is_identity_scale(
-            earlier.scale_transform.scale, tolerance=DETERMINANT_SINGULARITY_TOLERANCE
+            earlier.scale_transform.scale, tolerance=IDENTITY_TOLERANCE
         ):
             later_translation_rescaled = TranslationTransform(
                 tuple(t * s for t, s in zip(self.translation_transform.translation, earlier.scale_transform.scale))

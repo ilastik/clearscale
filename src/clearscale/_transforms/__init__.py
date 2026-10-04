@@ -32,6 +32,7 @@ from clearscale._transforms._transform_types import (
     RotationTransform,
     ScaleTransform,
     TranslationTransform,
+    IDENTITY_TOLERANCE,
 )
 from clearscale._transforms._to_from_spatial_relation import relation_to_transform_canonic
 
