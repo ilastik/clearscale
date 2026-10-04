@@ -1,10 +1,10 @@
-import numbers
 from collections import OrderedDict
 from collections.abc import Mapping as ABCMapping
 from dataclasses import dataclass, replace
-from typing import Iterable, List, overload, Sequence, Tuple, Mapping, Optional, Union
+from typing import List, Sequence, Tuple, Mapping, Optional
 
 from clearscale._axis_values import Axes, _axis_in, AxisKey, _AxisFloats, _AxisMapping, OrderedAxes, Scalar, Translation
+from clearscale._services.matrices import matrix_invert, matrix_vector_multiply, DEFAULT_SINGULARITY_TOLERANCE
 
 
 class Coefficient(_AxisFloats):
@@ -179,6 +179,14 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
 
         return self.without_axes(identity_axes)
 
+    def inverted(self, singularity_tolerance: float = DEFAULT_SINGULARITY_TOLERANCE) -> "Linear":
+        """The matrix inverse. Raises ValueError if the matrix is singular."""
+        try:
+            inverse = matrix_invert(self.to_tuples(), tolerance=singularity_tolerance)
+        except ValueError as e:
+            raise ValueError(f"Cannot invert Linear with axes {self.axes!r}: {e}") from e
+        return Linear.from_array(inverse, self.axes)
+
     def with_values(
         self, other: Mapping[AxisKey, Mapping[AxisKey, Scalar]], *, only: Optional[Axes] = None
     ) -> "Linear":
@@ -226,11 +234,6 @@ class Affine:
     def identity(cls, axes: OrderedAxes) -> "Affine":
         axes = tuple(axes)
         return cls(linear=Linear.identity(axes), translation=Translation.identity(axes))
-
-    @classmethod
-    def from_linear(cls, linear: Linear) -> "Affine":
-        """Explicit alias for a common upgrade path"""
-        return cls(linear=linear)
 
     @classmethod
     def from_array(cls, array: Sequence[Sequence[Scalar]], axes: OrderedAxes) -> "Affine":
@@ -357,6 +360,16 @@ class Affine:
         if len(identity_axes) == len(self.linear):
             raise ValueError("Cannot create empty Affine. Removing all identities would leave no axes.")
         return self.without_axes(identity_axes)
+
+    def inverted(self, singularity_tolerance: float = DEFAULT_SINGULARITY_TOLERANCE) -> "Affine":
+        """
+        The Affine that undoes `self`: if `self` maps `y` to `x = linear @ y + translation`,
+        the inverse maps `x` back to `y = linear^-1 @ x - linear^-1 @ translation`.
+        Raises ValueError if the linear part is singular.
+        """
+        inverse_linear = self.linear.inverted(singularity_tolerance=singularity_tolerance)
+        shift = matrix_vector_multiply(inverse_linear.to_tuples(), self.translation.values_tuple())
+        return self.__class__(linear=inverse_linear, translation=Translation(zip(self.axes, (-v for v in shift))))
 
     def with_linear(self, linear: Linear) -> "Affine":
         return replace(self, linear=linear)

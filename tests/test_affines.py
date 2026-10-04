@@ -4,6 +4,11 @@ from typing import cast
 
 from clearscale import Translation
 from clearscale._affines import Coefficient, Linear, Affine
+from clearscale._services.matrices import matrix_vector_multiply
+
+
+def _flat(matrix):
+    return [v for row in matrix for v in row]
 
 
 def test_coefficient_zeros():
@@ -416,6 +421,26 @@ def test_linear_with_values_requires_nested_mapping():
         Linear.identity("xy").with_values({"x": 2})  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize(
+    "array, axes, expected",
+    [
+        (((2, 0), (0, 4)), ("y", "x"), ((0.5, 0.0), (0.0, 0.25))),
+        (((1, 2), (3, 4)), ("y", "x"), ((-2.0, 1.0), (1.5, -0.5))),
+        (((0, 1), (1, 0)), ("x", "y"), ((0.0, 1.0), (1.0, 0.0))),
+    ],
+)
+def test_linear_inverted(array, axes, expected):
+    result = Linear.from_array(array, axes).inverted()
+
+    assert result.axes == axes
+    assert _flat(result.to_tuples()) == pytest.approx(_flat(expected))
+
+
+def test_linear_inverted_rejects_singular():
+    with pytest.raises(ValueError, match="Cannot invert Linear with axes .*singular"):
+        _ = Linear.from_array(((1, 2), (2, 4)), ("y", "x")).inverted()
+
+
 def test_linear_to_tuples():
     linear = Linear.from_array([[1, 2], [3, 4]], "xy")
     tuples = linear.to_tuples()
@@ -511,10 +536,6 @@ def test_affine_init_accepts_partial_args(linear, translation):
     affine = Affine(linear=linear, translation=translation)
     assert affine == Affine.identity("x")
     assert affine.axes == ("x",)
-
-
-def test_affine_from_linear_aliases_init():
-    assert Affine.from_linear(Linear.identity("xy")) == Affine.identity("xy")
 
 
 @pytest.mark.parametrize(
@@ -740,6 +761,53 @@ def test_affine_with_translation():
 
     assert result.translation == translation
     assert result.linear == affine.linear
+
+
+def test_affine_inverted_diagonal():
+    affine = Affine(linear=Linear.from_array(((2, 0), (0, 4)), ("y", "x")), translation=Translation(y=1, x=2))
+
+    result = affine.inverted()
+
+    assert _flat(result.linear.to_tuples()) == pytest.approx(_flat(((0.5, 0.0), (0.0, 0.25))))
+    assert dict(result.translation) == pytest.approx({"y": -0.5, "x": -0.5})
+    assert result.axes == ("y", "x")
+
+
+def test_affine_inverted_undoes_the_original():
+    affine = Affine(linear=Linear.from_array(((1, 2), (3, 4)), ("y", "x")), translation=Translation(y=5, x=6))
+    point = (7.0, -3.0)
+
+    image = tuple(
+        a + t for a, t in zip(matrix_vector_multiply(affine.linear.to_tuples(), point), affine.translation.values())
+    )
+    back = tuple(
+        a + t
+        for a, t in zip(
+            matrix_vector_multiply(affine.inverted().linear.to_tuples(), image), affine.inverted().translation.values()
+        )
+    )
+
+    assert back == pytest.approx(point)
+
+
+def test_affine_inverted_twice_is_original():
+    affine = Affine(linear=Linear.from_array(((1, 2), (3, 4)), ("y", "x")), translation=Translation(y=5, x=6))
+
+    result = affine.inverted().inverted()
+
+    assert _flat(result.linear.to_tuples()) == pytest.approx(_flat(affine.linear.to_tuples()))
+    assert list(result.translation.values()) == pytest.approx(list(affine.translation.values()))
+
+
+def test_affine_inverted_identity():
+    assert Affine.identity("zyx").inverted() == Affine.identity("zyx")
+
+
+def test_affine_inverted_rejects_singular():
+    affine = Affine(linear=Linear.from_array(((1, 2), (2, 4)), ("y", "x")))
+
+    with pytest.raises(ValueError, match="singular"):
+        _ = affine.inverted()
 
 
 def test_affine_to_tuples_lists():
