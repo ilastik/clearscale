@@ -2,11 +2,14 @@ import pytest
 
 from clearscale._errors import CannotConvertToSpatialRelationError
 from clearscale._transforms import (
+    AffineTransform,
+    ByDimensionTransform,
     MapAxisTransform,
     ProjectAxisTransform,
     RotationTransform,
     ScaleTransform,
     TranslationTransform,
+    _ByDimensionChild,
 )
 from clearscale._transforms._to_from_spatial_relation import (
     _AxisLineageTrace,
@@ -86,16 +89,26 @@ def test_transform_not_fitting_the_axes_is_a_caller_error_not_a_conversion_error
         assert not isinstance(exc_info.value, CannotConvertToSpatialRelationError)
 
 
-def test_axis_mixing_leaf_raises_conversion_error():
+def test_non_physical_leaf_that_mixes_axes_raises_conversion_error():
+    mixing_child = _ByDimensionChild(
+        source_indices=(0, 1), target_indices=(0, 1), transform=RotationTransform(rotation=((0.8, -0.6), (0.6, 0.8)))
+    )
+    with pytest.raises(CannotConvertToSpatialRelationError, match="ByDimensionTransform mixes axes"):
+        _trace_axis_lineages((ByDimensionTransform((mixing_child,)),), "yx", "yx")
+
+
+def test_physical_leaves_keep_axes_in_place_even_if_their_values_mix():
+    # Translation and Affine relations keep the axis names: Output axis i is still axis i
     rotation = RotationTransform(rotation=((0.8, -0.6), (0.6, 0.8)))
-    with pytest.raises(CannotConvertToSpatialRelationError, match="RotationTransform mixes axes"):
-        _trace_axis_lineages((rotation,), "yx", "yx")
+    assert _trace_axis_lineages((rotation,), "yx", "yx").stages == ((0, 1), (0, 1))
+    swap = RotationTransform(rotation=((0.0, -1.0), (1.0, 0.0)))
+    assert _trace_axis_lineages((swap,), "yx", "yx").stages == ((0, 1), (0, 1))
 
 
-def test_one_to_one_rotation_is_traced_like_a_permutation():
-    # Whether it is *convertible* is up to relation emission
-    rotation = RotationTransform(rotation=((0.0, -1.0), (1.0, 0.0)))
-    assert _trace_axis_lineages((rotation,), "yx", "xy").stages == ((0, 1), (1, 0))
+def test_physical_leaf_that_changes_the_number_of_axes_is_an_internal_error():
+    # Canonicalization splits the change of axes off an AffineTransform, so none arrives here
+    with pytest.raises(AssertionError, match="Canonicalization splits axis changes off"):
+        _trace_axis_lineages((AffineTransform(affine=((1.0, 0.0, 0.0),)),), "yx", "y")
 
 
 def test_inconsistent_trace_is_an_internal_error():

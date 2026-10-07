@@ -1,11 +1,12 @@
 import itertools
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from clearscale._affines import Affine
-from clearscale._errors import CannotConvertToSpatialRelationError
+from clearscale._errors import CannotConvertToAffineError, CannotConvertToSpatialRelationError
 from clearscale._axis_values import Translation
 from clearscale._spatial_relations import (
+    normalize_relations_param,
     PermutationTo,
     ProjectionTo,
     SpatialRelation,
@@ -14,12 +15,19 @@ from clearscale._spatial_relations import (
 )
 from clearscale._transforms._base import IdentityTransform, Transform, TransformSequence
 from clearscale._transforms._transform_types import (
+    ScaleTransform,
     AffineTransform,
     MapAxisTransform,
     ProjectAxisTransform,
+    RotationTransform,
     TranslationTransform,
 )
 from clearscale.types import AxisKey, OrderedAxes
+
+_PHYSICAL_LEAVES = (ScaleTransform, TranslationTransform, RotationTransform, AffineTransform)
+"""Leaves that change values, not axes: Expressed as Translation and Affine relations, which keep axis names."""
+_STRUCTURAL_LEAVES = (MapAxisTransform, ProjectAxisTransform)
+"""Leaves that change axes, not values: Expressed as PermutationTo, ProjectionTo, AxisRearrangementTo."""
 
 
 def relation_to_transform(relation: SpatialRelation, source_axes: OrderedAxes) -> Transform:
@@ -153,6 +161,14 @@ def _advance_lineages(leaf: Transform, stage: Tuple[int, ...], new_lineage: Call
     assert all(
         0 <= source < len(stage) for target_dependencies in dependencies for source in target_dependencies
     ), f"dev error: {type(leaf).__name__}._axis_dependencies({len(stage)}) returned {dependencies!r}"
+    if isinstance(leaf, _PHYSICAL_LEAVES):
+        # Translation and Affine relations keep the names of their axes, even if the values of the axes mix:
+        # Output axis i of such a leaf is still axis i, whichever other axes its values depend on.
+        assert len(dependencies) == len(stage), (
+            f"dev error: Canonicalization splits axis changes off AffineTransforms (as ProjectAxisTransform), but "
+            f"{type(leaf).__name__} maps {len(stage)} axes to {len(dependencies)}"
+        )
+        return stage
     if any(len(target_dependencies) > 1 for target_dependencies in dependencies):
         raise CannotConvertToSpatialRelationError(
             f"{type(leaf).__name__} mixes axes (output axes depend on input axes {dependencies!r}), "
@@ -192,3 +208,105 @@ def _trace_axis_lineages(
                 f"(source {source!r}, target {target!r}); relabeling is not expressible"
             )
     return _AxisLineageTrace(leaves=leaves, stages=tuple(stages), names=names)
+
+
+def _rearrangement(source: Tuple[AxisKey, ...], target: Tuple[AxisKey, ...]) -> Optional[SpatialRelation]:
+    """The most specific name-based relation from `source` to `target`; None if they are the same."""
+    if source == target:
+        return None
+    if set(source) == set(target):
+        return PermutationTo(target)
+    retained_in_source = [a for a in source if a in target]
+    retained_in_target = [a for a in target if a in source]
+    if retained_in_source == retained_in_target:
+        return ProjectionTo(target)
+    return AxisRearrangementTo(target)
+
+
+def _structural_relations(trace: _AxisLineageTrace, start: int, end: int) -> List[SpatialRelation]:
+    """
+    Relations for the run of structural leaves trace.leaves[start:end], judged only by its in and out stages.
+    If an axis is dropped and a *different* axis of the same name is inserted, a single name-based relation would read
+    it as "keep", so it is expressed as two steps: drop first, then insert (and reorder).
+    """
+    in_lineages, out_lineages = trace.stages[start], trace.stages[end]
+    if in_lineages == out_lineages:
+        return []
+    in_axes, out_axes = trace.named_stage(start), trace.named_stage(end)
+    retained = tuple(axis for lineage, axis in zip(in_lineages, in_axes) if lineage in out_lineages)
+    dropped, inserted = set(in_axes) - set(retained), set(out_axes) - set(retained)
+    if dropped & inserted:
+        if not retained:
+            raise CannotConvertToSpatialRelationError(
+                f"all axes {in_axes!r} are dropped and re-inserted under the same names; "
+                "there is no intermediate state to express this as a sequence of relations"
+            )
+        steps = [ProjectionTo(retained), _rearrangement(retained, out_axes)]
+        return [step for step in steps if step is not None]
+    relation = _rearrangement(in_axes, out_axes)
+    return [] if relation is None else [relation]
+
+
+def _physical_relation(leaf: Transform, axes: Tuple[AxisKey, ...]) -> SpatialRelation:
+    """Inverse of the Translation and Affine branches of relation_to_transform (which invert, see there)."""
+    if isinstance(leaf, TranslationTransform):
+        if not leaf.translation:
+            raise CannotConvertToSpatialRelationError(
+                f"{type(leaf).__name__} values are not loaded (path-backed); resolve and inline them first"
+            )
+        return Translation(zip(axes, leaf.translation)).inverted()
+    # Scale, rotation and affine: Whatever their payload, their matrix is the inverse of the Affine relation's
+    try:
+        as_affine = leaf._to_affine_transform()
+    except CannotConvertToAffineError:
+        raise CannotConvertToSpatialRelationError(
+            f"{type(leaf).__name__} values are not loaded (path-backed); resolve and inline them first"
+        ) from None
+    assert as_affine.affine is not None, "_to_affine_transform returns transforms with values"
+    try:
+        return Affine.from_array(as_affine.affine, axes).inverted()
+    except ValueError as e:
+        raise CannotConvertToSpatialRelationError(
+            f"{type(leaf).__name__} cannot be inverted, but an Affine relation is the inverse of its transform: {e}"
+        ) from None
+
+
+def transform_to_relation(
+    transform: Transform, source_axes: OrderedAxes, target_axes: OrderedAxes
+) -> Optional[SpatialRelation]:
+    """
+    Express `transform` as the SpatialRelation(s) that describe how an image with `source_axes` is turned into one
+    with `target_axes`. Inverse of `relation_to_transform_canonic`:
+    `relation_to_transform_canonic(transform_to_relation(t, S, T), S) == t` for canonical `t` (up to float rounding).
+    The reverse does not hold: canonicalization merges and reorders, so the result is always in canonical form.
+
+    Axes are passed in explicitly: transforms only know positions, and may be unbound (or bound to systems whose
+    axes need not be consulted). Axis correspondence is traced by position through the whole chain, and names are
+    taken only from the two ends. Returns None if the transform is an identity (and `source_axes == target_axes`).
+
+    Raises CannotConvertToSpatialRelationError if there is no faithful relation, which callers may expect and handle:
+    transform types that don't map axes one-to-one (after canonicalization, and apart from the values of
+    scales, rotations and affines, which are expressed as `Affine`), path-backed values, matrices that are not
+    invertible, axis relabeling (a corresponding axis changes its name; SpatialRelations can't express this),
+    or intermediate axes that cannot be named.
+    Raises plain ValueError if `transform` doesn't fit the given axes (caller error).
+    Anything else (AssertionError) is a bug in clearscale.
+    """
+    canonical = TransformSequence((transform.unbound(),)).canonicalized()
+    trace = _trace_axis_lineages(_flatten_leaves(canonical), source_axes, target_axes)
+    for leaf in trace.leaves:
+        if not isinstance(leaf, _PHYSICAL_LEAVES + _STRUCTURAL_LEAVES):
+            raise CannotConvertToSpatialRelationError(f"{type(leaf).__name__} has no SpatialRelation equivalent")
+    relations: List[SpatialRelation] = []
+    index = 0
+    while index < len(trace.leaves):
+        if isinstance(trace.leaves[index], _PHYSICAL_LEAVES):
+            relations.append(_physical_relation(trace.leaves[index], trace.named_stage(index)))
+            index += 1
+            continue
+        run_end = index
+        while run_end < len(trace.leaves) and not isinstance(trace.leaves[run_end], _PHYSICAL_LEAVES):
+            run_end += 1
+        relations.extend(_structural_relations(trace, index, run_end))
+        index = run_end
+    return normalize_relations_param(relations)
