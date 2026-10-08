@@ -70,11 +70,16 @@ def test_ambiguous_names_at_a_stage_raise():
         trace.named_stage(1)
 
 
-def test_relabeling_raises():
-    with pytest.raises(CannotConvertToSpatialRelationError, match="relabeled"):
-        _trace_axis_lineages((ScaleTransform((1.0, 1.0)),), "yx", "YX")
-    with pytest.raises(CannotConvertToSpatialRelationError, match="relabeled"):
-        _trace_axis_lineages((), "yx", "xy")
+def test_axes_with_different_names_at_the_ends_are_called_by_their_source_name():
+    trace = _trace_axis_lineages((ScaleTransform((1.0, 1.0)),), "yx", "YX")
+    assert trace.names == {0: "y", 1: "x"}
+    assert trace.named_stage(1) == ("y", "x"), "the final stage is named before the final renaming"
+    assert _trace_axis_lineages((), "yx", "xy").named_stage(0) == ("y", "x")
+
+
+def test_inserted_axes_are_called_by_their_target_name_next_to_renamed_axes():
+    trace = _trace_axis_lineages((ProjectAxisTransform(inserts=(0,)),), "yx", "cYX")
+    assert trace.named_stage(1) == ("c", "y", "x")
 
 
 def test_transform_not_fitting_the_axes_is_a_caller_error_not_a_conversion_error():

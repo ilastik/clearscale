@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from clearscale import Affine, Factor, Multiscale, Scale, Shape, Translation
+from clearscale import Affine, AxisRenaming, Factor, Multiscale, Scale, Shape, Translation
 from clearscale._errors import CannotConvertToSpatialRelationError
 from clearscale._spatial_relations import (
     AxisRearrangementTo,
@@ -32,6 +32,9 @@ from clearscale._transforms import _ByDimensionChild
 def scaled(**factors: float) -> Affine:
     """The relation that was a Factor before Factor stopped being a relation"""
     return Affine.from_factor(Factor(factors))
+
+
+from ._random_relations import chain_mixes_axes, random_relation_chain
 
 
 def assert_same_leaves(actual, expected):
@@ -165,11 +168,46 @@ def test_dropping_and_reinserting_every_axis_under_same_names_raises():
         transform_to_relation(ProjectAxisTransform(drops=(0,), inserts=(0,)), "z", "z")
 
 
-def test_relabeling_raises():
-    with pytest.raises(CannotConvertToSpatialRelationError, match="relabeled"):
-        transform_to_relation(IdentityTransform(), "zyx", "ZYX")
-    with pytest.raises(CannotConvertToSpatialRelationError, match="relabeled"):
-        transform_to_relation(ScaleTransform((2.0, 2.0)), "yx", "vu")
+def test_different_axis_names_at_the_ends_become_a_final_renaming():
+    assert transform_to_relation(IdentityTransform(), "zyx", "ZYX") == AxisRenaming(z="Z", y="Y", x="X")
+    assert transform_to_relation(IdentityTransform(), "zyx", "zYx") == AxisRenaming(y="Y")
+    assert transform_to_relation(ScaleTransform((2.0, 2.0)), "yx", "vu") == SpatialRelationSequence(
+        (scaled(y=0.5, x=0.5), AxisRenaming(y="v", x="u"))
+    )
+
+
+def test_swapped_axis_names_become_one_simultaneous_renaming_not_a_permutation():
+    assert transform_to_relation(IdentityTransform(), "yx", "xy") == AxisRenaming(y="x", x="y")
+    # Moving the data, names stay positional: swap the data, then call the (now first) axis "y" again
+    assert transform_to_relation(MapAxisTransform((1, 0)), "yx", "yx") == SpatialRelationSequence(
+        (PermutationTo("xy"), AxisRenaming(y="x", x="y"))
+    )
+    assert transform_to_relation(MapAxisTransform((1, 0)), "yx", "xy") == PermutationTo("xy")
+
+
+def test_renaming_comes_last_so_earlier_relations_speak_the_source_vocabulary():
+    transform = TransformSequence((ScaleTransform((1.0, 0.5, 0.5)), TranslationTransform((0.0, 1.0, 1.0))))
+    assert transform_to_relation(transform, "zyx", "zYX") == SpatialRelationSequence(
+        (scaled(z=1.0, y=2.0, x=2.0), Translation(z=0.0, y=-1.0, x=-1.0), AxisRenaming(y="Y", x="X"))
+    )
+
+
+def test_inserted_axes_are_not_renamed_and_dropped_axes_need_no_renaming():
+    transform = ProjectAxisTransform(drops=(0,), inserts=(0,))
+    # z is dropped and c is a new axis; y is renamed
+    assert transform_to_relation(transform, "zyx", "cYx") == SpatialRelationSequence(
+        (ProjectionTo("cyx"), AxisRenaming(y="Y"))
+    )
+
+
+def test_name_reused_for_new_axis_while_the_original_lives_on_under_another_name_cannot_be_expressed():
+    # The new axis is called "x" and the old "x" is called "b": Both are "x" until the final renaming.
+    with pytest.raises(CannotConvertToSpatialRelationError, match="ambiguous"):
+        transform_to_relation(ProjectAxisTransform(inserts=(0,)), "yx", ("x", "a", "b"))
+    # Fine if the old x is dropped instead: Drop it, insert the new x, and rename y
+    assert transform_to_relation(ProjectAxisTransform(drops=(1,), inserts=(0,)), "yx", ("x", "a")) == (
+        SpatialRelationSequence((ProjectionTo("y"), ProjectionTo(("x", "y")), AxisRenaming(y="a")))
+    )
 
 
 def test_unsupported_transforms_raise():
@@ -275,3 +313,29 @@ def test_affine_that_changes_the_number_of_axes_is_split_into_projection_and_aff
     assert transform_to_relation(AffineTransform(affine=((2.0, 0.0, 0.0),)), "yx", "y") == SpatialRelationSequence(
         (ProjectionTo("y"), scaled(y=0.5))
     )
+
+
+@pytest.mark.parametrize("seed", range(300))
+def test_random_relation_chains_roundtrip_through_transforms(seed):
+    source, relation = random_relation_chain(seed)
+    target = relation.target_axes(source)
+    transform = relation_to_transform_canonic(relation, source)
+    mixes = chain_mixes_axes(relation, source)
+    try:
+        recovered = transform_to_relation(transform, source, target)
+    except CannotConvertToSpatialRelationError:
+        # Known limitation: An Affine that mixes axes, composed with relations that drop, insert or permute axes, is
+        # collapsed into one matrix that may no longer be separable into those parts again.
+        # Chains that don't mix axes always convert back.
+        assert mixes, "chains that don't mix axes must always convert"
+        return
+    if recovered is None:
+        assert_same_leaves(transform, IdentityTransform())
+        assert target == source
+        return
+    assert recovered.target_axes(source) == target
+    assert_same_leaves(relation_to_transform_canonic(recovered, source), transform)
+    if not mixes:
+        # Same axis lineage, whichever way it is expressed. (For chains that mix axes, both sides are only
+        # upper bounds that may differ by numerical cancellation, see SpatialRelation._axis_dependencies.)
+        assert recovered._axis_dependencies(source) == relation._axis_dependencies(source)
