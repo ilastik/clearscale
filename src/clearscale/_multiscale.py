@@ -2223,6 +2223,12 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             result["datasets"].append(dataset)
         return result
 
+    def _axes_of(self, name: CoordinateSystemName) -> Tuple[AxisKey, ...]:
+        for ref in self._transform_graph.all_system_refs:
+            if ref.name == name:
+                return ref.owner.axes
+        raise NoSuchCoordinateSystemError(name)
+
     def _as_ref(self, name: CoordinateSystemName) -> NodeRef["Multiscale"]:
         """For Multiscale, making a ref means selecting one of their coordinate systems by name."""
         if name not in (ref.name for ref in self._transform_graph.all_system_refs):

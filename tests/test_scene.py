@@ -200,3 +200,25 @@ def test_transforms_between_can_include_child_multiscale_graphs():
         ms_transform_within_scene.inverted(),
         scene_transform,
     ], "hop1 is stored as ms->warped, hop2 is ms->world, so the path is warped--inv(hop1)->ms--hop2->world"
+
+
+def test_transforms_between_with_children_through_axis_changing_child_system():
+    from clearscale import ProjectionTo
+
+    multiscale = _multiscale(z=2, y=3, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
+    world = CoordinateSystem.fromkeys("yx")._as_ref("world")
+    scene_transform = TranslationTransform(
+        translation=(10, 20),
+        source=multiscale._as_ref("preview"),
+        target=world,
+    )
+    scene = Scene(TransformGraph([scene_transform], system_refs=(world,)), _multiscale_paths={})
+
+    path = scene.transforms_between((multiscale, "preview"), "world", include_children=True)
+
+    assert path == [scene_transform]
+    # The child graph's own (non-invertible) projection edge is ported without tripping axis validation
+    full_edges = scene._full_graph.transforms
+    assert any(
+        t.source == multiscale._as_ref_to_intrinsic() and t.target == multiscale._as_ref("preview") for t in full_edges
+    )

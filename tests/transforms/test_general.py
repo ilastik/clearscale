@@ -52,15 +52,15 @@ def test_resolving_transform_revalidates_endpoint_axes():
     def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
         return CoordinateSystem(OmeZarrAxes.fromkeys(axes).with_types_inferred())._as_ref(name)
 
-    multiscale = Multiscale({"s0": Scale(Shape(z=1, y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
-    world = _sys_ref("world", "yx")
+    multiscale = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+    world = _sys_ref("world", "zyx")
     transform = TranslationTransform(
-        translation=(0, 0),
+        translation=(0, 0, 0),
         source=_UnresolvedRef(file=FileRef.from_string("tile_0"), name="physical"),
         target=world,
     )
 
-    with pytest.raises(ValueError, match="TranslationTransform expects 2 source axes"):
+    with pytest.raises(ValueError, match="TranslationTransform expects 3 source axes"):
         transform.with_resolved({"tile_0": multiscale})
 
 
@@ -232,3 +232,33 @@ def test_transform_graph_keeps_bound_transforms_from_generator():
     graph = TransformGraph(t for t in (transform,))
 
     assert graph.transforms == (transform,)
+
+
+def _multiscale_with_preview_system() -> Multiscale:
+    from clearscale import ProjectionTo
+
+    return Multiscale({"s0": Scale(Shape(z=2, y=3, x=4))}).with_coordinate_system(
+        "preview", reached_by=ProjectionTo("yx")
+    )
+
+
+def test_multiscale_ref_axes_are_those_of_the_selected_system():
+    multiscale = _multiscale_with_preview_system()
+
+    assert multiscale._as_ref_to_intrinsic().axes == ("z", "y", "x")
+    assert multiscale._as_ref("preview").axes == ("y", "x")
+    assert multiscale.axes == ("z", "y", "x"), "Multiscale.axes remains the intrinsic axes"
+
+
+def test_binding_to_multiscale_ref_validates_against_selected_system_axes():
+    multiscale = _multiscale_with_preview_system()
+    preview = multiscale._as_ref("preview")
+    world_2d = _sys_ref("world", "yx")
+    world_3d = _sys_ref("world3d", "zyx")
+
+    ScaleTransform((2.0, 2.0)).bound(source=preview, target=world_2d)
+
+    with pytest.raises(
+        ValueError, match="ScaleTransform expects 3 source axes, but its source coordinate system has 2"
+    ):
+        ScaleTransform((2.0, 2.0, 2.0)).bound(source=preview, target=world_3d)
