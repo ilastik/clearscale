@@ -1,6 +1,6 @@
 import functools
 from abc import ABC, abstractmethod
-from collections import defaultdict, deque, OrderedDict
+from collections import Counter, defaultdict, deque, OrderedDict
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, field, replace, fields
 from itertools import chain
@@ -1309,14 +1309,16 @@ class TransformGraph:
 
     def structural_signature(
         self, *, rename: Mapping["NodeRef", str]
-    ) -> FrozenSet[Union[NodeSignature, TransformSignature]]:
-        """Identity-cleared representation of this graph, for structural comparisons."""
+    ) -> FrozenSet[Tuple[Union[NodeSignature, TransformSignature], int]]:
+        """Identity-cleared representation of this graph, for structural comparisons.
+        Contains (signature, count) pairs: Once `rename` makes distinct nodes indistinguishable, graphs with
+        a different number of equal nodes or edges must still compare unequal."""
         edges = tuple(t.to_signature(rename) for t in self.transforms)
         # Need all_system_refs: system_refs may include CoordinateSystems not referenced by any Transform,
         # but it may also include an arbitrary subset of the CoordinateSystems that *are* referenced.
         # The signature is therefore the total set of systems.
         systems = tuple(r.to_signature(rename) for r in self.all_system_refs)
-        return frozenset(chain(systems, edges))
+        return frozenset(Counter(chain(systems, edges)).items())
 
     def __init__(
         self,
