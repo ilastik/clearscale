@@ -444,3 +444,111 @@ class TestSceneEquality:
 
         assert read_back != scene, "unresolved: refs are placeholders for the Multiscales"
         assert read_back.with_resolved(paths) == scene
+
+
+class TestFromMultiscalePair:
+    def test_connects_a_to_b(self):
+        raw = _tile(y=4, x=4)
+        atlas = _tile(y=4, x=4)
+
+        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=Translation(y=1.0, x=2.0))
+
+        path = scene._transforms_between(raw, atlas)
+        assert path is not None and len(path) == 1
+        assert path[0].unbound() == TranslationTransform((-1.0, -2.0)), "relations are inverted into transforms"
+        assert path[0].source == raw._as_ref_to_intrinsic()
+        assert path[0].target == atlas._as_ref_to_intrinsic()
+        inverse = scene._transforms_between(atlas, raw)
+        assert inverse is not None and inverse[0].unbound() == TranslationTransform((1.0, 2.0))
+        assert scene.is_fully_resolved
+
+    def test_none_relation_is_identity(self):
+        raw = _tile(y=4, x=4)
+        atlas = _tile(y=4, x=4)
+
+        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=None)
+
+        path = scene._transforms_between(raw, atlas)
+        assert path is not None and path[0].unbound() == IdentityTransform()
+
+    def test_relation_chains_are_applied_in_order(self):
+        volume = _tile(z=2, y=4, x=4)
+        flat = _tile(y=2, x=2)
+
+        scene = Scene.from_multiscale_pair(
+            a=volume,
+            b=flat,
+            a_to_b=[ProjectionTo("yx"), Affine.from_factor(Factor(y=2, x=2)), Translation(y=1.0, x=1.0)],
+        )
+
+        path = scene._transforms_between(volume, flat)
+        assert path is not None and len(path) == 1
+
+    def test_dropping_axes_cannot_be_traversed_backwards(self):
+        volume = _tile(z=2, y=4, x=4)
+        flat = _tile(y=4, x=4)
+
+        scene = Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=ProjectionTo("yx"))
+
+        assert scene._transforms_between(volume, flat) is not None
+        assert scene._transforms_between(flat, volume) is None
+
+    def test_inserting_axes_can_be_traversed_backwards(self):
+        flat = _tile(y=4, x=4)
+        volume = _tile(z=2, y=4, x=4)
+
+        scene = Scene.from_multiscale_pair(a=flat, b=volume, a_to_b=ProjectionTo("zyx"))
+
+        assert scene._transforms_between(flat, volume) is not None
+        assert scene._transforms_between(volume, flat) is not None
+
+    def test_can_relate_other_coordinate_systems_of_the_multiscales(self):
+        volume = _tile(z=2, y=3, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
+        flat = _tile(y=3, x=4).with_coordinate_system("shifted", reached_by=Translation(y=1.0, x=1.0))
+
+        scene = Scene.from_multiscale_pair(a=(volume, "preview"), b=(flat, "shifted"), a_to_b=None)
+
+        path = scene._transforms_between((volume, "preview"), (flat, "shifted"))
+        assert path is not None and len(path) == 1
+        assert path[0].source == volume._as_ref("preview") and path[0].target == flat._as_ref("shifted")
+        assert scene._transforms_between(volume, flat) is None, "intrinsic systems are not connected"
+        children = scene._transforms_between(volume, flat, include_children=True)
+        assert children is not None and len(children) == 3, "connected through the multiscales' own graphs"
+
+    def test_rejects_relation_not_producing_axes_of_b(self):
+        volume = _tile(z=2, y=4, x=4)
+        flat = _tile(y=4, x=4)
+
+        with pytest.raises(ValueError, match=r"produces \('z', 'y', 'x'\), but `b` has axes \('y', 'x'\)"):
+            Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=None)
+
+    def test_reports_relations_that_cannot_be_applied(self):
+        with pytest.raises(ValueError, match=r"`a_to_b` cannot be applied to the axes of `a` \('y', 'x'\)"):
+            Scene.from_multiscale_pair(a=_tile(y=2, x=2), b=_tile(z=2, y=2, x=2), a_to_b=PermutationTo("zyx"))
+
+    def test_rejects_relating_a_multiscale_to_itself(self):
+        multiscale = _tile(z=2, y=3, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
+
+        with pytest.raises(ValueError, match="same Multiscale"):
+            Scene.from_multiscale_pair(a=multiscale, b=(multiscale, "preview"), a_to_b=ProjectionTo("yx"))
+
+    def test_accepts_equal_but_distinct_multiscales(self):
+        scene = Scene.from_multiscale_pair(a=_tile(y=2, x=2), b=_tile(y=2, x=2), a_to_b=None)
+
+        assert len(scene._internal_graph.transforms) == 1
+
+    def test_rejects_unknown_system_name_and_malformed_keys(self):
+        tile = _tile(y=2, x=2)
+
+        with pytest.raises(ValueError, match="does not specify a coordinate system named: 'nope'"):
+            Scene.from_multiscale_pair(a=(tile, "nope"), b=_tile(y=2, x=2), a_to_b=None)
+        with pytest.raises(TypeError, match="Expected a Multiscale"):
+            Scene.from_multiscale_pair(a="stage", b=tile, a_to_b=None)  # type: ignore[arg-type]
+
+    def test_equality_depends_on_direction_and_relation(self):
+        a, b = _tile(y=2, x=2), _tile(y=3, x=3)
+        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None)
+
+        assert scene == Scene.from_multiscale_pair(a=a, b=b, a_to_b=None)
+        assert scene != Scene.from_multiscale_pair(a=b, b=a, a_to_b=None)
+        assert scene != Scene.from_multiscale_pair(a=a, b=b, a_to_b=Translation(y=1.0, x=0.0))
