@@ -22,10 +22,12 @@ from clearscale._transforms import (
 from clearscale._transforms._base import _is_owner_coordinate_system
 
 MultiscalesByPath = Mapping[RelativePath, Multiscale]
+MultiscaleSystemKey = Union[Multiscale, Tuple[Multiscale, CoordinateSystemName]]
+"""Selects one of a Multiscale's coordinate systems: A plain Multiscale selects its own (intrinsic) space,
+`(multiscale, name)` selects one of the other coordinate systems it knows."""
 UserFacingCoordinateSystemKey = Union[
     CoordinateSystemName,
-    Multiscale,
-    Tuple[Multiscale, CoordinateSystemName],
+    MultiscaleSystemKey,
     Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]],
 ]
 Node = Union[Multiscale, NodeRef[CoordinateSystem]]
@@ -253,13 +255,8 @@ class Scene:
                 return self._multiscale_paths[key["path"]]._as_ref(key["name"])
             return _UnresolvedRef(name=key["name"], file=FileRef.from_string(key["path"]))
 
-        if isinstance(key, tuple):  # Tuple[Multiscale, CoordinateSystemName]
-            if not isinstance(key[0], Multiscale) or not (isinstance(key[1], CoordinateSystemName)):
-                raise TypeError(f"Coordinate system key must be tuple(multiscale, system_name). Received: {key}")
-            return key[0]._as_ref(key[1])
-
-        if isinstance(key, Multiscale):
-            return key._as_ref_to_intrinsic()
+        if isinstance(key, (tuple, Multiscale)):
+            return self._multiscale_key_to_ref(key)
 
         if isinstance(key, CoordinateSystemName):
             # Purely matching by name could bring up refs to any TransformGraphNode
@@ -281,6 +278,16 @@ class Scene:
             return name_matches[0] if name_matches else None
 
         raise TypeError(f"Unsupported key type for coordinate system lookup: {key}")
+
+    @staticmethod
+    def _multiscale_key_to_ref(key: MultiscaleSystemKey) -> NodeRef[Multiscale]:
+        if isinstance(key, Multiscale):
+            return key._as_ref_to_intrinsic()
+        if isinstance(key, tuple):
+            if not isinstance(key[0], Multiscale) or not (isinstance(key[1], CoordinateSystemName)):
+                raise TypeError(f"Coordinate system key must be tuple(multiscale, system_name). Received: {key}")
+            return key[0]._as_ref(key[1])
+        raise TypeError(f"Expected a Multiscale or a tuple(multiscale, system_name). Received: {key!r}")
 
     @staticmethod
     def _resolved_multiscale_paths(

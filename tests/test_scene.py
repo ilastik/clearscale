@@ -222,3 +222,19 @@ def test_transforms_between_with_children_through_axis_changing_child_system():
     assert any(
         t.source == multiscale._as_ref_to_intrinsic() and t.target == multiscale._as_ref("preview") for t in full_edges
     )
+
+
+@pytest.mark.parametrize("key", [(1, "name"), ("not a multiscale", "name")])
+def test_transforms_between_rejects_malformed_multiscale_system_key(key):
+    scene = Scene._from_graph_edges([])
+
+    with pytest.raises(TypeError, match=r"must be tuple\(multiscale, system_name\)"):
+        scene._transforms_between(key, "world")  # type: ignore[arg-type]
+
+
+def test_transforms_between_rejects_non_string_system_name_in_key():
+    multiscale = _multiscale(y=2, x=3)
+    scene = Scene._from_graph_edges([])
+
+    with pytest.raises(TypeError, match=r"must be tuple\(multiscale, system_name\)"):
+        scene._transforms_between((multiscale, 5), "world")  # type: ignore[arg-type]
