@@ -48,23 +48,6 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         assert chain is not None and len(chain) == 2
         assert read_back.to_ome_zarr(version="0.6") == result
 
-    def test_writes_all_reachable_systems_from_tiles_translations(self):
-        tile_a = _multiscale(y=2, x=2)
-        tile_b = _multiscale(y=2, x=2)
-        scene = Scene.from_tiles_translations([(tile_a, Translation(y=0, x=0)), (tile_b, Translation(y=0, x=4))])
-        paths = {"a.zarr": tile_a, "b.zarr": tile_b}
-
-        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=paths)
-
-        names = [s["name"] for s in result["coordinateSystems"]]
-        # "world" is the hard-coded name for the central system. Subject to change.
-        assert names == ["world"]
-
-        read_back = Scene.from_ome_zarr(result).with_resolved(paths)
-        assert read_back.to_ome_zarr(version="0.6") == result
-        chain = read_back._transforms_between(tile_a, tile_b)
-        assert chain is not None and len(chain) == 2
-
     def test_writes_and_reads_back_shared_coordinate_system(self):
         tile_a = _multiscale(y=2, x=2)
         tile_b = _multiscale(y=2, x=2)
@@ -127,7 +110,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         assert resolved.to_ome_zarr(version="0.6") == example
 
     def test_empty_scene_serializes_to_empty_dict(self):
-        scene = Scene.from_tiles_translations([])
+        scene = Scene._from_graph_edges([])
 
         assert scene.to_ome_zarr(version="0.6") == {}
 

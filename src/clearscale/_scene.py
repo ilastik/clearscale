@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterable, Mapping, NamedTuple, Union, Tuple, Liter
 from typing import Optional, List
 
 from clearscale._errors import MismatchingMultiscaleError
-from clearscale._axis_values import Translation, Unit
+from clearscale._axis_values import Unit
 from clearscale._multiscale import (
     Multiscale,
     OmeZarrAxesParam,
@@ -28,7 +28,6 @@ from clearscale._transforms import (
     AnyRef,
     Transform,
     TransformGraph,
-    TranslationTransform,
 )
 from clearscale._transforms._base import _is_owner_coordinate_system
 
@@ -250,70 +249,6 @@ class Scene:
             bound = transform.bound(source=source, target=target)
             transforms.append(bound)
         return cls(_internal_graph=TransformGraph(transforms=transforms), _multiscale_paths={})
-
-    @classmethod
-    def _from_star_graph(cls, multiscales: Iterable[Tuple[Multiscale, Transform]], *, center: Node) -> "Scene":
-        """
-        Low-level constructor for star-shaped graphs by specifying partial edges (source->transform).
-        All transforms will target the node provided as `center`.
-        A sensible default is to provide the first edge's multiscale as the center,
-        and use an IdentityTransform for its edge.
-        """
-        multiscales = list(multiscales)
-        if not multiscales and not center:
-            return cls(_internal_graph=TransformGraph(transforms=()), _multiscale_paths={})
-        elif not center:
-            center = multiscales[0][0]
-
-        central_system = center._intrinsic_ref.owner if isinstance(center, Multiscale) else center.owner
-        central_ref = CoordinateSystem(central_system)._as_ref("world")
-
-        return cls(
-            _internal_graph=TransformGraph(
-                system_refs=(central_ref,),
-                transforms=(
-                    transform.bound(
-                        source=multiscale._as_ref_to_intrinsic(),
-                        target=central_ref,
-                    )
-                    for multiscale, transform in multiscales
-                ),
-            ),
-            _multiscale_paths={},
-        )
-
-    @classmethod
-    def from_tiles_translations(cls, translations: Iterable[Tuple[Multiscale, Translation]]) -> "Scene":
-        """
-        Proof-of-concept constructor for tiling use-case. More generally useful might be something like
-        from_tiles(tiles: Iterable[Tuple[Multiscale, AxisValues]]), or "from_clearscale"..?
-        With an internal Transform.from_axis_values that can map clearscale types to accurate Transform representations.
-        E.g. Translation -> TranslationTransform,
-        Factor -> ScaleTransform,
-        PixelOffset -> TranslationTransform (after multiplying the offset by the right PixelSize)
-        """
-        translations = list(translations)
-        if not translations:
-            return cls(_internal_graph=TransformGraph(transforms=()), _multiscale_paths={})
-
-        first_ms = translations[0][0]
-        for multiscale, translation in translations:
-            # TODO: Validate units?
-            if multiscale.axes != first_ms.axes:
-                raise ValueError(
-                    "All Multiscales in a stitched Scene must have identical axis keys. "
-                    f"Expected {first_ms.axes!r}, received {multiscale.axes!r}."
-                )
-            if tuple(translation.keys()) != first_ms.axes:
-                raise ValueError(
-                    "All Translations for a stitched Scene must have identical axis keys. "
-                    f"Expected {first_ms.axes!r}, received {translation.keys()!r}."
-                )
-
-        return cls._from_star_graph(
-            ((ms, TranslationTransform.from_translation(translation)) for ms, translation in translations),
-            center=first_ms,
-        )
 
     @classmethod
     def from_ome_zarr(cls, scene_attrs: Mapping[str, Any]) -> "Scene":
