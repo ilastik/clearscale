@@ -24,7 +24,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         mm_ref = CoordinateSystem.fromkeys("yx")._as_ref("mm")
         a = _multiscale(y=2, x=2)
         b = _multiscale(y=2, x=2)
-        scene = Scene.from_graph_edges(
+        scene = Scene._from_graph_edges(
             [
                 (a, TranslationTransform((1.0, 2.0)), world_ref),
                 (b, ScaleTransform((2.0, 2.0)), world_ref),
@@ -44,7 +44,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
 
         read_back = Scene.from_ome_zarr(result).with_resolved(multiscales_by_path=ms_by_path)
 
-        chain = read_back.transforms_between(a, "mm")
+        chain = read_back._transforms_between(a, "mm")
         assert chain is not None and len(chain) == 2
         assert read_back.to_ome_zarr(version="0.6") == result
 
@@ -62,7 +62,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
 
         read_back = Scene.from_ome_zarr(result).with_resolved(paths)
         assert read_back.to_ome_zarr(version="0.6") == result
-        chain = read_back.transforms_between(tile_a, tile_b)
+        chain = read_back._transforms_between(tile_a, tile_b)
         assert chain is not None and len(chain) == 2
 
     def test_writes_explicit_system_refs_in_declared_order(self):
@@ -113,7 +113,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
     def test_rejects_versions_other_than_0_6(self):
         a = _multiscale(y=2, x=2)
         b = _multiscale(y=2, x=2)
-        scene = Scene.from_graph_edges([(a, TranslationTransform((1.0, 2.0)), b)])
+        scene = Scene._from_graph_edges([(a, TranslationTransform((1.0, 2.0)), b)])
 
         for version in ("0.4", "0.5"):
             with pytest.raises(ValueError, match="Scenes can only be written in OME-Zarr version 0.6"):

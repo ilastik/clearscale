@@ -22,9 +22,9 @@ def test_from_graph_edges_binds_between_multiscales():
     source = _multiscale(z=2, y=3, x=4)
     target = _multiscale(z=2, y=3, x=4)
 
-    scene = Scene.from_graph_edges([(source, ScaleTransform((2, 2, 2)), target)])
+    scene = Scene._from_graph_edges([(source, ScaleTransform((2, 2, 2)), target)])
 
-    path = scene.transforms_between(source, target)
+    path = scene._transforms_between(source, target)
 
     assert path
     assert len(path) == 1
@@ -38,7 +38,7 @@ def test_from_graph_edges_binds_coordinate_system_refs():
     world = CoordinateSystem.fromkeys("zyx")
     image = _multiscale(z=2, y=3, x=4)
 
-    scene = Scene.from_graph_edges(
+    scene = Scene._from_graph_edges(
         [
             (
                 image,
@@ -48,7 +48,7 @@ def test_from_graph_edges_binds_coordinate_system_refs():
         ]
     )
 
-    path = scene.transforms_between(image, "world")
+    path = scene._transforms_between(image, "world")
 
     assert path
     assert len(path) == 1
@@ -60,14 +60,14 @@ def test_from_graph_edges_multiple_edges():
     fixed = _multiscale(z=2, y=3, x=4)
     world = CoordinateSystem.fromkeys("zyx")
 
-    scene = Scene.from_graph_edges(
+    scene = Scene._from_graph_edges(
         [
             (moving, ScaleTransform((2, 2, 2)), world._as_ref("world")),
             (world._as_ref("world"), AffineTransform(((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0))), fixed),
         ]
     )
 
-    path = scene.transforms_between(moving, fixed)
+    path = scene._transforms_between(moving, fixed)
 
     assert path
     assert len(path) == 2
@@ -82,19 +82,19 @@ def test_from_graph_edges_rejects_coordinate_system_and_other_types():
     image = _multiscale(z=2, y=3, x=4)
 
     with pytest.raises(TypeError, match="Use CoordinateSystem._as_ref"):
-        Scene.from_graph_edges([("some_string", ScaleTransform((2, 2, 2)), world)])  # type: ignore[arg-type]
+        Scene._from_graph_edges([("some_string", ScaleTransform((2, 2, 2)), world)])  # type: ignore[arg-type]
 
     with pytest.raises(TypeError, match="Use CoordinateSystem._as_ref"):
-        Scene.from_graph_edges([(world, ScaleTransform((2, 2, 2)), image)])  # type: ignore[arg-type]
+        Scene._from_graph_edges([(world, ScaleTransform((2, 2, 2)), image)])  # type: ignore[arg-type]
 
     with pytest.raises(TypeError, match="Use CoordinateSystem._as_ref"):
-        Scene.from_graph_edges([(image, ScaleTransform((2, 2, 2)), world)])  # type: ignore[arg-type]
+        Scene._from_graph_edges([(image, ScaleTransform((2, 2, 2)), world)])  # type: ignore[arg-type]
 
 
 def test_scene_from_tiles_translations_empty():
     scene = Scene.from_tiles_translations([])
 
-    assert scene.transforms_between("world", "world") is None
+    assert scene._transforms_between("world", "world") is None
     assert scene._internal_graph.transforms == ()
 
 
@@ -109,9 +109,9 @@ def test_scene_from_tiles_translations_multiple_multiscales():
 
     scene = Scene.from_tiles_translations([(ms1, t1), (ms2, t2), (ms3, t3)])
 
-    p1 = scene.transforms_between(ms1, "world")
-    p2 = scene.transforms_between(ms2, "world")
-    p3 = scene.transforms_between(ms3, "world")
+    p1 = scene._transforms_between(ms1, "world")
+    p2 = scene._transforms_between(ms2, "world")
+    p3 = scene._transforms_between(ms3, "world")
 
     assert p1
     assert p2
@@ -130,7 +130,7 @@ def test_scene_from_tiles_translations_multiple_multiscales():
     assert p2[0] == TranslationTransform.from_translation(t2).bound(source=ms2._as_ref_to_intrinsic(), target=world_ref)
     assert p3[0] == TranslationTransform.from_translation(t3).bound(source=ms3._as_ref_to_intrinsic(), target=world_ref)
 
-    p13 = scene.transforms_between(ms1, ms3)
+    p13 = scene._transforms_between(ms1, ms3)
     assert p13
     assert len(p13) == 2
 
@@ -170,7 +170,7 @@ def test_transforms_between_accepts_path_addressed_unresolved_refs():
     )
     scene = Scene(TransformGraph([transform], system_refs=(world,)), _multiscale_paths={})
 
-    result = scene.transforms_between({"path": "tile_0", "name": "physical"}, "world")
+    result = scene._transforms_between({"path": "tile_0", "name": "physical"}, "world")
 
     assert result == [transform]
 
@@ -190,11 +190,11 @@ def test_transforms_between_can_include_child_multiscale_graphs():
     )
     scene = Scene(TransformGraph([scene_transform], system_refs=(world,)), _multiscale_paths={})
 
-    without_children = scene.transforms_between((multiscale, "warped"), "world")
+    without_children = scene._transforms_between((multiscale, "warped"), "world")
 
     assert without_children is None
 
-    with_children = scene.transforms_between((multiscale, "warped"), "world", include_children=True)
+    with_children = scene._transforms_between((multiscale, "warped"), "world", include_children=True)
 
     assert with_children == [
         ms_transform_within_scene.inverted(),
@@ -214,7 +214,7 @@ def test_transforms_between_with_children_through_axis_changing_child_system():
     )
     scene = Scene(TransformGraph([scene_transform], system_refs=(world,)), _multiscale_paths={})
 
-    path = scene.transforms_between((multiscale, "preview"), "world", include_children=True)
+    path = scene._transforms_between((multiscale, "preview"), "world", include_children=True)
 
     assert path == [scene_transform]
     # The child graph's own (non-invertible) projection edge is ported without tripping axis validation

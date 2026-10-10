@@ -65,7 +65,7 @@ class Scene:
         return paths
 
     @functools.cached_property
-    def resolved_multiscales(self) -> FrozenSet[NodeRef[Multiscale]]:
+    def _resolved_multiscales(self) -> FrozenSet[NodeRef[Multiscale]]:
         def _is_owner_multiscale(ref: Optional[AnyRef]) -> TypeGuard[NodeRef[Multiscale]]:
             return isinstance(ref, NodeRef) and isinstance(ref.owner, Multiscale)
 
@@ -79,7 +79,7 @@ class Scene:
     @functools.cached_property
     def _full_graph(self):
         all_transforms = list(self._internal_graph.transforms)
-        for ms_ref in self.resolved_multiscales:
+        for ms_ref in self._resolved_multiscales:
             ms = ms_ref.owner
             ms_transforms = []
             for child_t in ms._transform_graph.transforms:
@@ -94,13 +94,13 @@ class Scene:
         return TransformGraph(all_transforms)
 
     @classmethod
-    def from_graph_edges(
+    def _from_graph_edges(
         cls,
         source_transform_targets: Iterable[Tuple[Node, Transform, Node]],
     ) -> "Scene":
         """
         Basic low-level constructor by directly specifying graph edges (source->transform->target):
-        Scene.from_graph_edges([
+        Scene._from_graph_edges([
             (moving_ms1, AffineTransform(...), fixed_ms),
             (moving_ms2, AffineTransform(...), fixed_ms),
         ])
@@ -126,7 +126,7 @@ class Scene:
         return cls(_internal_graph=TransformGraph(transforms=transforms), _multiscale_paths={})
 
     @classmethod
-    def from_star_graph(cls, multiscales: Iterable[Tuple[Multiscale, Transform]], *, center: Node) -> "Scene":
+    def _from_star_graph(cls, multiscales: Iterable[Tuple[Multiscale, Transform]], *, center: Node) -> "Scene":
         """
         Low-level constructor for star-shaped graphs by specifying partial edges (source->transform).
         All transforms will target the node provided as `center`.
@@ -184,7 +184,7 @@ class Scene:
                     f"Expected {first_ms.axes!r}, received {translation.keys()!r}."
                 )
 
-        return cls.from_star_graph(
+        return cls._from_star_graph(
             ((ms, TranslationTransform.from_translation(translation)) for ms, translation in translations),
             center=first_ms,
         )
@@ -236,7 +236,7 @@ class Scene:
             all_paths.update(cleaned)
         return self._internal_graph.to_ome_zarr(version=version, nodes_by_path=all_paths)
 
-    def transforms_between(
+    def _transforms_between(
         self, source: UserFacingCoordinateSystemKey, target: UserFacingCoordinateSystemKey, include_children=False
     ) -> Optional[List[Transform]]:
         source_ref = self._get_ref_for_key(source, include_children)
