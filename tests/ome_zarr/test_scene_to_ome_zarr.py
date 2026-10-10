@@ -65,6 +65,27 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         chain = read_back._transforms_between(tile_a, tile_b)
         assert chain is not None and len(chain) == 2
 
+    def test_writes_and_reads_back_shared_coordinate_system(self):
+        tile_a = _multiscale(y=2, x=2)
+        tile_b = _multiscale(y=2, x=2)
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage",
+            connections=[(tile_a, None), (tile_b, Translation(y=0, x=4))],
+        )
+        paths = {"a.zarr": tile_a, "b.zarr": tile_b}
+
+        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=paths)
+
+        assert [s["name"] for s in result["coordinateSystems"]] == ["stage"]
+        assert [(t["type"], t["input"]["path"]) for t in result["coordinateTransformations"]] == [
+            ("identity", "a.zarr"),
+            ("translation", "b.zarr"),
+        ]
+        read_back = Scene.from_ome_zarr(result).with_resolved(paths)
+        assert read_back.to_ome_zarr(version="0.6") == result
+        chain = read_back._transforms_between(tile_a, tile_b)
+        assert chain is not None and len(chain) == 2
+
     def test_writes_explicit_system_refs_in_declared_order(self):
         atlas = CoordinateSystem.fromkeys("yx")._as_ref("atlas")
         world = CoordinateSystem.fromkeys("yx")._as_ref("world")

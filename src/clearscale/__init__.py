@@ -19,7 +19,7 @@ from clearscale._multiscale import (
     Multiscale,
     Scale,
 )
-from clearscale._scene import Scene
+from clearscale._scene import Connection, Scene
 from clearscale._transforms import FileRef
 from clearscale._version import __version__
 
@@ -40,6 +40,7 @@ __all__ = [
     "ome_zarr",
     "OmeZarrGroup",
     "ChildRef",
+    "Connection",
     "FileRef",
     "GroupKind",
     "PixelOffset",

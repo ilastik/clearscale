@@ -237,8 +237,13 @@ class SpatialRelationSequence(SpatialRelation, Sequence[SpatialRelation]):
         return self.relations[index]
 
 
+RelationsParam = Union[SpatialRelation, Sequence[SpatialRelation], None]
+"""What public APIs accept to describe a relation: One SpatialRelation, a chain of them (applied first to last),
+or None (no change)."""
+
+
 def normalize_relations_param(
-    relations: Union[SpatialRelation, Sequence[SpatialRelation], None],
+    relations: RelationsParam,
 ) -> Optional[SpatialRelation]:
     """
     Normalize the ergonomic `Union[SpatialRelation, Sequence[SpatialRelation], None]` accepted by

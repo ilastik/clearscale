@@ -1,13 +1,24 @@
 import functools
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, replace
-from typing import Any, Dict, Iterable, Mapping, Union, Tuple, Literal, FrozenSet, TypeGuard
+from typing import Any, Dict, Iterable, Mapping, NamedTuple, Union, Tuple, Literal, FrozenSet, TypeGuard
 from typing import Optional, List
 
 from clearscale._errors import MismatchingMultiscaleError
-from clearscale._axis_values import Translation
-from clearscale._multiscale import Multiscale
+from clearscale._axis_values import Translation, Unit
+from clearscale._multiscale import (
+    Multiscale,
+    OmeZarrAxesParam,
+    _merge_ome_zarr_axes,
+    _reconcile_axis_prop_params,
+)
+from clearscale._axis_values import AxisKey
+from clearscale._spatial_relations import RelationsParam, SpatialRelation, normalize_relations_param
+from clearscale.types import AxisKeyT
 from clearscale._transforms import (
+    IdentityTransform,
+    OmeZarrAxes,
+    relation_to_transform_canonic,
     RelativePath,
     CoordinateSystem,
     CoordinateSystemName,
@@ -31,6 +42,17 @@ UserFacingCoordinateSystemKey = Union[
     Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]],
 ]
 Node = Union[Multiscale, NodeRef[CoordinateSystem]]
+
+
+class Connection(NamedTuple):
+    """One Multiscale's relation to the coordinate system shared by a Scene's Multiscales,
+    for `Scene.from_shared_coordinate_system`. Plain `(source, to_shared)` tuples work as well."""
+
+    source: MultiscaleSystemKey
+    """The Multiscale (its own space), or `(multiscale, name)` for one of the other coordinate systems it knows."""
+    to_shared: RelationsParam
+    """How the shared coordinate system is reached from `source`, as for `Multiscale.with_coordinate_system`:
+    `source --to_shared--> shared`. `None` means `source` is the same space as the shared one."""
 
 
 @dataclass(frozen=True)
@@ -94,6 +116,88 @@ class Scene:
                 ms_transforms.append(child_t.bound(source=new_source, target=new_target))
             all_transforms.extend(ms_transforms)
         return TransformGraph(all_transforms)
+
+    @classmethod
+    def from_shared_coordinate_system(
+        cls,
+        *,
+        coordinate_system: CoordinateSystemName,
+        connections: Iterable[Tuple[MultiscaleSystemKey, RelationsParam]],
+        unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
+        ome_zarr_axes: Optional[OmeZarrAxesParam] = "infer",
+    ) -> "Scene":
+        """
+        Relate several Multiscales to one new coordinate system that they share (e.g. tiles to a stage).
+
+        Every connection is exactly what `Multiscale.with_coordinate_system(coordinate_system, reached_by=...)`
+        would be for that Multiscale alone: `source --to_shared--> coordinate_system`. The `source` can also be one of
+        the other coordinate systems the Multiscale knows, using `(multiscale, name)`.
+        The shared system's axes are what the relations produce, so all connections must produce identical axes.
+        Its axis properties (`unit`, `ome_zarr_axes`) are determined like in `with_coordinate_system`, from all
+        sources together: They may differ in blank properties, but not in contradicting values.
+
+        ```
+        Scene.from_shared_coordinate_system(
+            coordinate_system="stage",
+            connections=[
+                Connection(tile1, to_shared=tile1_to_stage),
+                Connection(tile2, to_shared=tile2_to_stage),
+            ],
+        )
+        ```
+        Note `Translation` says where the *origin moves to* when you apply it, so a tile that sits at position
+        `p` on the stage reaches the stage through `Translation(p).inverted()`.
+        """
+        if not isinstance(coordinate_system, str) or not coordinate_system:
+            raise ValueError(f"The shared coordinate system needs a name. Received: {coordinate_system!r}")
+        entries = list(connections)
+        if not entries:
+            raise ValueError("Need at least one connection to a Multiscale.")
+
+        sources: List[NodeRef[Multiscale]] = []
+        relations: List[Optional[SpatialRelation]] = []
+        target_axes: Optional[Tuple[AxisKey, ...]] = None
+        reconciled_axes: List[OmeZarrAxes] = []
+        for i, entry in enumerate(entries):
+            if not isinstance(entry, tuple) or len(entry) != 2:
+                raise TypeError(f"connections[{i}] must be a Connection or a (source, to_shared) tuple. Got: {entry!r}")
+            key, relations_param = entry
+            source = cls._multiscale_key_to_ref(key)
+            if source in sources:
+                raise ValueError(
+                    f"connections[{i}] selects the same coordinate system as connections[{sources.index(source)}]. "
+                    "Each Multiscale coordinate system can only be connected once."
+                )
+            relation = normalize_relations_param(relations_param)
+            try:
+                reached_axes = relation.target_axes(source.axes) if relation else source.axes
+            except ValueError as e:
+                raise ValueError(f"connections[{i}] cannot be applied to axes {source.axes}: {e}") from e
+            if target_axes is None:
+                target_axes = reached_axes
+            elif reached_axes != target_axes:
+                raise ValueError(
+                    "All connections must reach the shared coordinate system with identical axes. "
+                    f"connections[0] reaches {target_axes}, but connections[{i}] reaches {reached_axes}."
+                )
+            sources.append(source)
+            relations.append(relation)
+            dependencies = relation._axis_dependencies(source.axes) if relation else tuple((a,) for a in source.axes)
+            reconciled_axes.append(
+                _reconcile_axis_prop_params(
+                    reached_axes, dependencies, cls._source_ome_zarr_axes(source), ome_zarr_axes, unit
+                )
+            )
+
+        shared_axes = _merge_ome_zarr_axes(reconciled_axes, sources="the connected coordinate systems")
+        shared = CoordinateSystem(shared_axes)._as_ref(coordinate_system)
+        transforms = [
+            (relation_to_transform_canonic(relation, source.axes) if relation else IdentityTransform()).bound(
+                source=source, target=shared
+            )
+            for source, relation in zip(sources, relations)
+        ]
+        return cls(_internal_graph=TransformGraph(transforms, system_refs=(shared,)), _multiscale_paths={})
 
     @classmethod
     def _from_graph_edges(
@@ -278,6 +382,14 @@ class Scene:
             return name_matches[0] if name_matches else None
 
         raise TypeError(f"Unsupported key type for coordinate system lookup: {key}")
+
+    @staticmethod
+    def _source_ome_zarr_axes(ref: NodeRef[Multiscale]) -> OmeZarrAxes:
+        """Axis properties of the coordinate system that `ref` selects within its Multiscale"""
+        multiscale = ref.owner
+        if ref.name == multiscale._intrinsic_ref.name:
+            return multiscale.ome_zarr_axes
+        return multiscale.coordinate_system_ome_zarr_axes(ref.name)
 
     @staticmethod
     def _multiscale_key_to_ref(key: MultiscaleSystemKey) -> NodeRef[Multiscale]:
