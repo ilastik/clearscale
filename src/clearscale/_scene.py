@@ -70,6 +70,26 @@ class Scene:
         paths = dict(self._multiscale_paths)
         object.__setattr__(self, "_multiscale_paths", paths)
 
+    def __eq__(self, other):
+        """Structural equality: Same coordinate systems and transforms between the same (equal) Multiscales.
+        Ignores which instances the graph refers to, and the helper `_multiscale_paths` (like Multiscale
+        ignores `.ome`), so that `Scene.from_ome_zarr(scene.to_ome_zarr(...)).with_resolved(...) == scene`."""
+        if not isinstance(other, Scene):
+            return NotImplemented
+        return self._structural_signature() == other._structural_signature()
+
+    def __hash__(self):
+        return hash(self._structural_signature())
+
+    def _structural_signature(self):
+        # Multiscales name their own (intrinsic) system randomly, which says nothing about the space they describe
+        intrinsic_refs = {
+            ref.owner._as_ref_to_intrinsic(): "_intrinsic"
+            for ref in self._internal_graph.node_refs
+            if isinstance(ref, NodeRef) and isinstance(ref.owner, Multiscale)
+        }
+        return self._internal_graph.structural_signature(rename=intrinsic_refs)
+
     @property
     def is_fully_resolved(self) -> bool:
         return len(self._internal_graph.unresolved_transforms) == 0

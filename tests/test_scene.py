@@ -296,19 +296,27 @@ class TestFromSharedCoordinateSystem:
     def test_connection_and_plain_tuples_are_equivalent(self):
         tile1 = _tile(y=2, x=3)
         tile2 = _tile(y=2, x=3)
-        paths = {"a": tile1, "b": tile2}
         relations = [Translation(y=1.0, x=2.0), Translation(y=-1.0, x=0.5)]
 
         from_named = Scene.from_shared_coordinate_system(
             coordinate_system="stage", connections=[Connection(tile1, relations[0]), Connection(tile2, relations[1])]
         )
         from_plain = Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=iter([(tile1, relations[0]), (tile2, relations[1])])
+            coordinate_system="stage", connections=[(tile1, relations[0]), (tile2, relations[1])]
         )
 
-        assert from_named.to_ome_zarr(version="0.6", multiscales_by_path=paths) == from_plain.to_ome_zarr(
-            version="0.6", multiscales_by_path=paths
+        assert from_named == from_plain
+
+    def test_accepts_one_shot_iterables(self):
+        tile1 = _tile(y=2, x=3)
+        tile2 = _tile(y=2, x=3)
+        connections = [(tile1, None), (tile2, Translation(y=1.0, x=2.0))]
+
+        from_generator = Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=(connection for connection in connections)
         )
+
+        assert from_generator == Scene.from_shared_coordinate_system(coordinate_system="stage", connections=connections)
 
     def test_axis_properties_are_inherited_from_the_connected_multiscales(self):
         tile1 = _tile(unit=Unit(y="micrometer", x="micrometer"), y=2, x=3)
@@ -427,3 +435,76 @@ class TestFromSharedCoordinateSystem:
     def test_rejects_malformed_connections(self, entry):
         with pytest.raises(TypeError, match="must be a Connection or a"):
             Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[entry])  # type: ignore[list-item]
+
+
+class TestSceneEquality:
+    @staticmethod
+    def _stitched(*tiles: Multiscale, name: str = "stage", **kwargs) -> Scene:
+        return Scene.from_shared_coordinate_system(
+            coordinate_system=name,
+            connections=[(tile, Translation(y=0.0, x=4.0 * i)) for i, tile in enumerate(tiles)],
+            **kwargs,
+        )
+
+    def test_scenes_built_alike_from_the_same_multiscales_are_equal(self):
+        tiles = [_tile(y=2, x=2), _tile(y=2, x=2)]
+
+        assert self._stitched(*tiles) == self._stitched(*tiles)
+        assert hash(self._stitched(*tiles)) == hash(self._stitched(*tiles))
+
+    def test_equal_multiscales_are_interchangeable_despite_different_intrinsic_names(self):
+        first = [_tile(y=2, x=2), _tile(y=2, x=2)]
+        second = [_tile(y=2, x=2), _tile(y=2, x=2)]
+        assert first[0]._intrinsic_ref.name != second[0]._intrinsic_ref.name
+
+        assert self._stitched(*first) == self._stitched(*second)
+        assert hash(self._stitched(*first)) == hash(self._stitched(*second))
+
+    def test_differs_by_transform_system_name_and_axis_properties(self):
+        tiles = [_tile(y=2, x=2), _tile(y=2, x=2)]
+        scene = self._stitched(*tiles)
+
+        shifted = Scene.from_shared_coordinate_system(
+            coordinate_system="stage",
+            connections=[(tiles[0], Translation(y=0.0, x=0.0)), (tiles[1], Translation(y=0.0, x=5.0))],
+        )
+        assert scene != shifted
+        assert scene != self._stitched(*tiles, name="world")
+        assert scene != self._stitched(*tiles, unit=Unit(y="micrometer", x="micrometer"))
+
+    def test_differs_by_multiscale_content(self):
+        assert self._stitched(_tile(y=2, x=2)) != self._stitched(_tile(y=3, x=2))
+
+    def test_differs_by_number_of_equal_multiscales(self):
+        connect = lambda n: Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=[(_tile(y=2, x=2), None) for _ in range(n)]
+        )
+
+        assert connect(1) != connect(2)
+        assert connect(2) == connect(2)
+
+    def test_interchanging_equal_multiscales_gives_equal_scene(self):
+        a, b = _tile(y=2, x=2), _tile(y=2, x=2)
+
+        assert self._stitched(a, b) == self._stitched(b, a)
+
+    def test_ignores_connection_order(self):
+        a, b = _tile(y=2, x=2), _tile(y=3, x=2)
+        connect = lambda *connections: Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=connections
+        )
+
+        assert connect((a, None), (b, Translation(y=1.0, x=0.0))) == connect((b, Translation(y=1.0, x=0.0)), (a, None))
+
+    def test_not_equal_to_other_types(self):
+        assert self._stitched(_tile(y=2, x=2)) != "stage"
+
+    def test_survives_ome_zarr_round_trip(self):
+        tiles = [_tile(unit=Unit(y="micrometer", x="micrometer"), y=2, x=2), _tile(y=2, x=2)]
+        scene = self._stitched(*tiles)
+        paths = {"a.zarr": tiles[0], "b.zarr": tiles[1]}
+
+        read_back = Scene.from_ome_zarr(scene.to_ome_zarr(version="0.6", multiscales_by_path=paths))
+
+        assert read_back != scene, "unresolved: refs are placeholders for the Multiscales"
+        assert read_back.with_resolved(paths) == scene
