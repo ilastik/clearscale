@@ -14,6 +14,8 @@ from clearscale import (
     Translation,
     Unit,
 )
+from clearscale._errors import CannotConvertToSpatialRelationError
+from clearscale._spatial_relations import SpatialRelationSequence
 from clearscale.ome_zarr import Axis as OmeZarrAxis
 from clearscale._transforms import (
     CoordinateSystem,
@@ -23,6 +25,7 @@ from clearscale._transforms import (
     IdentityTransform,
     ScaleTransform,
     AffineTransform,
+    CoordinatesTransform,
     FileRef,
 )
 
@@ -717,3 +720,130 @@ class TestFromMultiscaleChain:
 
         assert scene == Scene.from_multiscale_chain(start=raw, steps=[(None, downscaled), (None, cropped)])
         assert scene != Scene.from_multiscale_chain(start=raw, steps=[(None, cropped), (None, downscaled)])
+
+
+class TestRelationBetween:
+    @pytest.mark.parametrize(
+        ("relation", "a_axes", "b_axes"),
+        [
+            pytest.param(Affine.from_factor(Factor(y=2.0, x=4.0)), dict(y=8, x=8), dict(y=4, x=2), id="scale"),
+            pytest.param(Translation(y=1.5, x=-2.0), dict(y=4, x=4), dict(y=4, x=4), id="translation"),
+            pytest.param(PermutationTo("xy"), dict(y=4, x=4), dict(x=4, y=4), id="permutation"),
+            pytest.param(ProjectionTo("yx"), dict(z=2, y=4, x=4), dict(y=4, x=4), id="drop axis"),
+            pytest.param(ProjectionTo("zyx"), dict(y=4, x=4), dict(z=1, y=4, x=4), id="insert axis"),
+        ],
+    )
+    def test_returns_the_relation_given_to_from_multiscale_pair(self, relation, a_axes, b_axes):
+        a, b = _tile(**a_axes), _tile(**b_axes)
+        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=relation)
+
+        assert scene.relation_between(a, b) == relation
+
+    def test_reverse_direction_is_the_inverse_relation(self):
+        a, b = _tile(y=8, x=8), _tile(y=4, x=4)
+        scene = Scene.from_multiscale_pair(
+            a=a, b=b, a_to_b=[Affine.from_factor(Factor(y=2, x=2)), Translation(y=1.0, x=3.0)]
+        )
+
+        assert scene.relation_between(a, b) == SpatialRelationSequence(
+            (Affine.from_factor(Factor(y=2, x=2)), Translation(y=1.0, x=3.0))
+        )
+        # Forward coordinates are x' = x / 2 - (1, 3). Backwards that is x = 2 * x' + (2, 6): Upscale, then shift by
+        # (-2, -6) in the upscaled space. Canonical form always puts the scaling first.
+        assert scene.relation_between(b, a) == SpatialRelationSequence(
+            (Affine.from_factor(Factor(y=0.5, x=0.5)), Translation(y=-2.0, x=-6.0))
+        )
+
+    def test_follows_several_hops_and_returns_canonical_relation(self):
+        raw, downscaled, cropped = (_tile(y=8, x=8), _tile(y=4, x=4), _tile(y=2, x=2))
+        scene = Scene.from_multiscale_chain(
+            start=raw,
+            steps=[
+                (Affine.from_factor(Factor(y=2, x=2)), downscaled),
+                (Translation(y=1.0, x=1.0), cropped),
+                (Translation(y=1.0, x=0.0), _tile(y=2, x=2)),
+            ],
+        )
+
+        assert scene.relation_between(downscaled, cropped) == Translation(y=1.0, x=1.0)
+        assert scene.relation_between(raw, cropped) == SpatialRelationSequence(
+            (Affine.from_factor(Factor(y=2, x=2)), Translation(y=1.0, x=1.0))
+        )
+
+    def test_returns_relation_from_shared_coordinate_system(self):
+        tile1, tile2 = _tile(y=2, x=2), _tile(y=2, x=2)
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=[(tile1, None), (tile2, Translation(y=0.0, x=-4.0))]
+        )
+
+        assert scene.relation_between(tile2, "stage") == Translation(y=0.0, x=-4.0)
+        assert scene.relation_between("stage", tile2) == Translation(y=0.0, x=4.0)
+        assert scene.relation_between(tile1, tile2) == Translation(y=0.0, x=4.0)
+
+    def test_returns_none_for_the_same_space(self):
+        a, b = _tile(y=2, x=2), _tile(y=2, x=2)
+        scene = Scene.from_multiscale_chain(start=a, steps=[(None, b)])
+
+        assert scene.relation_between(a, "start") is None
+        assert scene.relation_between(a, b) is None
+        assert scene.relation_between(a, a) is None
+
+    def test_dropped_axes_can_only_be_traced_forwards(self):
+        volume, flat = _tile(z=2, y=4, x=4), _tile(y=4, x=4)
+        scene = Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=ProjectionTo("yx"))
+
+        assert scene.relation_between(volume, flat) == ProjectionTo("yx")
+        with pytest.raises(ValueError, match="no \\(invertible\\) path"):
+            scene.relation_between(flat, volume)
+
+    def test_selects_other_coordinate_systems_of_multiscales(self):
+        volume = _tile(z=2, y=4, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
+        flat = _tile(y=4, x=4)
+        scene = Scene.from_multiscale_pair(a=(volume, "preview"), b=flat, a_to_b=Translation(y=1.0, x=1.0))
+
+        assert scene.relation_between((volume, "preview"), flat) == Translation(y=1.0, x=1.0)
+
+    def test_follows_connections_inside_multiscales_unless_told_not_to(self):
+        volume = _tile(z=2, y=4, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
+        flat = _tile(y=4, x=4)
+        scene = Scene.from_multiscale_pair(a=(volume, "preview"), b=flat, a_to_b=Translation(y=1.0, x=1.0))
+
+        assert scene.relation_between(volume, flat) == SpatialRelationSequence(
+            (ProjectionTo("yx"), Translation(y=1.0, x=1.0))
+        )
+        with pytest.raises(ValueError, match="no \\(invertible\\) path"):
+            scene.relation_between(volume, flat, include_children=False)
+
+    def test_rejects_unrelated_multiscales(self):
+        a, b = _tile(y=2, x=2), _tile(y=2, x=2)
+        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, None)])
+
+        with pytest.raises(ValueError, match="no \\(invertible\\) path"):
+            scene.relation_between(a, b)
+
+    def test_rejects_unknown_spaces(self):
+        a = _tile(y=2, x=2)
+        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, None)])
+
+        with pytest.raises(ValueError, match="no coordinate system matching 'nowhere'"):
+            scene.relation_between(a, "nowhere")
+
+    def test_requires_resolved_spaces_and_works_after_resolving(self):
+        tiles = [_tile(y=2, x=2), _tile(y=2, x=2)]
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=[(tiles[0], None), (tiles[1], Translation(y=0.0, x=-4.0))]
+        )
+        paths = {"a.zarr": tiles[0], "b.zarr": tiles[1]}
+        unresolved = Scene.from_ome_zarr(scene.to_ome_zarr(version="0.6", multiscales_by_path=paths))
+        key = {"path": "b.zarr", "name": tiles[1]._intrinsic_ref.name}
+
+        with pytest.raises(ValueError, match="not resolved yet"):
+            unresolved.relation_between(key, "stage")  # type: ignore[arg-type]
+        assert unresolved.with_resolved(paths).relation_between(key, "stage") == Translation(y=0.0, x=-4.0)  # type: ignore[arg-type]
+
+    def test_reports_connections_that_are_no_spatial_relation(self):
+        a, b = _tile(y=2, x=2), _tile(y=2, x=2)
+        scene = Scene._from_graph_edges([(a, CoordinatesTransform(path="coordinates"), b)])
+
+        with pytest.raises(CannotConvertToSpatialRelationError):
+            scene.relation_between(a, b)
