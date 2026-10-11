@@ -520,5 +520,6 @@ Each relation sees the axes that the previous one produced. Here, `ProjectionTo`
 
 ## Beyond a single Multiscale
 
-Everything above describes the surroundings of *one* Multiscale. To relate several Multiscales to each other (stitching tiles into a mosaic, registering images to a common reference), clearscale has `Scene`, which uses the same concepts.
-`Scene` is still in development, its API will change, so please let us know if you need/want it for your work.
+Everything above describes the surroundings of *one* Multiscale.
+To relate several Multiscales to each other (stitching tiles into a mosaic, registering images to a common reference, recording the steps of a workflow), see [Scenes](scene.md).
+It uses the same concepts.
