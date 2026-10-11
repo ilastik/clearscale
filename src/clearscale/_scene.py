@@ -37,9 +37,10 @@ MultiscalesByPath = Mapping[RelativePath, Multiscale]
 MultiscaleSystemKey = Union[Multiscale, Tuple[Multiscale, CoordinateSystemName]]
 """Selects one of a Multiscale's coordinate systems: A plain Multiscale selects its own (intrinsic) space,
 `(multiscale, name)` selects one of the other coordinate systems it knows."""
+ResolvedSystemKey = Union[CoordinateSystemName, MultiscaleSystemKey]
+"""Selects a coordinate system whose axes are known: One of the Scene's own (by name), or one of a Multiscale."""
 UserFacingCoordinateSystemKey = Union[
-    CoordinateSystemName,
-    MultiscaleSystemKey,
+    ResolvedSystemKey,
     Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]],
 ]
 Node = Union[Multiscale, NodeRef[CoordinateSystem]]
@@ -451,39 +452,37 @@ class Scene:
             all_paths.update(cleaned)
         return self._internal_graph.to_ome_zarr(version=version, nodes_by_path=all_paths)
 
-    def relation_between(
+    def relation_from(
         self,
-        source: UserFacingCoordinateSystemKey,
-        target: UserFacingCoordinateSystemKey,
+        source: ResolvedSystemKey,
         *,
+        to: ResolvedSystemKey,
         include_children: bool = True,
     ) -> Optional[SpatialRelation]:
         """
-        Return the spatial relation that leads from the space `source` to the space `target`: `source --R--> target`.
-        As for all relations, R says what you do with an image in `source`'s space to obtain `target`'s space.
+        Return the spatial relation that leads from the space `source` to the space `to`: `source --R--> to`.
+        As for all relations, R says what you do with an image in `source`'s space to obtain `to`'s space.
         This is the same reading as for the relations the constructors accept:
-        `Scene.from_multiscale_pair(a=a, b=b, a_to_b=R).relation_between(a, b)` returns `R`, in canonical form
+        `Scene.from_multiscale_pair(a=a, b=b, a_to_b=R).relation_from(a, to=b)` returns `R`, in canonical form
         (relations that can be merged are merged, e.g. a chain of two Translations is one Translation).
 
-        `source` and `target` select spaces as follows:
+        `source` and `to` select spaces as follows:
         - a name selects one of the Scene's coordinate systems
         - a Multiscale selects the space of its own data, and `(multiscale, name)` selects one of its other
           coordinate systems
-        - `{"path": ..., "name": ...}` selects a coordinate system of a Multiscale that is not resolved yet
-          (but the axes of unresolved spaces are unknown, so a relation can only be returned between resolved ones,
-          see `with_resolved`)
 
         `include_children`: Also follow the connections between the coordinate systems of the Multiscales themselves,
         in addition to the ones defined by the Scene. Otherwise only the Scene's own connections are followed.
 
         Returns None if the two spaces are the same.
-        Raises ValueError if either space can't be found or isn't resolved, or if there is no way to get from
-        `source` to `target`: Spaces reached by dropping axes can't be traced backwards.
+        Raises ValueError if either space can't be found or isn't resolved yet (see `with_resolved`: the axes of
+        spaces of unresolved Multiscales are unknown), or if there is no way to get from `source` to `to`:
+        Spaces reached by dropping axes can't be traced backwards.
         Raises CannotConvertToSpatialRelationError if the connection between them cannot be expressed as spatial
         relations, which can happen for Scenes read from OME-Zarr that contain coordinate lookups or displacement fields.
         """
         refs = []
-        for key in (source, target):
+        for key in (source, to):
             ref = self._get_ref_for_key(key, include_children)
             if ref is None:
                 raise ValueError(f"This Scene has no coordinate system matching {key!r}.")
@@ -497,7 +496,7 @@ class Scene:
         graph = self._full_graph if include_children else self._internal_graph
         path = graph.path_between(source_ref, target_ref)
         if path is None:
-            raise ValueError(f"{source!r} cannot be related to {target!r}: There is no (invertible) path between them.")
+            raise ValueError(f"{source!r} cannot be related to {to!r}: There is no (invertible) path between them.")
         if not path:
             return None
         transform = path[0] if len(path) == 1 else TransformSequence(tuple(path))
