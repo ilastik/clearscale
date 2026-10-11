@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Affine, Factor, Multiscale, Scale, Scene, Shape, Translation
+from clearscale import Affine, ChainStep, Factor, Multiscale, Scale, Scene, Shape, Translation
 from clearscale._transforms import CoordinateSystem, ScaleTransform, TransformGraph, TranslationTransform
 
 from tests.ome_zarr.scene_examples import scene_stitching
@@ -85,6 +85,35 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
                 "input": {"name": raw._intrinsic_ref.name, "path": "raw.zarr"},
                 "output": {"name": atlas._intrinsic_ref.name, "path": "atlas.zarr"},
             }
+        ]
+        read_back = Scene.from_ome_zarr(result).with_resolved(paths)
+        assert read_back == scene
+        assert read_back.to_ome_zarr(version="0.6") == result
+
+    def test_writes_and_reads_back_multiscale_chain(self):
+        raw = _multiscale(y=8, x=8)
+        downscaled = _multiscale(y=4, x=4)
+        cropped = _multiscale(y=2, x=2)
+        scene = Scene.from_multiscale_chain(
+            start=raw,
+            steps=[
+                ChainStep(Affine.from_factor(Factor(y=2, x=2)), downscaled, "overview"),
+                (Translation(y=1.0, x=1.0), cropped),
+            ],
+        )
+        paths = {"raw.zarr": raw, "downscaled.zarr": downscaled, "cropped.zarr": cropped}
+
+        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=paths)
+
+        assert [s["name"] for s in result["coordinateSystems"]] == ["start", "overview"]
+        assert [
+            (t["type"], t["input"].get("path"), t["output"].get("path"), t["output"]["name"])
+            for t in result["coordinateTransformations"]
+        ] == [
+            ("identity", "raw.zarr", None, "start"),
+            ("scale", "raw.zarr", "downscaled.zarr", downscaled._intrinsic_ref.name),
+            ("identity", "downscaled.zarr", None, "overview"),
+            ("translation", "downscaled.zarr", "cropped.zarr", cropped._intrinsic_ref.name),
         ]
         read_back = Scene.from_ome_zarr(result).with_resolved(paths)
         assert read_back == scene

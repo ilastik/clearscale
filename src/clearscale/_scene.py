@@ -1,7 +1,7 @@
 import functools
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, replace
-from typing import Any, Dict, Iterable, Mapping, NamedTuple, Union, Tuple, Literal, FrozenSet, TypeGuard
+from typing import Any, Dict, Iterable, Mapping, NamedTuple, cast, Union, Tuple, Literal, FrozenSet, TypeGuard
 from typing import Optional, List
 
 from clearscale._errors import MismatchingMultiscaleError
@@ -52,6 +52,21 @@ class Connection(NamedTuple):
     to_shared: RelationsParam
     """How the shared coordinate system is reached from `source`, as for `Multiscale.with_coordinate_system`:
     `source --to_shared--> shared`. `None` means `source` is the same space as the shared one."""
+
+
+class ChainStep(NamedTuple):
+    """One step of `Scene.from_multiscale_chain`: What was done to the previous Multiscale to obtain `result`.
+    Plain `(by, result)` or `(by, result, coordinate_system)` tuples work as well."""
+
+    by: RelationsParam
+    """What was done to the previous Multiscale to obtain `result`, as for `Multiscale.as_derived_from(by=...)`:
+    `previous --by--> result`. `None` means `result` is in the same space as the previous Multiscale."""
+    result: MultiscaleSystemKey
+    """The Multiscale obtained by this step (its own space), or `(multiscale, name)` for one of its other
+    coordinate systems."""
+    coordinate_system: Optional[CoordinateSystemName] = None
+    """Optionally, name a coordinate system that is the same space as `result`. It is an entry point for readers
+    who want to see everything in the space of this step."""
 
 
 @dataclass(frozen=True)
@@ -259,6 +274,101 @@ class Scene:
             source=a_ref, target=b_ref
         )
         return cls(_internal_graph=TransformGraph([transform]), _multiscale_paths={})
+
+    @classmethod
+    def from_multiscale_chain(
+        cls,
+        *,
+        start: MultiscaleSystemKey,
+        steps: Iterable[
+            Union[
+                ChainStep,
+                Tuple[RelationsParam, MultiscaleSystemKey],
+                Tuple[RelationsParam, MultiscaleSystemKey, Optional[CoordinateSystemName]],
+            ]
+        ],
+        start_coordinate_system: Optional[CoordinateSystemName] = "start",
+    ) -> "Scene":
+        """
+        Relate the Multiscales of a processing workflow: `start` was processed, and the result processed again, ...
+
+        Every step says what was done to the previous Multiscale to obtain the next one, like
+        `next.as_derived_from(previous, by=...)` does. Written as a diagram, with the arrows being the relations
+        (`ChainStep.by`) that are applied in this direction:
+
+        ```
+        start --by--> step1.result --by--> step2.result ...
+          |
+          '--identity--> "start"       (optional: start_coordinate_system)
+        ```
+
+        `Scene.from_multiscale_chain(start=raw, steps=[(ProjectionTo("yx"), projection), (crop_shift, cropped)])`
+
+        Each Multiscale can only appear once. Applying a step's relation to the axes of the previous Multiscale must
+        produce the axes of its result. Like in the other constructors, `start` and `result` can also be one of the
+        other coordinate systems of a Multiscale: `(multiscale, name)`.
+
+        `start_coordinate_system` additionally names a coordinate system that is the same space as `start`, so readers
+        that offer to look at the scene in the space of a coordinate system have a defined entry point. `None` omits it.
+        Likewise, `ChainStep.coordinate_system` offers the space of another step. Which spaces are good entry points
+        depends on the relations: Data cannot be shown in the space of a step that dropped axes from its data,
+        but anything before the step can be shown in the space of the step.
+        """
+        step_entries = []
+        for i, entry in enumerate(steps):
+            if not isinstance(entry, tuple) or not 2 <= len(entry) <= 3:
+                raise TypeError(f"steps[{i}] must be a ChainStep or a (by, result) tuple. Got: {entry!r}")
+            by, result, *view_name = cast(Tuple[Any, ...], entry)
+            step_entries.append(ChainStep(by, result, *view_name))
+        if not step_entries:
+            raise ValueError("Need at least one step.")
+
+        start_ref = cls._multiscale_key_to_ref(start)
+        owners: List[Tuple[Multiscale, str]] = [(start_ref.owner, "start")]
+        system_names: List[str] = []
+        system_refs: List[NodeRef[CoordinateSystem]] = []
+        transforms: List[Transform] = []
+
+        def add_view(name: Optional[CoordinateSystemName], of: NodeRef[Multiscale], description: str) -> None:
+            if name is None:
+                return
+            if not isinstance(name, str) or not name:
+                raise ValueError(f"The coordinate system of {description} needs a name. Received: {name!r}")
+            if name in system_names:
+                raise ValueError(f"Coordinate system names must be unique. {description} repeats {name!r}.")
+            view = CoordinateSystem(cls._source_ome_zarr_axes(of))._as_ref(name)
+            system_names.append(name)
+            system_refs.append(view)
+            transforms.append(IdentityTransform().bound(source=of, target=view))
+
+        add_view(start_coordinate_system, start_ref, "`start_coordinate_system`")
+        previous = start_ref
+        for i, (relations_param, result, view_name) in enumerate(step_entries):
+            result_ref = cls._multiscale_key_to_ref(result)
+            for owner, label in owners:
+                if owner is result_ref.owner:
+                    raise ValueError(
+                        f"steps[{i}] has the same Multiscale as {label}. Each Multiscale can only appear once."
+                    )
+            owners.append((result_ref.owner, f"steps[{i}]"))
+            relation = normalize_relations_param(relations_param)
+            try:
+                reached_axes = relation.target_axes(previous.axes) if relation else previous.axes
+            except ValueError as e:
+                raise ValueError(f"steps[{i}] cannot be applied to axes {previous.axes}: {e}") from e
+            if reached_axes != result_ref.axes:
+                raise ValueError(
+                    f"Applying steps[{i}].by to the axes {previous.axes} of the previous Multiscale produces "
+                    f"{reached_axes}, but its result has axes {result_ref.axes}."
+                )
+            transforms.append(
+                (relation_to_transform_canonic(relation, previous.axes) if relation else IdentityTransform()).bound(
+                    source=previous, target=result_ref
+                )
+            )
+            add_view(view_name, result_ref, f"steps[{i}]")
+            previous = result_ref
+        return cls(_internal_graph=TransformGraph(transforms, system_refs=tuple(system_refs)), _multiscale_paths={})
 
     @classmethod
     def _from_graph_edges(

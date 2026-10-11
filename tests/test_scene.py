@@ -2,6 +2,7 @@ import pytest
 
 from clearscale import (
     Affine,
+    ChainStep,
     Connection,
     Factor,
     Multiscale,
@@ -552,3 +553,167 @@ class TestFromMultiscalePair:
         assert scene == Scene.from_multiscale_pair(a=a, b=b, a_to_b=None)
         assert scene != Scene.from_multiscale_pair(a=b, b=a, a_to_b=None)
         assert scene != Scene.from_multiscale_pair(a=a, b=b, a_to_b=Translation(y=1.0, x=0.0))
+
+
+class TestFromMultiscaleChain:
+    @staticmethod
+    def _workflow():
+        raw = _tile(unit=Unit(y="micrometer", x="micrometer"), y=8, x=8)
+        downscaled = _tile(y=4, x=4)
+        cropped = _tile(y=2, x=2)
+        return raw, downscaled, cropped
+
+    def test_each_step_relates_the_previous_multiscale_to_its_result(self):
+        raw, downscaled, cropped = self._workflow()
+
+        scene = Scene.from_multiscale_chain(
+            start=raw,
+            steps=[(Affine.from_factor(Factor(y=2, x=2)), downscaled), ChainStep(Translation(y=1.0, x=1.0), cropped)],
+        )
+
+        first = scene._transforms_between(raw, downscaled)
+        second = scene._transforms_between(downscaled, cropped)
+        assert first is not None and second is not None
+        assert first[0].unbound() == ScaleTransform((0.5, 0.5)), "relations are inverted into transforms"
+        assert second[0].unbound() == TranslationTransform((-1.0, -1.0))
+        assert first[0].source == raw._as_ref_to_intrinsic() and first[0].target == downscaled._as_ref_to_intrinsic()
+        assert second[0].source == downscaled._as_ref_to_intrinsic()
+        assert len(scene._transforms_between(raw, cropped) or []) == 2
+        assert len(scene._internal_graph.transforms) == 3, "start identity, and one edge per step"
+
+    def test_start_coordinate_system_is_an_identity_entry_point_with_the_axes_of_start(self):
+        raw, downscaled, cropped = self._workflow()
+
+        scene = Scene.from_multiscale_chain(start=raw, steps=[(Translation(y=1.0, x=1.0), downscaled), (None, cropped)])
+
+        path = scene._transforms_between(raw, "start")
+        assert path is not None and path[0].unbound() == IdentityTransform()
+        assert _shared_system_axes(scene, "start") == {
+            "y": OmeZarrAxis(name="y", type="space", unit="micrometer"),
+            "x": OmeZarrAxis(name="x", type="space", unit="micrometer"),
+        }
+        from_entry_point = scene._transforms_between("start", cropped)
+        assert from_entry_point is not None and len(from_entry_point) == 3
+
+    def test_start_coordinate_system_can_be_renamed_or_omitted(self):
+        raw, downscaled, _ = self._workflow()
+        steps = [(Translation(y=1.0, x=1.0), downscaled)]
+
+        renamed = Scene.from_multiscale_chain(start=raw, steps=steps, start_coordinate_system="original")
+        omitted = Scene.from_multiscale_chain(start=raw, steps=steps, start_coordinate_system=None)
+
+        assert renamed._transforms_between(raw, "original") is not None
+        assert omitted._internal_graph.all_system_refs == ()
+        assert len(omitted._internal_graph.transforms) == 1
+
+    def test_steps_can_offer_their_own_coordinate_systems(self):
+        raw, downscaled, cropped = self._workflow()
+
+        scene = Scene.from_multiscale_chain(
+            start=raw,
+            steps=[
+                (Translation(y=1.0, x=1.0), downscaled, "overview"),
+                ChainStep(None, cropped, coordinate_system="detail"),
+            ],
+        )
+
+        assert [ref.name for ref in scene._internal_graph.all_system_refs] == ["start", "overview", "detail"]
+        overview = scene._transforms_between(downscaled, "overview")
+        assert overview is not None and overview[0].unbound() == IdentityTransform()
+        assert scene._transforms_between("detail", "start") is not None
+
+    def test_entry_points_after_dropping_axes_are_only_reachable_in_one_direction(self):
+        volume = _tile(z=2, y=4, x=4)
+        projection = _tile(y=4, x=4)
+
+        scene = Scene.from_multiscale_chain(
+            start=volume, steps=[ChainStep(ProjectionTo("yx"), projection, coordinate_system="projection")]
+        )
+
+        assert scene._transforms_between("start", "projection") is not None, "volume data can be shown in projection"
+        assert scene._transforms_between("projection", "start") is None, "but not the other way round"
+
+    def test_can_chain_other_coordinate_systems_of_multiscales(self):
+        volume = _tile(z=2, y=4, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
+        flat = _tile(y=4, x=4)
+        result = _tile(y=4, x=4).with_coordinate_system("shifted", reached_by=Translation(y=1.0, x=1.0))
+
+        scene = Scene.from_multiscale_chain(
+            start=(volume, "preview"), steps=[(None, flat), (None, (result, "shifted"))], start_coordinate_system=None
+        )
+
+        assert scene._transforms_between((volume, "preview"), flat) is not None
+        assert scene._transforms_between(flat, (result, "shifted")) is not None
+        assert scene._transforms_between(volume, flat) is None, "start's intrinsic space isn't connected"
+
+    def test_accepts_one_shot_iterables(self):
+        raw, downscaled, cropped = self._workflow()
+        steps = [(Translation(y=1.0, x=1.0), downscaled), (Translation(y=2.0, x=2.0), cropped)]
+
+        from_generator = Scene.from_multiscale_chain(start=raw, steps=(step for step in steps))
+
+        assert from_generator == Scene.from_multiscale_chain(start=raw, steps=steps)
+
+    @pytest.mark.parametrize("steps_index", [0, 1])
+    def test_rejects_axes_mismatch_between_relation_and_result(self, steps_index):
+        raw = _tile(y=4, x=4)
+        steps = [(None, _tile(y=4, x=4)), (None, _tile(y=4, x=4))]
+        steps[steps_index] = (None, _tile(z=2, y=4, x=4))
+
+        with pytest.raises(
+            ValueError, match=rf"steps\[{steps_index}\].by to the axes .* produces .*, but its result has"
+        ):
+            Scene.from_multiscale_chain(start=raw, steps=steps)
+
+    def test_reports_relations_that_cannot_be_applied(self):
+        with pytest.raises(ValueError, match=r"steps\[0\] cannot be applied to axes \('y', 'x'\)"):
+            Scene.from_multiscale_chain(start=_tile(y=2, x=2), steps=[(PermutationTo("zyx"), _tile(z=1, y=2, x=2))])
+
+    def test_rejects_repeating_a_multiscale(self):
+        raw, downscaled, cropped = self._workflow()
+
+        with pytest.raises(ValueError, match=r"steps\[0\] has the same Multiscale as start"):
+            Scene.from_multiscale_chain(start=raw, steps=[(None, raw)])
+        with pytest.raises(ValueError, match=r"steps\[2\] has the same Multiscale as steps\[0\]"):
+            Scene.from_multiscale_chain(start=raw, steps=[(None, downscaled), (None, cropped), (None, downscaled)])
+
+    def test_rejects_repeating_a_multiscale_via_another_of_its_systems(self):
+        volume = _tile(z=2, y=4, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
+
+        with pytest.raises(ValueError, match="same Multiscale as start"):
+            Scene.from_multiscale_chain(start=volume, steps=[(ProjectionTo("yx"), (volume, "preview"))])
+
+    def test_accepts_equal_but_distinct_multiscales(self):
+        scene = Scene.from_multiscale_chain(start=_tile(y=2, x=2), steps=[(None, _tile(y=2, x=2))])
+
+        assert len(scene._internal_graph.transforms) == 2
+
+    def test_rejects_invalid_or_repeated_coordinate_system_names(self):
+        raw, downscaled, cropped = self._workflow()
+
+        with pytest.raises(ValueError, match="needs a name"):
+            Scene.from_multiscale_chain(start=raw, steps=[(None, downscaled)], start_coordinate_system="")
+        with pytest.raises(ValueError, match="needs a name"):
+            Scene.from_multiscale_chain(start=raw, steps=[ChainStep(None, downscaled, "")])
+        with pytest.raises(ValueError, match=r"steps\[0\] repeats 'start'"):
+            Scene.from_multiscale_chain(start=raw, steps=[ChainStep(None, downscaled, "start")])
+        with pytest.raises(ValueError, match=r"steps\[1\] repeats 'view'"):
+            Scene.from_multiscale_chain(
+                start=raw, steps=[ChainStep(None, downscaled, "view"), ChainStep(None, cropped, "view")]
+            )
+
+    def test_rejects_no_steps_and_malformed_steps(self):
+        raw, downscaled, _ = self._workflow()
+
+        with pytest.raises(ValueError, match="at least one step"):
+            Scene.from_multiscale_chain(start=raw, steps=[])
+        for entry in (downscaled, (downscaled,), (None, downscaled, "view", "extra")):
+            with pytest.raises(TypeError, match="must be a ChainStep or a"):
+                Scene.from_multiscale_chain(start=raw, steps=[entry])  # type: ignore[list-item]
+
+    def test_equality_depends_on_order_of_the_chain(self):
+        raw, downscaled, cropped = self._workflow()
+        scene = Scene.from_multiscale_chain(start=raw, steps=[(None, downscaled), (None, cropped)])
+
+        assert scene == Scene.from_multiscale_chain(start=raw, steps=[(None, downscaled), (None, cropped)])
+        assert scene != Scene.from_multiscale_chain(start=raw, steps=[(None, cropped), (None, downscaled)])
