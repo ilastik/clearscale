@@ -847,3 +847,57 @@ class TestRelationBetween:
 
         with pytest.raises(CannotConvertToSpatialRelationError):
             scene.relation_from(a, to=b)
+
+
+class TestMultiscales:
+    def test_lists_multiscales_in_order_of_appearance(self):
+        tiles = [_tile(y=2, x=2), _tile(y=3, x=3), _tile(y=4, x=4)]
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=[(tile, None) for tile in tiles]
+        )
+
+        assert len(scene.multiscales) == 3
+        assert all(found is tile for found, tile in zip(scene.multiscales, tiles))
+
+    def test_lists_multiscales_that_look_alike_separately(self):
+        tiles = [_tile(y=2, x=2), _tile(y=2, x=2)]
+        assert tiles[0] == tiles[1]
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=[(tile, None) for tile in tiles]
+        )
+
+        assert len(scene.multiscales) == 2
+
+    def test_lists_a_multiscale_once_however_many_of_its_systems_are_connected(self):
+        volume = _tile(z=2, y=3, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=[(volume, ProjectionTo("yx")), ((volume, "preview"), None)]
+        )
+
+        assert len(scene.multiscales) == 1
+        assert scene.multiscales[0] is volume
+
+    def test_excludes_multiscales_that_are_not_resolved_yet(self):
+        tile = _tile(y=2, x=2)
+        written = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(tile, None)])
+        unresolved = Scene.from_ome_zarr(written.to_ome_zarr(version="0.6", multiscales_by_path={"tile": tile}))
+
+        assert unresolved.multiscales == ()
+        assert unresolved.with_resolved({"tile": tile}).multiscales == (tile,)
+
+    def test_full_graph_includes_each_childs_connections_once(self):
+        volumes = [
+            _tile(z=2, y=3, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx")) for _ in range(2)
+        ]
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage",
+            connections=[
+                (volumes[0], ProjectionTo("yx")),
+                ((volumes[0], "preview"), None),
+                (volumes[1], ProjectionTo("yx")),
+            ],
+        )
+
+        child_edges = len(scene._full_graph.transforms) - len(scene._internal_graph.transforms)
+
+        assert child_edges == 2, "one edge inside each of the two (equal looking) Multiscales"

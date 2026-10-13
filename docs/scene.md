@@ -189,6 +189,9 @@ assert scene.is_fully_resolved
 
 `with_resolved` also verifies that each Multiscale you provide has the coordinate system the Scene expects at its path.
 
+`scene.multiscales` lists the Multiscales a Scene knows, in order of appearance.
+For a Scene you made yourself these are the ones you passed in; for one you read, they are the ones you have resolved so far.
+
 Writing needs to know the same paths, because Multiscales don't know where they are stored:
 
 ```python
