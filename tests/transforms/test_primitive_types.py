@@ -751,8 +751,11 @@ def test_affine_map_and_project_axis_compose_in_both_directions(earlier: Transfo
         ),
         pytest.param(
             ((1, 0), (1, 0), (0, 1)),
+            # The inserted axis is always 0, so the matrix can use any unit column for it. The identity padding
+            # (0, 0, 1) would make rows 0 and 1 equal (singular), so the unit column (0, 1, 0) is used instead:
+            # The columns (1, 1, 0) and (0, 0, 1) have their pivots in rows 0 and 1, and none in the second column.
             TransformSequence(
-                (ProjectAxisTransform(inserts=(2,)), AffineTransform(((1, 0, 0, 0), (1, 0, 0, 0), (0, 1, 1, 0))))
+                (ProjectAxisTransform(inserts=(2,)), AffineTransform(((1, 0, 0, 0), (1, 0, 1, 0), (0, 1, 0, 0))))
             ),
             id="non_square_missing_col_no_matching_zero_row",
         ),
