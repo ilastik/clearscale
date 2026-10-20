@@ -4,6 +4,7 @@ from typing import cast
 
 from clearscale import Translation
 from clearscale._affines import Coefficient, Linear, Affine
+from clearscale._axis_values import Factor
 from clearscale._services.matrices import matrix_vector_multiply
 
 
@@ -761,6 +762,20 @@ def test_affine_with_translation():
 
     assert result.translation == translation
     assert result.linear == affine.linear
+
+
+@pytest.mark.parametrize("factor", [Factor(z=1.0, y=2.0, x=4.0), {"z": 1.0, "y": 2.0, "x": 4.0}])
+def test_affine_from_factor(factor):
+    result = Affine.from_factor(factor)
+
+    assert result.axes == ("z", "y", "x")
+    assert result.linear.to_tuples() == ((1.0, 0.0, 0.0), (0.0, 2.0, 0.0), (0.0, 0.0, 4.0))
+    assert result.translation == Translation.identity("zyx")
+
+
+def test_affine_from_factor_inherits_factor_validation():
+    with pytest.raises(ValueError, match="cannot be 0 or negative"):
+        Affine.from_factor({"x": -1.0})
 
 
 def test_affine_inverted_diagonal():

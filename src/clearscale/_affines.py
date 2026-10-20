@@ -7,6 +7,7 @@ from typing import List, Sequence, Tuple, Mapping, Optional
 
 from clearscale._axis_values import (
     Axes,
+    Factor,
     _axis_in,
     AxisKey,
     _AxisFloats,
@@ -17,6 +18,7 @@ from clearscale._axis_values import (
     _require_identical_axes,
 )
 from clearscale._spatial_relations import SpatialRelation
+from clearscale.types import FactorLike
 from clearscale._services.matrices import matrix_invert, matrix_vector_multiply, DEFAULT_SINGULARITY_TOLERANCE
 
 
@@ -283,6 +285,18 @@ class Affine(SpatialRelation):
         linear = Linear.from_array([row[:ndim] for row in non_homogenous], axes)
         translation = Translation(zip(axes, (row[ndim] for row in non_homogenous)))
         return cls(linear=linear, translation=translation)
+
+    @classmethod
+    def from_factor(cls, factor: FactorLike) -> "Affine":
+        """
+        Diagonal Affine with the values of `factor` and no translation, in the axes of `factor`.
+        Use `.with_axes` on the result to insert identity axes.
+
+        The numbers are the same as in `factor`: `Affine.from_factor(Factor(x=2.0))` maps target coordinates to
+        source coordinates as `x_source = 2.0 * x_target`, i.e. the target's unit step is two source steps.
+        """
+        factor = Factor(factor)
+        return cls(linear=Linear.identity(factor).with_values({axis: {axis: value} for axis, value in factor.items()}))
 
     def __init__(self, *, linear: Optional[Linear] = None, translation: Optional[Translation] = None):
         if not isinstance(linear, Linear) and not isinstance(translation, Translation):
