@@ -1818,7 +1818,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Transfer `self` into the spatial context of `other`, carrying over axis properties, coordinate systems and
         serialization convention.
 
-        Optionally specify *how* `self` was derived from `other` using `by=Factor(...)` or other SpatialRelations.
+        Optionally specify *how* `self` was derived from `other` using `by=AxisRearrangementTo(...)` or other SpatialRelations.
 
         The returned Multiscale loses spatial identity with `self` if `other` has different axis metadata (indicating
         that it originates from a different space).

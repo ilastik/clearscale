@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Multiscale, PixelSize, Shape, Scale, FileRef, Factor, Translation
+from clearscale import Affine, Multiscale, PixelSize, Shape, Scale, FileRef, Translation
 from clearscale._services.ome_zarr import SYNTHETIC_EXTERNAL_NAME
 from clearscale._transforms import (
     OmeZarrAxes,
@@ -72,12 +72,12 @@ def _0_4_metadata_with_global_transforms(transforms):
 def test_from_ome_zarr_parses_valid_0_4_global_scale_as_coordinate_system():
     """
     Naively, a global scale should be equal to
-    `Multiscale().with_coordinate_system("external", reached_by=Factor())`.
+    `Multiscale().with_coordinate_system("external", reached_by=Affine.identity(axes))`.
     But this is not the case.
     A single scale parses as Sequence((Scale,)), because that's what legacy metadata describes.
     `with_coordinate_system` instead creates a single Scale, which is also correct, but not the same.
     Legacy metadata and `with_coordinate_system` are equivalent, but not equal.
-    We don't offer a public API to recreate an *exact* equal - `reached_by=[Factor()]` still just makes one Scale,
+    We don't offer a public API to recreate an *exact* equal - `reached_by=[Affine.identity(axes)]` still just makes one Scale,
     because it's the simplest (canonical) representation.
     """
     input_metadata = _0_4_metadata_with_global_transforms([{"type": "scale", "scale": [0.5, 0.5]}])
@@ -105,7 +105,7 @@ def test_from_ome_zarr_parses_valid_0_4_global_scale_as_coordinate_system():
 def test_from_ome_zarr_parses_valid_0_4_global_translation_as_coordinate_system():
     """
     Same reasoning as test above:
-    `Multiscale().with_coordinate_system("external", reached_by=[Factor(1.0), Translation(...)])`
+    `Multiscale().with_coordinate_system("external", reached_by=[Affine.identity(axes), Translation(...)])`
     creates a single TranslationTransform, but reading the legacy meta creates Sequence((Scale, Translation)).
     """
     input_metadata = _0_4_metadata_with_global_transforms(
@@ -631,8 +631,8 @@ def _0_6_metadata_with_coord_sys_transform_with(**updates):
         pytest.param(_0_6_metadata_with_coord_sys_transform_with(type="identity"), None, id="identity"),
         pytest.param(
             _0_6_metadata_with_coord_sys_transform_with(type="scale", scale=[0.5, 0.5]),
-            Factor(y=2.0, x=2.0),
-            id="factor",
+            Affine.from_factor({"y": 2.0, "x": 2.0}),
+            id="scale",
         ),
         pytest.param(
             _0_6_metadata_with_coord_sys_transform_with(type="translation", translation=[0.2, 0.3]),
