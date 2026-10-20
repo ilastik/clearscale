@@ -1,6 +1,7 @@
 import pytest
 
-from clearscale import ProjectionTo
+from clearscale import Affine, ProjectionTo
+from clearscale._affines import Linear
 from clearscale._spatial_relations import SpatialRelationSequence, PermutationTo
 
 
@@ -69,3 +70,22 @@ def test_projection_to_public_methods_reject_reordering(source, target, method):
 def test_relation_sequence_target_axes_across_hops():
     relations = SpatialRelationSequence((ProjectionTo(("t", "z", "y", "x")), PermutationTo(("t", "y", "x", "z"))))
     assert relations.target_axes("zyx") == ("t", "y", "x", "z")
+
+
+@pytest.mark.parametrize("source", ["yx", ("y", "x"), ["y", "x"]])
+def test_affine_target_axes_are_own_axes(source):
+    affine = Affine(linear=Linear.from_array(((2, 0), (0, 2)), "yx"))
+
+    assert affine.target_axes(source) == ("y", "x")
+
+
+@pytest.mark.parametrize("source", ["xy", "zyx", "y"])
+def test_affine_target_axes_requires_identical_source_axes(source):
+    with pytest.raises(ValueError, match="Incompatible axes/order"):
+        Affine.identity("yx").target_axes(source)
+
+
+def test_affine_in_relation_sequence_target_axes():
+    relations = SpatialRelationSequence((Affine.identity("zyx"), PermutationTo(("x", "y", "z"))))
+
+    assert relations.target_axes("zyx") == ("x", "y", "z")

@@ -1,5 +1,6 @@
 from typing import List
 
+from clearscale._affines import Affine
 from clearscale._axis_values import Factor, Translation
 from clearscale._spatial_relations import (
     PermutationTo,
@@ -10,6 +11,7 @@ from clearscale._spatial_relations import (
 )
 from clearscale._transforms._base import Transform, TransformSequence
 from clearscale._transforms._transform_types import (
+    AffineTransform,
     MapAxisTransform,
     ProjectAxisTransform,
     ScaleTransform,
@@ -59,6 +61,17 @@ def relation_to_transform(relation: SpatialRelation, source_axes: OrderedAxes) -
         # means "B is reached by shifting A by 1".
         # Again, A[0] == B[-1] - if shifting A produces B, then A's origin is outside B.
         return TranslationTransform(translation=tuple(relation.inverted().values()))
+
+    if isinstance(relation, Affine):
+        _ensure_compatible = relation.target_axes(source_axes)
+        # Affine uses a convention such that Factor values become the matrix diagonal, and Translation
+        # becomes the offset column as-is, without any changes to the numbers.
+        # This means it needs to be inverted the same way.
+        try:
+            inverse = relation.inverted()
+        except ValueError as e:
+            raise ValueError(f"Affine relation must be invertible to connect two coordinate systems: {e}") from e
+        return AffineTransform(affine=inverse.to_tuples())
 
     if isinstance(relation, ProjectionTo):
         target_axes = relation.target_axes(source_axes)
