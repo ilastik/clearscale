@@ -82,3 +82,11 @@ def test_affine_relation_rejects_singular_matrix():
 def test_affine_relation_rejects_mismatching_source_axes():
     with pytest.raises(ValueError, match="Incompatible axes/order"):
         relation_to_transform(Affine.identity("yx"), source_axes=("z", "y", "x"))
+
+
+def test_affine_from_factor_relation_matches_factor_relation():
+    factor = Factor(z=1.0, y=2.0, x=4.0)
+
+    assert relation_to_transform_canonic(Affine.from_factor(factor), ("z", "y", "x")) == relation_to_transform_canonic(
+        factor, ("z", "y", "x")
+    )
