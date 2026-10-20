@@ -288,7 +288,7 @@ class _AxisFloats(_AxisValues[AxisKey, float], ABC):
                 raise TypeError(f"All values must be float. Got {type(value).__name__} for axis '{axis}'.")
 
 
-class Factor(_AxisFloats, SpatialRelation):
+class Factor(_AxisFloats):
     """
     Describes relative scaling factors from some shape to another.
     The values are in units of "raw pixels per scaled pixel".
@@ -315,10 +315,6 @@ class Factor(_AxisFloats, SpatialRelation):
             Factor(t=0.1, c=1.0, z=0.25, y=120.0, x=120.0)
         """
         return super().with_axes(axes)
-
-    def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
-        _require_identical_axes(source_axes, self.keys())
-        return tuple(self.keys())
 
     @classmethod
     def identity(cls, axes: OrderedAxes) -> "Factor":

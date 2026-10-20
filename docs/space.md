@@ -54,7 +54,7 @@ Use `Multiscale.with_coordinate_system`.
 Give the new system a name and say how it is reached from the Multiscale's own space with `reached_by`:
 
 ```python
-from clearscale import Factor, Multiscale, PixelSize, Scale, Shape, Translation, Unit
+from clearscale import Affine, Multiscale, PixelSize, Scale, Shape, Translation, Unit
 
 multiscale = Multiscale.from_single(
     Scale(
@@ -73,8 +73,8 @@ multiscale = multiscale.with_coordinate_system(
 
 multiscale = multiscale.with_coordinate_system(
     "millimeter",
-    # A millimeter-scale space is reached by downsampling the micrometer-scale data by factor 1000
-    reached_by=Factor(z=1000, y=1000, x=1000),
+    # One millimeter is 1000 micrometer
+    reached_by=Affine.from_factor({"z": 1000, "y": 1000, "x": 1000}),
     unit=Unit(z="mm", y="mm", x="mm"),
 )
 
@@ -152,12 +152,12 @@ It also fills in axis properties you left blank (type, unit, ...) from `volume`.
 
 A **spatial relation** answers the question: *If I have an image in space A, and I do `<operation>` to it, how is the resulting image's space B related to A?*
 
-The operation you actually performed on the data could be downscaling, shifting the origin, transposing the axes.
+The operation you actually performed on the data could be transposing the axes, shifting the origin by cropping, or an affine warp.
 
 This is exactly the inverse of coordinate arithmetic, if this is what you are used to:
 
-* downscaling by a `Factor` divides A-coordinates by that factor (downscaled B has a smaller coordinate space than A),
-* shifting by a `Translation` subtracts that from A-coordinates (shifted B's origin is somewhere inside A-space).
+* shifting by a `Translation` subtracts that from A-coordinates (shifted B's origin is somewhere inside A-space),
+* an `Affine` expresses A-coordinates in terms of B-coordinates (`x_A = linear @ x_B + translation`, a.k.a. "pull" or "backward" direction, as used for sampling B from A).
 
 In addition, also note the opposite directions of thinking in `as_derived_from` vs `with_coordinate_system`:
 
@@ -202,24 +202,30 @@ To chain relations, pass a list; they are applied in order.
 
 | Relation              | What you did                     | Coordinates in the new space                    |
 |-----------------------|----------------------------------|-------------------------------------------------|
-| `Factor`              | Downscaled by a factor per axis  | old coordinate / factor                         |
+| `Affine`              | Resampled with an affine matrix  | inverse affine applied to the old coordinate    |
 | `Translation`         | Moved the origin                 | old coordinate - translation                    |
 | `PermutationTo`       | Reordered axes                   | Same values, new axis order                     |
 | `ProjectionTo`        | Dropped and/or inserted axes     | Dropped axes are gone, inserted axes start at 0 |
 | `AxisRearrangementTo` | Any combination of the two above | See below                                       |
 
-### `Factor`
+### `Affine`
 
-* When deriving: "The new image is the old one downscaled by this factor".
-* When adding coordinate systems: "The new coordinate system is downscaled by this factor relative to the image"
+* When deriving: "The new image's space relates to the old image's space by this affine".
+* When adding coordinate systems: "The old image's coordinates are this affine of the new coordinate system's coordinates".
 
-A factor is a *divisor* for the shape, as explained in [Basics](basics.md): 
-`Factor(y=2, x=2)` halves the pixel count and doubles the pixel size. 
-Axes the factor leaves out are not scaled. 
-Factors greater than 1 mean downscaling; factors below 1 mean upscaling.
+`Affine(linear=..., translation=...)` maps coordinates of the *new* space to coordinates of the *old* one, in physical units: `x_old = linear @ x_new + translation` (column vectors, axes in the order of the affine).
+The columns of `linear` are the new space's axes written in old-space coordinates, and `translation` is the new origin in the old space.
+The matrix must be invertible.
+The relation is stored in the metadata in the opposite direction, from the old space to the new one.
 
-The same arithmetic makes `Factor` the tool for unit conversion: 
-coordinates in micrometers divided by 1000 are coordinates in millimeters, so `Factor(x=1000)` relates a micrometer space to a millimeter space.
+An `Affine` is only a *true* statement if it carries information that the pixel sizes and translations of the Scales do not already hold.
+Resampling is not such information: a downscaled image has a larger pixel size, and that is all there is to say about it.
+Do not relate a Multiscale to the one it was downscaled from with a scaling `Affine`. 
+The two spaces are both physical, so they are the same space, and the correct scale between them is 1.
+Use it for relations the Scales cannot express, such as a rotation or a flip, or for spaces whose coordinates are measured with a different yardstick.
+
+Unit conversion is the common case of the latter: `Affine.from_factor({"x": 1000})` says "a coordinate in the new space times 1000 is the coordinate in the old space", which relates a millimeter space to a micrometer space.
+`Affine.from_factor` takes a `Factor` or a plain `{axis: value}` mapping; use `.with_axes(...)` on the result to add axes that are not scaled.
 
 ### `Translation`
 
@@ -254,16 +260,16 @@ If you aren't sure which of the three you need, use this one.
 
 ### Combining relations
 
-Relations that act on values (`Factor`, `Translation`) and relations that act on axes can be chained in one list:
+Relations that act on values (`Affine`, `Translation`) and relations that act on axes can be chained in one list:
 
 ```python
 multiscale.with_coordinate_system(
     "yx_preview",
-    reached_by=[ProjectionTo("yx"), Factor(y=2, x=2)],
+    reached_by=[ProjectionTo("yx"), Affine.from_factor({"y": 1000, "x": 1000})],
 )
 ```
 
-Each relation sees the axes that the previous one produced. Here, `ProjectionTo` first reduces `zyx` to `yx`, after which the `Factor` only needs to talk about `y` and `x`.
+Each relation sees the axes that the previous one produced. Here, `ProjectionTo` first reduces `zyx` to `yx`, after which the `Affine` only needs to talk about `y` and `x`.
 
 ## Beyond a single Multiscale
 

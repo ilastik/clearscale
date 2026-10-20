@@ -165,7 +165,7 @@ def normalize_relations_param(
         return None
     if not all(isinstance(r, SpatialRelation) for r in relations):
         raise ValueError(
-            f"Relations must be expressed using SpatialRelations like `Factor`, `Translation` or `AxisRearrangementTo`. Received {relations!r}"
+            f"Relations must be expressed using SpatialRelations like `Affine`, `Translation` or `AxisRearrangementTo`. Received {relations!r}"
         )
     if len(relations) == 1:
         return relations[0]

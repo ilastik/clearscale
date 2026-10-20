@@ -5,6 +5,7 @@ from typing import List, Callable
 import pytest
 from clearscale import (
     BlueprintShapes,
+    Affine,
     Multiscale,
     PixelSize,
     Scale,
@@ -119,7 +120,7 @@ class TestEqAndHash:
         intrinsic system names. On derive with a relation, the intrinsic is transferred,
         but the daughter no longer knows this was an intrinsic system whose name is not as strictly meaningful
         as a coordinate system added through `with_coordinate_system`."""
-        make_ms = lambda: _multiscale().as_derived_from(_multiscale(), by=Factor(y=2, x=2))
+        make_ms = lambda: _multiscale().as_derived_from(_multiscale(), by=Affine.from_factor({"y": 2, "x": 2}))
 
         left = make_ms()
         right = make_ms()
@@ -693,7 +694,7 @@ class TestMultiscaleAsDerivedFrom:
         """
         Calling as_derived_from() claims caller and donor share a space, so caller's
         pixel_size["t"] != donor's global t-scale could be a red flag indicating this is wrong.
-        The user might have some reason why they didn't supply a Factor(t=0.9/0.5) as the relation though.
+        The user might have some reason why they didn't supply a scaling Affine(t=0.9/0.5) as the relation though.
         More important to carry forward the convention; but with the correct value in the derived multiscale.
         """
         caller_ms = Multiscale({"s0": Scale(shape=Shape(t=4, y=4, x=4), pixel_size=PixelSize(t=0.9, y=1.0, x=1.0))})
@@ -717,7 +718,7 @@ class TestMultiscaleAsDerivedFrom:
         source_ms = _with_extra_system(_multiscale(), "world")
 
         derived_ms = _multiscale()
-        result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
+        result = derived_ms.as_derived_from(source_ms, by=Affine.identity(derived_ms.axes))
 
         assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
@@ -727,7 +728,7 @@ class TestMultiscaleAsDerivedFrom:
         source_ms = _multiscale()
 
         derived_ms = _multiscale()
-        result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
+        result = derived_ms.as_derived_from(source_ms, by=Affine.identity(derived_ms.axes))
 
         assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
@@ -736,7 +737,7 @@ class TestMultiscaleAsDerivedFrom:
         derived_ms = _with_intrinsic_system_name(_multiscale(), "physical")
         source_ms = _with_intrinsic_system_name(_multiscale(), "physical")
 
-        result = derived_ms.as_derived_from(source_ms, by=Factor.identity(derived_ms.axes))
+        result = derived_ms.as_derived_from(source_ms, by=Affine.identity(derived_ms.axes))
 
         assert len(result._transform_graph.all_system_refs) == 2
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
@@ -774,25 +775,28 @@ class TestMultiscaleAsDerivedFrom:
         donor_ms = _multiscale("xyz")
 
         with pytest.raises(ValueError, match="Incompatible axes/order"):
-            caller_ms.as_derived_from(donor_ms, by=Factor.identity("xy"))
+            caller_ms.as_derived_from(donor_ms, by=Affine.identity("xy"))
 
     @pytest.mark.parametrize(
         "derived_axes, relations, expected_derivation_transform",
         [
             pytest.param("zyx", [], IdentityTransform(), id="empty_list"),
-            pytest.param("zyx", [Factor.identity("zyx")], IdentityTransform(), id="single_entry_identity"),
+            pytest.param("zyx", [Affine.identity("zyx")], IdentityTransform(), id="single_entry_identity"),
             pytest.param(
-                "zyx", [Factor(z=2.0, y=2.0, x=2.0)], ScaleTransform(scale=(0.5, 0.5, 0.5)), id="single_factor"
+                "zyx",
+                [Affine.from_factor({"z": 2.0, "y": 2.0, "x": 2.0})],
+                ScaleTransform(scale=(0.5, 0.5, 0.5)),
+                id="single_factor",
             ),
             pytest.param(
                 "zyx",
-                [Factor.identity("zyx"), Translation.identity("zyx")],
+                [Affine.identity("zyx"), Translation.identity("zyx")],
                 IdentityTransform(),
                 id="two_entry_identity",
             ),
             pytest.param(
                 "zyx",
-                [Factor(z=2.0, y=2.0, x=2.0), Translation(z=1.0, y=2.0, x=3.0)],
+                [Affine.from_factor({"z": 2.0, "y": 2.0, "x": 2.0}), Translation(z=1.0, y=2.0, x=3.0)],
                 TransformSequence(
                     (ScaleTransform(scale=(0.5, 0.5, 0.5)), TranslationTransform(translation=(-1.0, -2.0, -3.0)))
                 ),
@@ -890,15 +894,14 @@ class TestMultiscaleWithCoordinateSystem:
 
     def test_accepts_single_relation(self):
         ms = _multiscale("zyx")
-        relation = Factor(z=2.0, y=2.0, x=2.0)
+        relation = Affine.from_factor({"z": 2.0, "y": 2.0, "x": 2.0})
 
         result = ms.with_coordinate_system("world", reached_by=relation)
 
         world = next(ref for ref in result._transform_graph.all_system_refs if ref.name == "world")
-        # We've said we reach the "world" coordinate system by scaling `ms` by Factor(2.0),
-        # i.e. we 2x *downscale* `ms` to overlay it in "world".
-        # In other words, `ms` is a 0.5 *upscale* of "world": `ms --Scale(0.5)-> world`
-        # or looking at coordinates: ms[2, 2, 2] == world[1, 1, 1]
+        # Just like Factor(2), a scaling Affine.from_factor(2) states a 2x downscaling.
+        # I.e. "world" is reached by downscaling `ms` by 2,
+        # which means ms-coordinates need to be halved to find world-coordinates: ms[2, 2, 2] == world[1, 1, 1]
         expected = ScaleTransform((0.5, 0.5, 0.5)).bound(source=ms._intrinsic_ref, target=world)
         assert expected in result._transform_graph.transforms
 
@@ -906,12 +909,12 @@ class TestMultiscaleWithCoordinateSystem:
         ms = _multiscale("zyx")
         # This simulates a call where "`ms` was made from `world`" by translating, scaling, and inserting an axis.
         # The relations when specifying "how to reach `world` from `ms`" then correspond to "how to undo what I did".
-        # If ms was "made from" world by [Translation(3, 4), Factor(2), Insert(z)],
+        # If ms was "made from" world by [Translation(3, 4), Affine(diag(2)), Insert(z)],
         # in other words, shifted (e.g. crop-offset) and then downscaled from world,
-        # then the relation to return from ms to world is [Drop(z), Factor(0.5), Translation(-3, -4)]
+        # then the relation to return from ms to world is [Drop(z), Affine(diag(0.5)), Translation(-3, -4)]
         relations = [
             AxisRearrangementTo("yx"),
-            Factor(y=0.5, x=0.5),
+            Affine.from_factor({"y": 0.5, "x": 0.5}),
             Translation(y=-3.0, x=-4.0),
         ]
 
@@ -936,7 +939,7 @@ class TestMultiscaleWithCoordinateSystem:
     def test_preserves_existing_graph(self):
         original = _multiscale("zyx")
         with_first = original.with_coordinate_system("first")
-        with_both = with_first.with_coordinate_system("second", reached_by=Factor(z=2, y=2, x=2))
+        with_both = with_first.with_coordinate_system("second", reached_by=Affine.from_factor({"z": 2, "y": 2, "x": 2}))
 
         assert "first" not in original.coordinate_systems
         assert not original._transform_graph.transforms
@@ -1019,10 +1022,10 @@ class TestLosslessOmeZarrVersion:
         "relation",
         [
             None,
-            Factor(y=0.5, x=0.5),
+            Affine.from_factor({"y": 0.5, "x": 0.5}),
             Translation(y=-4.0, x=-2.0),
-            [Factor(y=0.5, x=0.5), Translation(y=-4.0, x=-2.0)],
-            [Translation(y=-4.0, x=-2.0), Factor(y=0.5, x=0.5)],
+            [Affine.from_factor({"y": 0.5, "x": 0.5}), Translation(y=-4.0, x=-2.0)],
+            [Translation(y=-4.0, x=-2.0), Affine.from_factor({"y": 0.5, "x": 0.5})],
             PermutationTo("xy"),
             AxisRearrangementTo("czy"),
         ],
@@ -1104,8 +1107,8 @@ class TestPropertyCarryover:
         lambda ms: ms.with_keys("level{}"),
         lambda ms: ms.drop_before("s1"),
         lambda ms: ms.with_coordinate_system("physical"),
-        # `by` to avoid early-return, skipping the carryover
-        lambda ms: ms.as_derived_from(_multiscale("yx", 64), by=Factor(y=2.0, x=2.0)),
+        # `by` to avoid early-return, skipping the carryover (although the stated affine is semantically wrong)
+        lambda ms: ms.as_derived_from(_multiscale("yx", 64), by=Affine.from_factor({"y": 2.0, "x": 2.0})),
     ]
     expected_keys = [
         ["s0", "s2"],

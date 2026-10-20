@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Affine, Factor, Translation
+from clearscale import Affine, Translation
 from clearscale._affines import Linear
 from clearscale._spatial_relations import ProjectionTo, SpatialRelationSequence
 from clearscale._transforms import (
@@ -28,10 +28,6 @@ def test_relation_to_transform_canonic_unwraps_sequence():
     assert result.inserts == (0,)
 
 
-def _diagonal(**scale):
-    return Affine(linear=Linear.from_array([[scale[a] if a == b else 0 for b in scale] for a in scale], list(scale)))
-
-
 def test_affine_relation_to_transform_inverts_matrix_and_translation():
     affine = Affine(linear=Linear.from_array(((1, 2), (3, 4)), "yx"), translation=Translation(y=5, x=6))
 
@@ -43,13 +39,12 @@ def test_affine_relation_to_transform_inverts_matrix_and_translation():
     assert [v for row in result.affine for v in row] == pytest.approx([v for row in inverse.to_tuples() for v in row])
 
 
-def test_affine_relation_canonic_diagonal_matches_factor():
+def test_affine_relation_canonic_diagonal_is_inverted_scale():
     axes = ("z", "y", "x")
 
-    result = relation_to_transform_canonic(_diagonal(z=1.0, y=2.0, x=4.0), axes)
+    result = relation_to_transform_canonic(Affine.from_factor({"z": 1.0, "y": 2.0, "x": 4.0}), axes)
 
     assert result == ScaleTransform(scale=(1.0, 0.5, 0.25))
-    assert result == relation_to_transform_canonic(Factor(z=1.0, y=2.0, x=4.0), axes)
 
 
 def test_affine_relation_canonic_pure_translation_matches_translation():
@@ -82,11 +77,3 @@ def test_affine_relation_rejects_singular_matrix():
 def test_affine_relation_rejects_mismatching_source_axes():
     with pytest.raises(ValueError, match="Incompatible axes/order"):
         relation_to_transform(Affine.identity("yx"), source_axes=("z", "y", "x"))
-
-
-def test_affine_from_factor_relation_matches_factor_relation():
-    factor = Factor(z=1.0, y=2.0, x=4.0)
-
-    assert relation_to_transform_canonic(Affine.from_factor(factor), ("z", "y", "x")) == relation_to_transform_canonic(
-        factor, ("z", "y", "x")
-    )

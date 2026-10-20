@@ -2,7 +2,7 @@ import pytest
 from clearscale import ome_zarr
 from clearscale import Affine
 from clearscale._affines import Linear
-from clearscale._axis_values import PixelSize, Shape, Unit, Factor, Translation
+from clearscale._axis_values import PixelSize, Shape, Unit, Translation
 from clearscale._multiscale import BlueprintShapes, Multiscale, Scale
 from clearscale._services.ome_zarr import SUPPORTED_VERSIONS_WRITE
 from clearscale._spatial_relations import AxisRearrangementTo
@@ -67,10 +67,10 @@ class TestCoordinateSystemToLegacy:
     @pytest.mark.parametrize(
         "relation, expected_global_scale_and_translation",
         [
-            (Factor(y=2, x=2), ([0.5, 0.5], None)),
+            (Affine.from_factor({"y": 2, "x": 2}), ([0.5, 0.5], None)),
             (Translation(y=3, x=4), ([1.0, 1.0], [-3.0, -4.0])),
-            ([Factor(y=2, x=2), Translation(y=3, x=4)], ([0.5, 0.5], [-3.0, -4.0])),
-            ([Translation(y=3, x=4), Factor(y=2, x=2)], ([0.5, 0.5], [-1.5, -2.0])),
+            ([Affine.from_factor({"y": 2, "x": 2}), Translation(y=3, x=4)], ([0.5, 0.5], [-3.0, -4.0])),
+            ([Translation(y=3, x=4), Affine.from_factor({"y": 2, "x": 2})], ([0.5, 0.5], [-1.5, -2.0])),
             ([AxisRearrangementTo("zyx"), Translation(z=0, y=3, x=4)], ([1.0, 1.0], [-3.0, -4.0])),
             ([Translation(y=3, x=4), AxisRearrangementTo("zx")], ([1.0, 1.0], [0.0, -4.0])),
         ],
@@ -184,7 +184,7 @@ class TestLegacyGlobalTScale:
             },
             _legacy_convention_global_t_scale=0.5,
         )
-        ms = ms.with_coordinate_system("world", reached_by=Factor(t=4.0, y=1.0, x=1.0))
+        ms = ms.with_coordinate_system("world", reached_by=Affine.from_factor({"t": 4.0, "y": 1.0, "x": 1.0}))
 
         result = ms.to_ome_zarr(version="0.4")
 
@@ -203,7 +203,9 @@ class TestCoordinateSystems06:
     def test_multiple_satellite_systems(self):
         ms = _multiscale("yx", pixel_size=[0.5, 0.5])
         ms = ms.with_coordinate_system("world", reached_by=Translation(y=3, x=4))
-        ms = ms.with_coordinate_system("mm", reached_by=Factor(y=1000, x=1000), unit=Unit(y="mm", x="mm"))
+        ms = ms.with_coordinate_system(
+            "mm", reached_by=Affine.from_factor({"y": 1000, "x": 1000}), unit=Unit(y="mm", x="mm")
+        )
         ms = ms.with_coordinate_system("proj", reached_by=AxisRearrangementTo("zyx"))
 
         result = ms.to_ome_zarr(version="0.6")
@@ -248,7 +250,7 @@ class TestCoordinateSystems06:
             blueprint=BlueprintShapes({"s0": Shape(z=4, y=4, x=4), "s1": Shape(z=2, y=2, x=2)}),
         )
         source = source.with_coordinate_system("world", reached_by=Translation(z=1, y=2, x=3))
-        source = source.with_coordinate_system("other", reached_by=Factor(z=1, y=2, x=2))
+        source = source.with_coordinate_system("other", reached_by=Affine.from_factor({"z": 1, "y": 2, "x": 2}))
 
         derived = source.derive("s1")
 

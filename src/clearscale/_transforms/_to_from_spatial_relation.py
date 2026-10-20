@@ -1,7 +1,7 @@
 from typing import List
 
 from clearscale._affines import Affine
-from clearscale._axis_values import Factor, Translation
+from clearscale._axis_values import Translation
 from clearscale._spatial_relations import (
     PermutationTo,
     ProjectionTo,
@@ -14,7 +14,6 @@ from clearscale._transforms._transform_types import (
     AffineTransform,
     MapAxisTransform,
     ProjectAxisTransform,
-    ScaleTransform,
     TranslationTransform,
 )
 from clearscale.types import OrderedAxes
@@ -33,24 +32,10 @@ def relation_to_transform(relation: SpatialRelation, source_axes: OrderedAxes) -
             current_axes = child.target_axes(current_axes)
         return TransformSequence(tuple(steps))
 
-    if isinstance(relation, Factor):
-        _ensure_compatible = relation.target_axes(source_axes)
-        # Inversion: When acting as a SpatialRelation (an image operation), the Factor is
-        # exactly the inverse of what the coordinate transformation needs to be.
-        # `derived_ms = B.as_derived_from(A, by=Factor(x=2.0))`
-        # means "B was derived by downscaling A by factor 2".
-        # But if downscaling A by Factor(2.0) produces B, then A[2] == B[1],
-        # i.e. to obtain B-coordinates, A-coordinates must be halved.
-        # hence, A--Factor(2.0)-->B is the coordinate transform A--Scale(0.5)-->B.
-        # Likewise:
-        # `embedded_ms = A.with_coordinate_system("B", reached_by=Factor(x=2.0))`
-        # means "B is reached by downscaling A by factor 2".
-        # Again, if downscaling A by Factor(2.0) produces B, then A[2] == B[1].
-        return ScaleTransform(scale=tuple(relation.inverted().values()))
-
     if isinstance(relation, Translation):
         _ensure_compatible = relation.target_axes(source_axes)
-        # Inversion: same as for Factor
+        # Inversion: When acting as a SpatialRelation, the Translation is exactly the inverse of what the
+        # coordinate transformation needs to be.
         # `derived_ms = B.as_derived_from(A, by=Translation(x=1.0))`
         # means "B was derived by shifting A by 1".
         # Then A[0] == B[-1] (A's origin is outside B, because B is shifted), and B[0] == A[1]
