@@ -1,5 +1,7 @@
 import pytest
 from clearscale import ome_zarr
+from clearscale import Affine
+from clearscale._affines import Linear
 from clearscale._axis_values import PixelSize, Shape, Unit, Factor, Translation
 from clearscale._multiscale import BlueprintShapes, Multiscale, Scale
 from clearscale._services.ome_zarr import SUPPORTED_VERSIONS_WRITE
@@ -193,8 +195,10 @@ class TestLegacyGlobalTScale:
         assert _dataset_scale(result, "s1") == [1.0, 40.0, 60.0]
 
 
-class TestMultipleCoordinateSystemsToOmeZarr06:
-    """Coverage for handling more than one satellite coordinate system (other tests only ever use one)."""
+class TestCoordinateSystems06:
+    """Coverage for
+    - serializing more than one satellite coordinate system (tests e.g. using the full examples only ever use one)
+    - spatial relations"""
 
     def test_multiple_satellite_systems(self):
         ms = _multiscale("yx", pixel_size=[0.5, 0.5])
@@ -257,3 +261,24 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         assert set(read_back.coordinate_systems) == {"world", "other"}
         assert read_back == derived
         assert read_back.to_ome_zarr(version="0.6") == result
+
+    def test_affine_relation_is_written_inverted(self):
+        """Affine maps target coordinates to source coordinates (`x_source = L @ x_target + t`).
+        The written transform maps source to target, so it is the inverse: here a rotation, then a translation."""
+        ms = _multiscale("yx", pixel_size=[0.5, 0.5])
+        affine = Affine(linear=Linear.from_array(((0, -1), (1, 0)), "yx"), translation=Translation(y=1, x=2))
+        ms = ms.with_coordinate_system("rotated", reached_by=affine)
+
+        result = ms.to_ome_zarr(version="0.6")
+
+        assert result["coordinateTransformations"] == [
+            {
+                "type": "sequence",
+                "transformations": [
+                    {"type": "rotation", "rotation": [[0.0, 1.0], [-1.0, 0.0]]},
+                    {"type": "translation", "translation": [-2.0, 1.0]},
+                ],
+                "input": {"name": ms._intrinsic_ref.name},
+                "output": {"name": "rotated"},
+            }
+        ]

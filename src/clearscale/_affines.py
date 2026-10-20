@@ -1,9 +1,22 @@
+"""Nested AxisValues"""
+
 from collections import OrderedDict
 from collections.abc import Mapping as ABCMapping
 from dataclasses import dataclass, replace
 from typing import List, Sequence, Tuple, Mapping, Optional
 
-from clearscale._axis_values import Axes, _axis_in, AxisKey, _AxisFloats, _AxisMapping, OrderedAxes, Scalar, Translation
+from clearscale._axis_values import (
+    Axes,
+    _axis_in,
+    AxisKey,
+    _AxisFloats,
+    _AxisMapping,
+    OrderedAxes,
+    Scalar,
+    Translation,
+    _require_identical_axes,
+)
+from clearscale._spatial_relations import SpatialRelation
 from clearscale._services.matrices import matrix_invert, matrix_vector_multiply, DEFAULT_SINGULARITY_TOLERANCE
 
 
@@ -221,7 +234,7 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Affine:
+class Affine(SpatialRelation):
     """
     A full affine transformation consists of a linear matrix and a translation.
     The perspective row required for homogenous coordinates is not represented.
@@ -296,6 +309,10 @@ class Affine:
     @property
     def axes(self) -> Tuple[AxisKey, ...]:
         return tuple(self.linear.keys())
+
+    def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
+        _require_identical_axes(source_axes, self.axes)
+        return self.axes
 
     def with_axes(self, axes: OrderedAxes) -> "Affine":
         """Order like axes. Drop axes, or insert new identity axes if necessary."""
