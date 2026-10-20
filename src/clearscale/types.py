@@ -13,7 +13,7 @@ from typing import (
 )
 
 if TYPE_CHECKING:
-    from clearscale._axis_values import Shape, Translation
+    from clearscale._axis_values import Factor, Shape, Translation
     from clearscale._multiscale import Scale
 
 AxisKey = Hashable
@@ -31,6 +31,7 @@ class _Ordered(Protocol[AxisKeyT_co]):
 
 OrderedAxes = _Ordered[AxisKey]
 ShapeLike = Union["Shape", Mapping[AxisKeyT, int]]
+FactorLike = Union["Factor", Mapping[AxisKeyT, float]]
 TranslationShiftFunction = Callable[["Scale", "Scale"], "Translation"]
 """
 base_scale: the reference scale being transformed from

@@ -38,7 +38,6 @@ from clearscale._axis_values import (
     Unit,
     Translation,
     PixelOffset,
-    FactorLike,
     Axes,
     RoundingMethod,
     OrderedAxes,
@@ -66,7 +65,7 @@ from clearscale._transforms import (
     relation_to_transform_canonic,
 )
 from clearscale._services import ome_zarr, precomputed
-from clearscale.types import PixelSizingMethod, ShapeSource, TranslationShiftFunction, ShapeLike, AxisKeyT
+from clearscale.types import PixelSizingMethod, ShapeSource, TranslationShiftFunction, ShapeLike, FactorLike, AxisKeyT
 
 ScaleKey = str
 ValueType = TypeVar("ValueType", Shape, Factor, "Scale")
