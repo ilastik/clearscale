@@ -1205,3 +1205,135 @@ class TestPropertyCarryover:
         derived = read_multiscale.derive("s1")
 
         assert derived.ome == MultiscaleProperties()
+
+
+def _multiscale_with_unit(unit: str, axes="yx", size=4) -> Multiscale:
+    return Multiscale(
+        {"s0": Scale(shape=Shape(zip(axes, [size] * len(axes))), unit=Unit(zip(axes, [unit] * len(axes))))}
+    )
+
+
+class TestMultiscaleWithCoordinateSystemUnitValidation:
+    def test_accepts_new_unit_when_source_blank(self):
+        ms = _multiscale("yx")
+
+        result = ms.with_coordinate_system("annotated", unit=Unit(y="micrometer", x="micrometer"))
+
+        assert result.coordinate_system_ome_zarr_axes("annotated")["x"].unit == "micrometer"
+
+    def test_accepts_new_unit_for_inserted_axis(self):
+        ms = _multiscale_with_unit("nanometer")
+
+        result = ms.with_coordinate_system(
+            "with_z",
+            reached_by=ProjectionTo("zyx"),
+            unit=Unit(z="micrometer"),
+            ome_zarr_axes={"z": ome_zarr.Axis(type="space")},
+        )
+
+        assert result.coordinate_system_ome_zarr_axes("with_z").get_unit() == Unit(
+            z="micrometer", y="nanometer", x="nanometer"
+        )
+
+    def test_accepts_identical_explicit_units(self):
+        ms = _multiscale_with_unit("nanometer")
+
+        result = ms.with_coordinate_system("same_units", unit=Unit(y="nanometer", x="nanometer"))
+
+        assert "same_units" in result.coordinate_systems
+
+    def test_accepts_differing_units_with_affine(self):
+        ms = _multiscale_with_unit("nanometer")
+
+        result = ms.with_coordinate_system(
+            "um", reached_by=Affine.from_factor({"y": 0.001, "x": 0.001}), unit=Unit(y="micrometer", x="micrometer")
+        )
+
+        assert result.coordinate_system_ome_zarr_axes("um")["x"].unit == "micrometer"
+
+    def test_accepts_differing_units_with_affine_inside_sequence(self):
+        ms = _multiscale_with_unit("nanometer")
+
+        result = ms.with_coordinate_system(
+            "um",
+            reached_by=[Translation(y=1.0, x=1.0), Affine.from_factor({"y": 0.001, "x": 0.001})],
+            unit=Unit(y="micrometer", x="micrometer"),
+        )
+
+        assert "um" in result.coordinate_systems
+
+    def test_inherits_unspecified_units_without_conflict(self):
+        ms = _multiscale_with_unit("nanometer")
+
+        result = ms.with_coordinate_system("same_units")
+
+        assert result.coordinate_system_ome_zarr_axes("same_units").get_unit() == Unit(y="nanometer", x="nanometer")
+
+    def test_rejects_differing_units_without_relation(self):
+        ms = _multiscale_with_unit("nanometer")
+
+        with pytest.raises(
+            ValueError, match=r"differ.*'y': 'nanometer' vs 'micrometer'.*'x': 'nanometer' vs 'micrometer'"
+        ):
+            ms.with_coordinate_system("um", unit=Unit(y="micrometer", x="micrometer"))
+
+    def test_error_names_the_systems_and_points_at_affine(self):
+        ms = _multiscale_with_unit("nanometer")
+
+        with pytest.raises(
+            ValueError, match=r"this Multiscale and coordinate system 'um'.*does not convert units.*Affine"
+        ):
+            ms.with_coordinate_system("um", unit=Unit(y="micrometer", x="micrometer"))
+
+    @pytest.mark.parametrize(
+        "relation",
+        [
+            Translation(y=1.0, x=1.0),
+            AxisRearrangementTo("yx"),
+            PermutationTo("xy"),
+        ],
+    )
+    def test_rejects_differing_units_with_relation_that_cannot_convert(self, relation):
+        ms = _multiscale_with_unit("nanometer")
+
+        with pytest.raises(ValueError, match=r"no relation converts.*State the conversion explicitly.*Affine"):
+            ms.with_coordinate_system("um", reached_by=relation, unit=Unit(y="micrometer", x="micrometer"))
+
+
+class TestMultiscaleAsDerivedFromUnitValidation:
+    def test_accepts_identical_units(self):
+        derived = _multiscale_with_unit("nanometer")
+        source = _multiscale_with_unit("nanometer")
+
+        assert derived.as_derived_from(source).unit == Unit(y="nanometer", x="nanometer")
+
+    def test_accepts_blank_unit_on_either_side(self):
+        unitless = _multiscale("yx")
+        with_unit = _multiscale_with_unit("micrometer")
+
+        unitless.as_derived_from(with_unit)
+        with_unit.as_derived_from(unitless)
+
+    def test_accepts_differing_units_with_affine(self):
+        derived = _multiscale_with_unit("micrometer")
+        source = _multiscale_with_unit("nanometer")
+
+        result = derived.as_derived_from(source, by=Affine.from_factor({"y": 1000.0, "x": 1000.0}))
+
+        assert result.unit == Unit(y="micrometer", x="micrometer")
+
+    def test_rejects_differing_units_without_relation(self):
+        derived = _multiscale_with_unit("micrometer")
+        source = _multiscale_with_unit("nanometer")
+
+        with pytest.raises(
+            ValueError, match=r"units.*differ.*'x': 'nanometer' vs 'micrometer'.*State the conversion.*Affine"
+        ):
+            derived.as_derived_from(source)
+
+    def test_rejects_differing_units_without_affine(self):
+        derived = _multiscale_with_unit("micrometer")
+        source = _multiscale_with_unit("nanometer")
+
+        with pytest.raises(ValueError, match=r"no relation converts between them.*State the conversion.*Affine"):
+            derived.as_derived_from(source, by=Translation(y=1.0, x=1.0))
