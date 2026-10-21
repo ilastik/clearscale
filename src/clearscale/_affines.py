@@ -224,6 +224,14 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
             replaced_items.append((row, new_coefficient))
         return self.__class__(replaced_items)
 
+    def apply_to_translation(self, translation: Translation) -> Translation:
+        """
+        Matrix-vector product: Each value of the result is the sum of this row's coefficients times `translation`'s
+        values. `translation` must have exactly the axes of this Linear, in the same order.
+        """
+        _require_identical_axes(self.axes, translation)
+        return Translation(zip(self.axes, matrix_vector_multiply(self.to_tuples(), translation.values_tuple())))
+
     def to_tuples(self) -> Tuple[Tuple[float, ...], ...]:
         return tuple(coeff.values_tuple() for coeff in self.values())
 
@@ -401,8 +409,9 @@ class Affine(SpatialRelation):
         Raises ValueError if the linear part is singular.
         """
         inverse_linear = self.linear.inverted(singularity_tolerance=singularity_tolerance)
-        shift = matrix_vector_multiply(inverse_linear.to_tuples(), self.translation.values_tuple())
-        return self.__class__(linear=inverse_linear, translation=Translation(zip(self.axes, (-v for v in shift))))
+        return self.__class__(
+            linear=inverse_linear, translation=inverse_linear.apply_to_translation(self.translation).inverted()
+        )
 
     def with_linear(self, linear: Linear) -> "Affine":
         return replace(self, linear=linear)
