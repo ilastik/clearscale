@@ -45,7 +45,8 @@ from clearscale._axis_values import (
     _axis_in,
 )
 from clearscale._errors import NoSuchCoordinateSystemError
-from clearscale._spatial_relations import SpatialRelation, normalize_relations_param
+from clearscale._affines import Affine
+from clearscale._spatial_relations import SpatialRelation, SpatialRelationSequence, normalize_relations_param
 from clearscale._transforms import (
     CoordinateSystemName,
     CoordinateSystem,
@@ -1791,6 +1792,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         source_axes = self.axes
         target_axes = relation.target_axes(source_axes) if relation else source_axes
         target_ome_axes = _reconcile_axis_prop_params(target_axes, self.ome_zarr_axes, ome_zarr_axes, unit)
+        self._require_matching_units_or_affine_relation(
+            self.ome_zarr_axes,
+            target_ome_axes,
+            relation,
+            source_label="this Multiscale",
+            target_label=f"coordinate system {name!r}",
+        )
 
         target_ref = CoordinateSystem(target_ome_axes)._as_ref(name)
         transform = (relation_to_transform_canonic(relation, source_axes) if relation else IdentityTransform()).bound(
@@ -1845,6 +1853,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     f"from {source_axes!r}, but this Multiscale has {target_axes!r}. {by=!r}"
                 )
 
+        self._require_matching_units_or_affine_relation(
+            other.ome_zarr_axes,
+            self.ome_zarr_axes,
+            relation,
+            source_label="`other`",
+            target_label="this Multiscale",
+        )
         merged_ome_axes = self.ome_zarr_axes.with_blanks_filled_from(other.ome_zarr_axes)
         if merged_ome_axes == self.ome_zarr_axes:
             intrinsic_ref = self._intrinsic_ref
@@ -2130,6 +2145,49 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _transform_graph=self._transform_graph,
             _intrinsic_ref=self._intrinsic_ref,
             _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
+        )
+
+    @staticmethod
+    def _require_matching_units_or_affine_relation(
+        source_axes: OmeZarrAxes,
+        target_axes: OmeZarrAxes,
+        relation: Optional[SpatialRelation],
+        *,
+        source_label: str,
+        target_label: str,
+    ) -> None:
+        """
+        Raise if `relation` can't be a true statement because two non-blank units on a shared axis differ.
+
+        Without an `Affine` in `relation`, the connection between the two spaces is the identity along every shared axis,
+        which is false if the units differ.
+        If x is in micrometer in one space, and nanometer in another, then there *must* be a scaling relation between them.
+        `Affine` is the only SpatialRelation that can express scaling.
+        The user has to state the scaling conversion explicitly as an `Affine`, rather than e.g. clearscale auto-inferring it.
+
+        Whether the Affine is numerically correct for the conversion is not validated (yet) - any Affine bypasses the
+        check for unit mismatch.
+
+        Blank units mean "unspecified" (as in OME-Zarr), so they never conflict. Axes present on only one side never conflict.
+        """
+
+        def _contains_affine(relation: Optional[SpatialRelation]) -> bool:
+            if isinstance(relation, Affine):
+                return True
+            if isinstance(relation, SpatialRelationSequence):
+                return any(_contains_affine(r) for r in relation)
+            return False
+
+        if _contains_affine(relation):
+            return
+        conflicts = source_axes.conflicts_with_unit(target_axes.get_unit())
+        if not conflicts:
+            return
+        details = ", ".join(f"{axis!r}: {src!r} vs {tgt!r}" for axis, (src, tgt) in conflicts.items())
+        raise ValueError(
+            f"The units of {source_label} and {target_label} differ ({details}), but no relation converts between them. "
+            "clearscale does not convert units yet. State the conversion explicitly, using an `Affine` "
+            "(e.g. `Affine.from_factor({axis: factor})`) in the relation, or use the same unit for both."
         )
 
     @staticmethod
