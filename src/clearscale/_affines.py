@@ -41,9 +41,11 @@ class Coefficient(_AxisFloats):
 class Linear(_AxisMapping[AxisKey, Coefficient]):
     """
     A square linear transformation matrix, represented as a nested axis mapping:
-    {target_axis : {source_axis : coefficient}}, as in
+    {output_axis : {input_axis : coefficient}}, as in
     {row_key : {col_key : coefficient}}.
     Rows are represented by the Coefficient class, mapping {axis : float}.
+    Applied to coordinates along the input axes (columns), it produces coordinates along the output axes (rows).
+    In an `Affine` relation, the output axes are those of the source image, and the input axes those of the target.
     """
 
     @staticmethod
@@ -67,9 +69,9 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
             raise ValueError(f"Expected {len(axes)} rows for axes {axes!r}, received {len(array)}.")
 
         rows = []
-        for target_axis, row in zip(axes, array):
+        for output_axis, row in zip(axes, array):
             if len(row) != len(axes):
-                raise ValueError(f"Expected {len(axes)} columns for row '{target_axis}', received {len(row)}.")
+                raise ValueError(f"Expected {len(axes)} columns for row '{output_axis}', received {len(row)}.")
             rows.append(Coefficient(zip(axes, row)))
 
         return cls(zip(axes, rows))
@@ -78,27 +80,27 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
         """Supports instantiation using any nested mappings like Linear({'x': {'x': 2.0}})"""
         super().__init__(*args, **kwargs)
         expected_axes = None
-        for target_axis, coefficient in self._mapping.items():
+        for output_axis, coefficient in self._mapping.items():
             if isinstance(coefficient, ABCMapping):
                 coefficient = Coefficient(coefficient)
-                self._mapping[target_axis] = coefficient
+                self._mapping[output_axis] = coefficient
             elif not isinstance(coefficient, Coefficient):
                 raise TypeError(
                     f"All values must be Coefficient or Mapping. "
-                    f"Got {type(coefficient).__name__} for axis '{target_axis}'."
+                    f"Got {type(coefficient).__name__} for axis '{output_axis}'."
                 )
             if expected_axes is None:
                 expected_axes = coefficient.keys()
             elif coefficient.keys() != expected_axes:
                 raise ValueError(
-                    f"All source Coefficients must have identical axes. "
+                    f"All Coefficients must have identical input axes. "
                     f"Expected {tuple(expected_axes)!r}, "
-                    f"received {tuple(coefficient.keys())!r} for target axis '{target_axis}'."
+                    f"received {tuple(coefficient.keys())!r} for output axis '{output_axis}'."
                 )
         assert expected_axes is not None, "super.init should enforce non-empty self._mapping"
         if tuple(self.keys()) != tuple(expected_axes):
             raise ValueError(
-                f"Linear must be square. Target axes {tuple(self.keys())!r} != source axes {tuple(expected_axes)!r}."
+                f"Linear must be square. Output axes {tuple(self.keys())!r} != input axes {tuple(expected_axes)!r}."
             )
 
     @property
@@ -206,7 +208,7 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
         self, other: Mapping[AxisKey, Mapping[AxisKey, Scalar]], *, only: Optional[Axes] = None
     ) -> "Linear":
         if not isinstance(other, ABCMapping):
-            raise TypeError(f"Pass {{target_axis: {{source_axis: value}}}} mapping. Received: {other!r}")
+            raise TypeError(f"Pass {{output_axis: {{input_axis: value}}}} mapping. Received: {other!r}")
         if not other or (only is not None and not only):
             return self
         replaced_items = []
@@ -216,7 +218,7 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
                 replacements = other[row]
                 if not isinstance(replacements, ABCMapping):
                     raise TypeError(
-                        f"Replacement for target axis {row!r} must be a mapping. Received: {replacements!r}"
+                        f"Replacement for output axis {row!r} must be a mapping. Received: {replacements!r}"
                     )
                 new_coefficient = coeff.with_values(replacements, only=only)
             replaced_items.append((row, new_coefficient))
