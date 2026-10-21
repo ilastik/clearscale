@@ -18,7 +18,7 @@ from clearscale._axis_values import (
     _require_identical_axes,
 )
 from clearscale._spatial_relations import SpatialRelation
-from clearscale.types import FactorLike
+from clearscale.types import FactorLike, HasPixelGrid
 from clearscale._services.matrices import matrix_invert, matrix_vector_multiply, DEFAULT_SINGULARITY_TOLERANCE
 
 
@@ -250,6 +250,24 @@ class Affine(SpatialRelation):
     """
     A full affine transformation consists of a linear matrix and a translation.
     The perspective row required for homogenous coordinates is not represented.
+
+    As a spatial relation, Affine maps *physical* coordinates of the relation's
+    target space to physical coordinates of the source space:
+      `x_source = linear @ x_target + translation`.
+    I.e. self.translation is the origin of the target image within the source image.
+
+    This is the direction of a *resampling* affine, the inverse of forward coordinate
+    transformations.
+    This allows it to directly interoperate with Factor and Translation algebraically:
+      `Factor(x=1000.0)`
+    represents a downsampling that results in the same scaling as
+      `Affine.from_array([[1000.0, 0]], axes="x")`.
+
+    Note that scaling Affines do *not* represent image scaling as a relation between Multiscales:
+    The source and target Multiscale each know their .pixel_size and the pixel size ratio *is* the
+    image scaling (Factor).
+    Affines are appropriate for expressing unit conversions (e.g. nm to mm), or the relative scale
+    of a coordinate system added by `Multiscale.with_coordinate_system` (which has no .pixel_size).
     """
 
     linear: Linear
@@ -261,7 +279,14 @@ class Affine(SpatialRelation):
         return cls(linear=Linear.identity(axes), translation=Translation.identity(axes))
 
     @classmethod
-    def from_array(cls, array: Sequence[Sequence[Scalar]], axes: OrderedAxes) -> "Affine":
+    def from_array(
+        cls,
+        array: Sequence[Sequence[Scalar]],
+        axes: OrderedAxes,
+        *,
+        source: Optional[HasPixelGrid] = None,
+        target: Optional[HasPixelGrid] = None,
+    ) -> "Affine":
         """
         Construct an Affine from a matrix shaped either N x (N+1):
         `[ linear | translation ]`
@@ -271,6 +296,12 @@ class Affine(SpatialRelation):
         [ 0 ... 0 |     1      ]
         ```
         where N == len(axes).
+
+        By default, the matrix is taken as is, i.e. it must already be in physical units and follow the
+        Affine convention (see the class docstring).
+        If the matrix is instead in *pixel index* space, like the matrices of `scipy.ndimage.affine_transform`
+        (`index_in = linear @ index_out + offset`), pass the `Scale`s of both images
+        as `source` (the "in" image) and `target` (the "out" image) to convert it. See `from_linear_and_offset`.
         """
         axes = tuple(axes)
         ndim = len(axes)
@@ -294,7 +325,51 @@ class Affine(SpatialRelation):
                 raise ValueError(f"Expected {expected_cols} columns for row {i}, received {len(row)}.")
         linear = Linear.from_array([row[:ndim] for row in non_homogenous], axes)
         translation = Translation(zip(axes, (row[ndim] for row in non_homogenous)))
-        return cls(linear=linear, translation=translation)
+        return cls._from_index_space_if_grids(cls(linear=linear, translation=translation), source, target)
+
+    @classmethod
+    def from_linear_and_offset(
+        cls,
+        linear: Sequence[Sequence[Scalar]],
+        offset: Sequence[Scalar],
+        axes: OrderedAxes,
+        *,
+        source: Optional[HasPixelGrid] = None,
+        target: Optional[HasPixelGrid] = None,
+    ) -> "Affine":
+        """
+        Construct an Affine from a separate N x N linear matrix and a length N offset, where N == len(axes).
+        This is the layout `scipy.ndimage.affine_transform(image, matrix, offset)` takes.
+        Like `from_array`, the values are taken as is (physical units, Affine convention) unless
+        `source` and `target` are given.
+
+        Passing `source` and `target` (both or neither) declares `linear` and `offset` to be in pixel index space:
+        `index_source = linear @ index_target + offset`, where index `i` refers to the pixel *center*.
+        This is the convention of `scipy.ndimage.affine_transform`, where "source" is the input image, and "target"
+        is the output image the function produces. Index space is unitless, so the physical Affine is obtained
+        using the pixel size and translation of the two Scales (in their own units):
+        ```
+        physical_linear = source.pixel_size * linear / target.pixel_size
+        physical_translation = source.pixel_size * offset + source.translation - physical_linear @ target.translation
+        ```
+        which makes it correct even if the two Scales use different units.
+        A matrix that describes how the target image was resampled from the source image, with both Scales being
+        accurate, will turn out as the identity (plus a possible shift): the Scales already describe the resampling.
+        If source and target scale are not resampled, but use the same pixel size expressed in different units,
+        the Affine will turn out as the unit conversion factor.
+
+        `source` and `target` must have exactly `axes`, in the same order.
+        To obtain an Affine between a Multiscale and a coordinate system that has no Scale (see
+        `Multiscale.with_coordinate_system`), construct a placeholder `Scale` that describes the target grid
+        the index-space matrix would resample from the source Multiscale:
+          `Scale(shape=Shape.all_singletons(axes), pixel_size=..., translation=...)`.
+        The shape is not used.
+        """
+        axes = tuple(axes)
+        if len(offset) != len(axes):
+            raise ValueError(f"Expected offset of length {len(axes)} for axes {axes!r}, received {len(offset)}.")
+        affine = cls(linear=Linear.from_array(linear, axes), translation=Translation(zip(axes, offset)))
+        return cls._from_index_space_if_grids(affine, source, target)
 
     @classmethod
     def from_factor(cls, factor: FactorLike) -> "Affine":
@@ -436,3 +511,40 @@ class Affine(SpatialRelation):
 
     def is_identity_along(self, axes: Axes) -> bool:
         return self.linear.is_identity_along(axes) and self.translation.is_identity_along(axes)
+
+    @classmethod
+    def _from_index_space_if_grids(
+        cls, index_affine: "Affine", source: Optional[HasPixelGrid], target: Optional[HasPixelGrid]
+    ) -> "Affine":
+        """Interpret `index_affine` as `index_source = linear @ index_target + translation` and convert it to
+        physical coordinates, where `x = pixel_size * index + translation` in each grid. Returns it as is
+        if neither grid is given."""
+        if source is None and target is None:
+            return index_affine
+        if source is None or target is None:
+            raise ValueError("`source` and `target` must be given together. Pass both to convert from index space.")
+        axes = index_affine.axes
+        for name, grid in (("source", source), ("target", target)):
+            for attribute in ("pixel_size", "translation"):
+                grid_axes = tuple(getattr(grid, attribute).keys())
+                if grid_axes != axes:
+                    raise ValueError(
+                        f"`{name}` must have exactly the axes {axes!r}, in this order. "
+                        f"Its {attribute} has axes {grid_axes!r}."
+                    )
+        physical_rows = [
+            [
+                source.pixel_size[row_axis] * coefficient / target.pixel_size[col_axis]
+                for col_axis, coefficient in row.items()
+            ]
+            for row_axis, row in index_affine.linear.items()
+        ]
+        physical_linear = Linear.from_array(physical_rows, axes)
+        # Might want a FractionalOffset counterpart to PixelOffset that can mul with PixelSize...?
+        scaled_index_shift = Translation(
+            (axis, source.pixel_size[axis] * index_affine.translation[axis]) for axis in axes
+        )
+        physical_translation = (
+            scaled_index_shift + source.translation - physical_linear.apply_to_translation(target.translation)
+        )
+        return cls(linear=physical_linear, translation=physical_translation)

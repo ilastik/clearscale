@@ -2,7 +2,9 @@ from collections import OrderedDict
 import pytest
 from typing import cast
 
-from clearscale import Translation
+from dataclasses import dataclass
+
+from clearscale import Multiscale, PixelSize, Scale, Shape, Translation, Unit
 from clearscale._affines import Coefficient, Linear, Affine
 from clearscale._axis_values import Factor
 from clearscale._services.matrices import matrix_vector_multiply
@@ -879,3 +881,124 @@ def test_affine_is_identity(affine, expected):
 )
 def test_affine_is_identity_along(affine, axes, expected):
     assert cast(Affine, affine).is_identity_along(axes) is expected
+
+
+class TestFromLinearAndOffset:
+    @staticmethod
+    def _grid(axes, pixel_size, translation=None, unit=None):
+        return Scale(
+            shape=Shape.all_singletons(axes),
+            pixel_size=PixelSize(zip(axes, pixel_size)),
+            translation=None if translation is None else Translation(zip(axes, translation)),
+            unit=None if unit is None else Unit(zip(axes, [unit] * len(axes))),
+        )
+
+    def test_plain(self):
+        """The provided linear and offset would need to be in physical units for this to be correct"""
+        result = Affine.from_linear_and_offset(((2, 0), (0, 3)), (1, 2), "yx")
+
+        assert result.linear.to_tuples() == ((2.0, 0.0), (0.0, 3.0))
+        assert result.translation == Translation(y=1, x=2)
+
+    def test_maps_a_feature_like_the_index_space_matrix(self):
+        """Follow one pixel from target index space to source index space by hand,
+        and compare with the physical Affine's action on the corresponding physical coordinates."""
+        source = self._grid("yx", (0.5, 0.25), (10.0, 20.0))
+        target = self._grid("yx", (2.0, 4.0), (1.0, -2.0))
+        linear, offset = ((0, 1), (1, 0)), (2, 3)
+        target_index = (3, 5)
+
+        # `linear` and `offset` are in index-space, so they apply to `target_index` as-is, in
+        # Affine's conventional direction: source_index = linear @ target_index + offset
+        source_index = (
+            linear[0][0] * target_index[0] + linear[0][1] * target_index[1] + offset[0],
+            linear[1][0] * target_index[0] + linear[1][1] * target_index[1] + offset[1],
+        )
+        # Affine is supposed to be in physical space, so it maps
+        # physical_source_x = affine.linear @ physical_target_x + affine.translation
+        target_x = (2.0 * target_index[0] + 1.0, 4.0 * target_index[1] - 2.0)
+        expected_source_x = (0.5 * source_index[0] + 10.0, 0.25 * source_index[1] + 20.0)
+
+        affine = Affine.from_linear_and_offset(linear, offset, "yx", source=source, target=target)
+
+        actual_physical_source_x = [
+            sum(c * v for c, v in zip(row, target_x)) + t
+            for row, t in zip(affine.linear.to_tuples(), affine.translation.values())
+        ]
+        assert actual_physical_source_x == pytest.approx(expected_source_x)
+
+    def test_matches_from_array_with_grids(self):
+        source = self._grid("yx", (0.5, 0.25), (10.0, 20.0))
+        target = self._grid("yx", (2.0, 4.0), (1.0, -2.0))
+        kwargs = dict(source=source, target=target)
+
+        from_array = Affine.from_array(((0, 1, 2), (1, 0, 3)), "yx", **kwargs)
+        from_array_homogeneous = Affine.from_array(((0, 1, 2), (1, 0, 3), (0, 0, 1)), "yx", **kwargs)
+        from_parts = Affine.from_linear_and_offset(((0, 1), (1, 0)), (2, 3), "yx", **kwargs)
+
+        assert from_array == from_parts
+        assert from_array_homogeneous == from_parts
+
+    def test_downscaling_index_matrix_becomes_physical_identity(self):
+        """Pixel size already describes the downscaling, so the relation between the physical spaces is the identity."""
+        source = self._grid("yx", (15.0, 15.0))
+        target = self._grid("yx", (30.0, 30.0))
+
+        result = Affine.from_linear_and_offset(((2, 0), (0, 2)), (0, 0), "yx", source=source, target=target)
+
+        assert _flat(result.linear.to_tuples()) == pytest.approx(_flat(((1.0, 0.0), (0.0, 1.0))))
+        assert list(result.translation.values()) == pytest.approx([0.0, 0.0])
+
+    def test_pixel_offset_becomes_physical_shift(self):
+        grid = self._grid("yx", (0.5, 0.5))
+
+        result = Affine.from_linear_and_offset(((1, 0), (0, 1)), (4, 6), "yx", source=grid, target=grid)
+
+        assert result.linear.to_tuples() == ((1.0, 0.0), (0.0, 1.0))
+        assert result.translation == Translation(y=2.0, x=3.0)
+
+    def test_converts_units_through_the_pixel_sizes(self):
+        nanometer = self._grid("yx", (15.0, 15.0), unit="nanometer")
+        micrometer = self._grid("yx", (0.015, 0.015), unit="micrometer")
+
+        affine = Affine.from_linear_and_offset(((1, 0), (0, 1)), (0, 0), "yx", source=nanometer, target=micrometer)
+
+        assert _flat(affine.linear.to_tuples()) == pytest.approx(_flat(((1000.0, 0.0), (0.0, 1000.0))))
+        # And the unit check accepts it as the explicit conversion, writing the inverse transform source -> target
+        source_ms = Multiscale({"s0": nanometer})
+        target_ms = Multiscale({"s0": micrometer})
+        result = target_ms.as_derived_from(source_ms, by=affine).to_ome_zarr(version="0.6")
+        assert result["coordinateTransformations"][0]["scale"] == pytest.approx([0.001, 0.001])
+
+    def test_accepts_any_object_with_a_pixel_grid(self):
+        @dataclass(frozen=True)
+        class Grid:
+            pixel_size: PixelSize
+            translation: Translation
+
+        source = Grid(PixelSize(y=2.0, x=2.0), Translation(y=0.0, x=0.0))
+        target = Grid(PixelSize(y=4.0, x=4.0), Translation(y=0.0, x=0.0))
+
+        result = Affine.from_linear_and_offset(((2, 0), (0, 2)), (0, 0), "yx", source=source, target=target)
+
+        assert result.linear.to_tuples() == ((1.0, 0.0), (0.0, 1.0))
+
+    def test_rejects_wrong_offset_length(self):
+        with pytest.raises(ValueError, match="Expected offset of length 2"):
+            Affine.from_linear_and_offset(((1, 0), (0, 1)), (1, 2, 3), "yx")
+
+    def test_requires_both_grids(self):
+        grid = self._grid("yx", (1.0, 1.0))
+
+        with pytest.raises(ValueError, match="must be given together"):
+            Affine.from_linear_and_offset(((1, 0), (0, 1)), (0, 0), "yx", source=grid)
+
+        with pytest.raises(ValueError, match="must be given together"):
+            Affine.from_linear_and_offset(((1, 0), (0, 1)), (0, 0), "yx", target=grid)
+
+    def test_requires_grids_with_same_axes(self):
+        grid_yx = self._grid("yx", (1.0, 1.0))
+        grid_xy = self._grid("xy", (1.0, 1.0))
+
+        with pytest.raises(ValueError, match=r"`target` must have exactly the axes \('x', 'y'\)"):
+            Affine.from_linear_and_offset(((1, 0), (0, 1)), (0, 0), "xy", source=grid_xy, target=grid_yx)
