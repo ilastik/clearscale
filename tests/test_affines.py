@@ -442,6 +442,24 @@ def test_linear_inverted_rejects_singular():
         _ = Linear.from_array(((1, 2), (2, 4)), ("y", "x")).inverted()
 
 
+@pytest.mark.parametrize(
+    "array, axes, translation, expected",
+    [
+        (((2, 0), (0, 3)), "yx", Translation(y=5, x=7), Translation(y=10.0, x=21.0)),
+        (((1, 2), (3, 4)), "yx", Translation(y=1, x=1), Translation(y=3.0, x=7.0)),
+        (((0, 1), (1, 0)), "yx", Translation(y=5, x=7), Translation(y=7.0, x=5.0)),
+        (((0, 1), (1, 0)), "xy", Translation(x=5, y=7), Translation(x=7.0, y=5.0)),
+    ],
+)
+def test_linear_apply_to_translation(array, axes, translation, expected):
+    assert Linear.from_array(array, axes).apply_to_translation(translation) == expected
+
+
+def test_linear_apply_to_translation_requires_identical_axes():
+    with pytest.raises(ValueError, match="Incompatible axes/order"):
+        Linear.identity("yx").apply_to_translation(Translation(x=1, y=1))
+
+
 def test_linear_to_tuples():
     linear = Linear.from_array([[1, 2], [3, 4]], "xy")
     tuples = linear.to_tuples()
