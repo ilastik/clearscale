@@ -13,7 +13,7 @@ from typing import (
 )
 
 if TYPE_CHECKING:
-    from clearscale._axis_values import Factor, Shape, Translation
+    from clearscale._axis_values import Factor, PixelSize, Shape, Translation
     from clearscale._multiscale import Scale
 
 AxisKey = Hashable
@@ -52,6 +52,16 @@ Option only for BlueprintFactors:
 class HasShape(Protocol):
     @property
     def shape(self) -> Sequence[int]: ...
+
+
+class HasPixelGrid(Protocol):
+    """Anything that describes where an array's pixels lie in physical space, like a `Scale`:
+    Physical coordinate of pixel index `i` is `i * pixel_size + translation`."""
+
+    @property
+    def pixel_size(self) -> "PixelSize": ...
+    @property
+    def translation(self) -> "Translation": ...
 
 
 ShapeValue = Union[Sequence[int], ShapeLike, HasShape]
