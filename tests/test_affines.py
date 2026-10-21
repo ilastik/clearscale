@@ -61,7 +61,7 @@ def test_linear_init_accepts_nested_dict():
 
 
 def test_linear_init_requires_identical_source_axes():
-    with pytest.raises(ValueError, match="All source Coefficients must have identical axes"):
+    with pytest.raises(ValueError, match="All Coefficients must have identical input axes"):
         Linear(
             {
                 "x": Coefficient({"x": 1.0, "y": 0.0}),
@@ -395,13 +395,13 @@ def test_linear_without_identity_all_identity():
             id="replace in multiple rows",
         ),
         pytest.param(
-            {"x": {"x": 2, "y": 3}}, "x", Linear.from_array(((2, 0), (0, 1)), axes="xy"), id="only filters source axes"
+            {"x": {"x": 2, "y": 3}}, "x", Linear.from_array(((2, 0), (0, 1)), axes="xy"), id="only filters input axes"
         ),
         pytest.param(
             {"x": {"x": 2}, "y": {"y": 4}},
             "y",
             Linear.from_array(((1, 0), (0, 4)), axes="xy"),
-            id="only filters target and source axes",
+            id="only filters output and input axes",
         ),
         pytest.param({"z": {"x": 2}}, None, Linear.identity("xy"), id="unknown row ignored"),
         pytest.param({"x": {"z": 2}}, None, Linear.identity("xy"), id="unknown column ignored"),
@@ -413,12 +413,12 @@ def test_linear_with_values(other, only, expected):
 
 
 def test_linear_with_values_requires_mapping():
-    with pytest.raises(TypeError, match=r"Pass \{target_axis: \{source_axis: value\}\} mapping"):
+    with pytest.raises(TypeError, match=r"Pass \{output_axis: \{input_axis: value\}\} mapping"):
         Linear.identity("xy").with_values(123)  # type: ignore[arg-type]
 
 
 def test_linear_with_values_requires_nested_mapping():
-    with pytest.raises(TypeError, match="Replacement for target axis 'x' must be a mapping"):
+    with pytest.raises(TypeError, match="Replacement for output axis 'x' must be a mapping"):
         Linear.identity("xy").with_values({"x": 2})  # type: ignore[arg-type]
 
 
