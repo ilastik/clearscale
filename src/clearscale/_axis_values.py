@@ -503,7 +503,10 @@ class PixelSize(_AxisFloats):
 
 
 class Translation(_AxisFloats, SpatialRelation):
-    """Describes a shift in physical units."""
+    """
+    Describes a shift in physical units.
+    As a spatial relation, it can express e.g. a crop offset. Don't also put such an offset into `Scale.translation`.
+    """
 
     @classmethod
     def _default(cls) -> float:
@@ -623,8 +626,9 @@ class Translation(_AxisFloats, SpatialRelation):
 class Unit(_AxisValues[AxisKey, str]):
     """
     Describes the physical units of the image's axes.
-    Together with a Resolution, this can form a complete pixel size description.
-    Example: {"t": "seconds", "x": "nm, "y": "nm, "c": ""}.
+    Together with a PixelSize, this can form a complete pixel size description.
+    Example: {"t": "seconds", "x": "nm", "y": "nm", "c": ""}.
+    An empty string means the unit is unspecified (there is no explicit way to define "unitless").
     """
 
     @classmethod
