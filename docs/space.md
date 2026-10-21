@@ -38,7 +38,7 @@ Typical uses:
 
 ### What can they express?
 
-For now, clearscale can express scaling, shifting, and changes to the axes (reordering, dropping, inserting), as well as chains of these.
+For now, clearscale can express affine mappings (such as unit conversions, rotations and flips), shifting, and changes to the axes (reordering, dropping, inserting), as well as chains of these.
 These are the [spatial relations](#the-available-spatial-relations) described below.
 
 Metadata formats differ in how much of this they can store.
@@ -152,7 +152,7 @@ It also fills in axis properties you left blank (type, unit, ...) from `volume`.
 
 A **spatial relation** answers the question: *If I have an image in space A, and I do `<operation>` to it, how is the resulting image's space B related to A?*
 
-The operation you actually performed on the data could be transposing the axes, shifting the origin by cropping, or an affine warp.
+The operation you actually performed on the data could be cropping, shifting the origin, transposing the axes.
 
 This is exactly the inverse of coordinate arithmetic, if this is what you are used to:
 
@@ -167,13 +167,16 @@ In addition, also note the opposite directions of thinking in `as_derived_from` 
 For example, a numerically identical crop shift could be expressed in two different ways:
 
 ```python
+from dataclasses import replace
+
 crop_offset = PixelOffset(z=0, y=100, x=200)
+crop_shape = Shape(z=40, y=128, x=128)
 crop_translation = crop_offset * source["s0"].pixel_size
 
 # "I made a new image by cropping `source["s0"]`"
 crop_expressed_as_derivation = (
     Multiscale
-    .from_single(source["s0"], scale_key="s0")
+    .from_single(replace(source["s0"], shape=crop_shape), scale_key="s0")
     .as_derived_from(source, by=crop_translation)
 )
 
@@ -194,6 +197,23 @@ This is just to illustrate that the resulting coordinate transformations
 are arithmetically identical, despite passing `Translation` to `as_derived_from` and `Translation.inverted()` to `with_coordinate_system`.
 
 (Although `crop_expressed_as_derivation --> source` is internally stored as the inverse `(source --> crop_expressed_as_derivation) = [0.0, -50.0, -100.0]`, because this is the direction of the derivation statement.)
+
+### Units
+
+clearscale does not convert units.
+
+Trying to relate a source and target with different units in `with_coordinate_system` or `as_derived_from` generally raises a `ValueError`.
+
+Intentional conversions from one unit to another need to be explicitly specified as a relation.
+Without a conversion, a coordinate in one space would be assumed to equal the same number in the other.
+
+State the conversion explicitly with a scaling `Affine` instead (see [`Affine`](#affine)).
+
+Things to know:
+
+* An empty unit (like `Unit(x="")`) means "unspecified" and never causes an error. Axes that exist on only one side are not compared.
+* Units are compared as plain strings: `"nm"` and `"nanometer"` count as different.
+* Any `Affine` bypasses the check. clearscale does not verify that it converts correctly.
 
 ## Available spatial relations
 
@@ -220,12 +240,98 @@ The relation is stored in the metadata in the opposite direction, from the old s
 
 An `Affine` is only a *true* statement if it carries information that the pixel sizes and translations of the Scales do not already hold.
 Resampling is not such information: a downscaled image has a larger pixel size, and that is all there is to say about it.
-Do not relate a Multiscale to the one it was downscaled from with a scaling `Affine`. 
+Do not relate a Multiscale to the one it was downscaled from with a scaling `Affine`.
 The two spaces are both physical, so they are the same space, and the correct scale between them is 1.
-Use it for relations the Scales cannot express, such as a rotation or a flip, or for spaces whose coordinates are measured with a different yardstick.
+Use it for relations the Scales cannot express, such as a rotation or a flip.
 
-Unit conversion is the common case of the latter: `Affine.from_factor({"x": 1000})` says "a coordinate in the new space times 1000 is the coordinate in the old space", which relates a millimeter space to a micrometer space.
-`Affine.from_factor` takes a `Factor` or a plain `{axis: value}` mapping; use `.with_axes(...)` on the result to add axes that are not scaled.
+Affines with a scaling component are correct only in two main cases:
+* In `with_coordinate_system` if the newly added coordinate system has a different pixel size than the Multiscale it is connected to.
+* When converting units: `Affine.from_factor({"x": 1000})` can represent e.g. going from `Unit(x="micrometer")` to `Unit(x="millimeter")`.
+
+#### Example: expansion microscopy
+
+An expanded sample is imaged at its expanded size.
+To record the sample's original dimensions in the output metadata, add a coordinate system for them:
+
+```python
+from clearscale import Affine, Factor
+
+expansion_factor = Factor.uniform("zyx", 4.2)
+multiscale = multiscale.with_coordinate_system(
+    "unexpanded",
+    reached_by=Affine.from_factor(expansion_factor),
+)
+
+# Pixel size of the image in unexpanded sample space:
+unexpanded_pixel_size = multiscale["s0"].pixel_size / expansion_factor
+```
+
+Note that the factor here *divides* the pixel size, because it represents a change of coordinate system rather than an image resampling operation.
+Downsampling changes how many pixels cover the same physical distance; a scaling Affine changes the coordinate values assigned to the same pixels, without resampling the image.
+
+#### A matrix that places an image in a world space
+
+Registration tools may report where an image lies in a reference coordinate system, using a transformation such as `x_world = matrix @ x_image + shift`, with coordinates expressed in physical units.
+
+This is the opposite direction from Affine's "pull" convention, `x_source = linear @ x_target + translation`. Here, `x_source` corresponds to the registration tool's `x_world`, and `x_target` to its `x_image`.
+
+When a registration tool provides an image-to-world transformation in physical coordinates, invert it before passing it as reached_by:
+
+```python
+from clearscale import Affine
+
+# Registration tool output: "image -> world", in physical coordinates
+registration_matrix = [[0, -1, 10], [1, 0, 20]]
+
+# "image -> world" in registration terms is "world -> image" in Affine terms
+world_to_image = Affine.from_array(registration_matrix, "yx")
+
+multiscale.with_coordinate_system("world", reached_by=world_to_image.inverted())
+```
+
+#### Matrices in pixel index space
+
+Image resampling may work with pixel indices, not physical coordinates.
+`scipy.ndimage.affine_transform(image, matrix, offset)` is a classic example: output pixel `i_out` takes its value from input position `matrix @ i_out + offset`.
+That is already the direction of `Affine`, with the output image as the new space and the input image as the old space.
+Index space has no units, so to convert it into physical coordinates, `Affine` needs to know both pixel grids.
+Pass the `Scale` of each image:
+
+```python
+affine = Affine.from_linear_and_offset(
+    matrix, 
+    offset, 
+    "yx", 
+    source=input_scale, 
+    target=output_scale
+)
+```
+
+`source` is the image the values are taken from, `target` is the image that is produced, and both must have exactly the given axes.
+`Affine.from_array` takes the same arguments for a combined `[matrix | offset]` array.
+Index `i` refers to the *center* of pixel `i`.
+
+The resulting physical matrix is `source.pixel_size * matrix / target.pixel_size` (axis-wise), and the physical translation is `source.pixel_size * offset + source.translation - physical_matrix @ target.translation`.
+
+Since each Scale's pixel size is in its own unit, this also takes care of unit differences: an identity index-matrix "resampling" a 0.015 micrometer grid from a 15 nm source grid becomes a unit-converting Affine with a scaling factor of 1000.
+If the target is just a downscaled version of the source and both Scales are accurate, the result is the identity: Scales already describe the resampling.
+
+If you need a physical `Affine` for a coordinate system that has no `Scale` (i.e. for `with_coordinate_system`), describe the grid your matrix refers to with a placeholder `Scale`; its shape is not used:
+
+```python
+grid = Scale(shape=Shape.all_singletons("yx"), pixel_size=PixelSize(y=0.5, x=0.5))
+```
+
+#### Matrices from other sources
+
+Without `source` and `target`, `from_array` and `from_linear_and_offset` take the numbers as they are.
+If your matrix does not follow the convention above, convert it first:
+
+* **Direction**: If it maps old coordinates to new coordinates, invert it (`.inverted()` after constructing).
+* **Row vectors**: `Affine` uses column vectors (`x_old = linear @ x_new`). For a matrix written for row vectors (`x_new @ matrix`), transpose it.
+* **Index vs physical coordinates**: If it works on pixel indices, pass `source` and `target`, as above.
+* **Axis order**: Rows and columns follow the `axes` you pass. Reorder if your matrix uses another order (for example `xyz` for data that is `zyx`).
+* **Pixel reference point**: `Affine` treats index `i` as the pixel center. If your tool places integer indices at pixel corners, the offset needs a half-pixel correction: `offset_center = offset_corner + 0.5 * (matrix @ ones - ones)`.
 
 ### `Translation`
 
@@ -235,6 +341,29 @@ Unit conversion is the common case of the latter: `Affine.from_factor({"x": 1000
 `Translation` is in physical units (use `PixelOffset * PixelSize` to convert a pixel offset, such as a crop offset).
 
 Use it for crops, for placing tiles into a shared space, and for moving to the origin of a reference.
+
+For example, a crop of a Multiscale `source`, with its own pyramid:
+
+```python
+from dataclasses import replace
+from clearscale import BlueprintShapes, Multiscale, PixelOffset, Shape
+
+s0 = source["s0"]
+crop_offset = PixelOffset(z=10, y=100, x=200)  # where the crop starts, in s0 pixels
+crop_shape = Shape(z=20, y=128, x=128)
+
+# The data you write is s0_data[10:30, 100:228, 200:328] and its pyramid.
+cropped = Multiscale.from_single(
+    replace(s0, shape=crop_shape),  # same pixel size and unit, but the cropped shape
+    blueprint=BlueprintShapes.downscale_powers_of_2_xyz(base_shape=crop_shape, rounding="ceil"),
+).as_derived_from(source, by=crop_offset * s0.pixel_size)  # PixelOffset * PixelSize = Translation
+```
+
+The cropped Multiscale's own origin is the crop corner, and the relation says where that corner lies in the source:
+With a pixel size of 2.0/0.5/0.5 micrometer, `by` is `Translation(z=20.0, y=50.0, x=100.0)`.
+
+If you set `Scale.translation` manually, make sure to keep this consistent (i.e. mutually exclusive) with any `Translation` relations. `Scale.translation` records shifts that come from resampling (`translating=`), while the offset of a crop belongs in the relation.
+Additionally writing the crop offset into the cropped image's `Scale.translation` would count it twice.
 
 ### `PermutationTo`
 
