@@ -136,8 +136,6 @@ class ScalingMethodCharacterization:
     - Rounding method that correctly predicted output shape for *all* probes.
     - None for `characterize_shape_scaling_method` (shape-parametrized calls = no shape-rounding).
     - "indeterminate" for methods that scale by factor, but showed inconsistent shape rounding behavior."""
-    rounding_error: Optional[float]
-    """Number of probes for which the runner-up rounding method (not `rounding` itself) was wrong."""
     warnings: Tuple[str, ...] = ()
     """Non-fatal concerns about the characterization's reliability (noisy/ambiguous fits etc).
     Non-empty means `translating`, `pixel_sizing` and/or `rounding` might be plain wrong."""
@@ -334,13 +332,12 @@ def _characterize_factor_scaling_method(
 
     rounding: Union[RoundingMethod, Literal["indeterminate"]]
     try:
-        rounding, rounding_error = _detect_rounding(discriminating_results, rounding_to_implementation)
+        rounding = _detect_rounding(discriminating_results, rounding_to_implementation)
     except FailedUnevenScalingError:
         some_rounding = next(iter(rounding_to_implementation.values()))
         if all(output is not None and len(output) == some_rounding(probe) for probe, output in exact_results.items()):
             # All the regular probes failed, but at least the scaling function accepted probes that need no rounding
             rounding = "error_on_round"
-            rounding_error = math.inf
         else:
             raise ValueError(
                 "Scaling method failed to execute more than one attempted parameter combination. Attempts with rounding: "
@@ -349,7 +346,6 @@ def _characterize_factor_scaling_method(
             )
     except IndeterminateRoundingError:
         rounding = "indeterminate"
-        rounding_error = math.inf
 
     # Try discriminating first, then exact as fallback
     all_successes = [(p, o) for p, o in (*discriminating_results.items(), *exact_results.items()) if o is not None]
@@ -374,7 +370,6 @@ def _characterize_factor_scaling_method(
     return replace(
         characterization,
         rounding=rounding,
-        rounding_error=float(rounding_error),
         probe_results=(*discriminating_runs, *exact_runs),
     )
 
@@ -397,7 +392,7 @@ def _run_probes(
 def _detect_rounding(
     discriminating_results: Mapping[Probe, Optional[Sequence[float]]],
     rounding_to_implementation: RoundingRuleTable,
-) -> Tuple[RoundingMethod, int]:
+) -> RoundingMethod:
     successful_discriminating_results = {p: o for p, o in discriminating_results.items() if o is not None}
     if len(successful_discriminating_results) == 0:
         raise FailedUnevenScalingError(
@@ -421,13 +416,11 @@ def _detect_rounding(
             "Scaling function's rounding behavior does not exactly match any known rounding rule (closest: "
             f"{best_rounding!r}, but {best_error}/{len(discriminating_results)} probes did not match this rule)."
         )
-    _, runner_up_error = ranked[1]
-    if runner_up_error == 0:
-        raise IndeterminateRoundingError(
-            "Rounding characterization is ambiguous: multiple rounding rules match equally well."
-        )
+    assert (
+        ranked[1][1] != 0
+    ), f"Dev error: Probes should be chosen such that only one rounding behavior can ever match perfectly ({best_rounding!r} and {ranked[1][0]!r} both matched)"
     assert best_rounding in ("ceil", "floor", "round", "round_half_up")
-    return best_rounding, runner_up_error
+    return best_rounding
 
 
 def _get_first_unambiguous_affine_characterization(
@@ -545,7 +538,6 @@ def _characterize_affine(
         pixel_sizing=pixel_sizing,
         pixel_sizing_error=pixel_sizing_error,
         rounding=None,
-        rounding_error=None,
         warnings=tuple(warning_msgs),
     )
     return characterization, is_pixel_sizing_tie
