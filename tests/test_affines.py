@@ -8,6 +8,7 @@ from clearscale import Multiscale, PixelSize, Scale, Shape, Translation, Unit
 from clearscale._affines import Coefficient, Linear, Affine
 from clearscale._axis_values import Factor
 from clearscale._services.matrices import matrix_vector_multiply
+from clearscale._transforms import ScaleTransform
 
 
 def _flat(matrix):
@@ -1002,3 +1003,65 @@ class TestFromLinearAndOffset:
 
         with pytest.raises(ValueError, match=r"`target` must have exactly the axes \('x', 'y'\)"):
             Affine.from_linear_and_offset(((1, 0), (0, 1)), (0, 0), "xy", source=grid_xy, target=grid_yx)
+
+
+class TestFromUnitConversion:
+    def test_returns_factor_per_axis(self):
+        unit = Unit(t="second", z="micrometer", y="nanometer", x="nanometer", c="")
+
+        result = Affine.from_unit_conversion(
+            unit, Unit(t="millisecond", z="nanometer", y="micrometer", x="nanometer", c="")
+        )
+
+        factors = dict(t=0.001, z=0.001, y=1000.0, x=1.0, c=1.0)
+        expected = Affine(
+            linear=Linear.identity("tzyxc").with_values({axis: {axis: value} for axis, value in factors.items()})
+        )
+        assert result == expected
+
+    def test_accepts_plain_mapping_docstring_example(self):
+        assert Affine.from_unit_conversion(
+            source_unit={"x": "micrometer"}, target_unit={"x": "nanometer"}
+        ) == Affine.from_array([[0.001, 0]], axes="x")
+
+    def test_produces_correct_forward_coordinate_transform_docstring_example(self):
+        source_ms = Multiscale.from_single(Scale.from_lists("xy", unit=["micrometer", "micrometer"]))
+        target_unit = Unit(x="nanometer", y="nanometer")
+        annotated = source_ms.with_coordinate_system(
+            "nm_target", unit=target_unit, reached_by=Affine.from_unit_conversion(source_ms.unit, target_unit)
+        )
+
+        stored_transforms = annotated._transform_graph.transforms
+        assert len(stored_transforms) == 1
+        tf = stored_transforms[0]
+        assert isinstance(tf, ScaleTransform)
+        assert tf.source is annotated._intrinsic_ref and tf.target is not None and tf.target.name == "nm_target"
+        assert tf.scale == (
+            1000.0,
+            1000.0,
+        ), "coordinate transform should be forward (coordinate at 1 micrometer = coordinate at 1000 nanometer)"
+
+    def test_requires_identical_axes(self):
+        with pytest.raises(ValueError, match="Incompatible axes/order"):
+            Affine.from_unit_conversion(Unit(y="nm", x="nm"), Unit(x="nm", y="nm"))
+
+    def test_rejects_one_sided_unspecified_unit(self):
+        with pytest.raises(ValueError, match="'nm' and '' on axis 'x'.*unspecified unit has no known size"):
+            Affine.from_unit_conversion(Unit(x="nm"), Unit(x=""))
+
+    def test_identical_unrecognised_units_are_not_converted(self):
+        assert Affine.from_unit_conversion(Unit(x="a.u."), Unit(x="a.u.")) == Affine.identity("x")
+
+    def test_error_names_the_axis(self):
+        with pytest.raises(ValueError, match="Axis 'z': Unknown unit 'furlong'"):
+            Affine.from_unit_conversion(Unit(y="nm", z="furlong"), Unit(y="nm", z="meter"))
+
+    def test_returns_affine_from_the_new_space_to_the_old_one(self):
+        """`Affine` maps new coordinates to old coordinates, which is the direction `new.scaling_to(old)` converts in."""
+        ms = Multiscale({"s0": Scale(shape=Shape(y=4, x=4), unit=Unit(y="nanometer", x="nanometer"))})
+        old, new = Unit(y="nanometer", x="nanometer"), Unit(y="micrometer", x="micrometer")
+
+        result = ms.with_coordinate_system("um", reached_by=Affine.from_unit_conversion(old, new), unit=new)
+
+        scale = result.to_ome_zarr(version="0.6")["coordinateTransformations"][0]["scale"]
+        assert scale == pytest.approx([0.001, 0.001]), "coordinate at input 1nm = coordinate at output 0.001um"
