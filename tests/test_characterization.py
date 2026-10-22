@@ -20,6 +20,8 @@ from clearscale.characterization import (
     discrete_bin_center,
     first_value_decimation,
     half_pixel_space_preservation,
+    Probe,
+    ProbeResult,
     ScalingMethodCharacterization,
 )
 
@@ -444,6 +446,52 @@ class TestCharacterizeExactDivisionOnlyFunction:
 def _as_xy(obj):
     """To satisfy the requirement that Multiscales must be at least 2D and have type=space"""
     return obj.with_axes("xy").with_axis_types_inferred() if isinstance(obj, Scale) else obj.with_axes("xy")
+
+
+class TestProbeResults:
+    def test_step_factor_characterization_records_every_probe(self):
+        def _decimate(source, factor):
+            return _linear_values(start=0.0, spacing=float(factor), length=math.ceil(len(source) / factor))
+
+        characterization = characterize_step_factor_scaling_method(_decimate)
+
+        results = {result.probe: result for result in characterization.probe_results}
+        assert len(results) == 8
+        assert all(result.error is None for result in results.values())
+        probe = Probe(1025, 4)
+        output = results[probe].output
+        assert output is not None
+        assert len(output) == 257
+        assert output[:3] == (0.0, 4.0, 8.0)
+
+    def test_shape_characterization_records_its_single_probe(self):
+        def scaling_function(source, target_length):
+            return _linear_values(start=0.0, spacing=len(source) / target_length, length=target_length)
+
+        characterization = characterize_shape_scaling_method(scaling_function)
+
+        assert len(characterization.probe_results) == 1
+        result = characterization.probe_results[0]
+        assert result.probe == Probe(1025, 263)
+        assert result.output is not None
+        assert len(result.output) == 263
+        assert result.error is None
+
+    def test_records_the_error_of_probes_that_raised(self):
+        def exact_division_only(source, factor):
+            if len(source) % factor:
+                raise ValueError("only supports exact division")
+            return _linear_values(start=0.0, spacing=float(factor), length=len(source) // factor)
+
+        characterization = characterize_step_factor_scaling_method(exact_division_only)
+
+        results = {result.probe: result for result in characterization.probe_results}
+        assert results[Probe(1025, 4)].output is None
+        assert results[Probe(1025, 4)].error == "ValueError: only supports exact division"
+        result_1000 = results[Probe(1000, 4)]
+        assert result_1000.error is None
+        assert result_1000.output is not None
+        assert len(result_1000.output) == 250
 
 
 class TestCharacterizationKwargsApply:
