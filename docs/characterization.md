@@ -98,6 +98,72 @@ assert characterization.translating is discrete_bin_center
 assert characterization.translating_error < 1e-13
 ```
 
+## Characterization of common scaling functions
+
+These results come from running the `characterize_*` functions on the respective functions (scipy 1.17.1, scikit-image 0.26.0).
+Your own parameters (interpolation order, anti-aliasing, ...) might change the result, so characterize your actual call if in doubt.
+
+| Scaling function                                                    | Characterize with                          | `rounding`                | `pixel_sizing` | `translating`                   |
+|---------------------------------------------------------------------|--------------------------------------------|---------------------------|----------------|---------------------------------|
+| `skimage.transform.resize(..., order=1, anti_aliasing=True)`        | `characterize_shape_scaling_method`        | none (you give the shape) | `shape_ratio`  | `half_pixel_space_preservation` |
+| `scipy.ndimage.zoom(..., order=1, grid_mode=False)`                 | `characterize_shape_factor_scaling_method` | `"round"`                 | `corner_ratio` | `first_value_decimation`        |
+| `skimage.transform.downscale_local_mean`                            | `characterize_step_factor_scaling_method`  | `"ceil"`                  | `exact_factor` | `discrete_bin_center`           |
+| `scipy.ndimage.affine_transform` with a diagonal matrix (see below) | `characterize_step_factor_scaling_method`  | depends on `output_shape` | `exact_factor` | depends on `offset`             |
+
+What the characterization measures is which input coordinates the generated output sampled.
+It cannot tell you anything about the sample *values*: whether the method interpolates, how it treats the edges (`mode=`), or whether it filters before downsampling.
+
+### `scipy.ndimage.affine_transform`
+
+With a diagonal matrix, `affine_transform` is a step-factor scaler: `matrix = diag(2.0)` downscales by 2, and `diag(0.5)` upscales by 2.
+The output sample `i` takes its value from input position `matrix * i + offset`, so the spacing is exactly the factor.
+
+It does not decide the output shape or the translation (offset) itself.
+When omitting `output_shape`, the output has the same shape as the input and the characterization does not recognize it as a scaling method at all ("did not change the array length").
+Whatever formula you use to compute `output_shape` from the factor is therefore your method's `rounding`.
+The `offset` you provide determines the `translating`.
+Passing `offset=0` is `first_value_decimation` translating behavior, which may or may not be desirable.
+
+```python
+import math
+import numpy as np
+from scipy import ndimage
+from clearscale.characterization import characterize_step_factor_scaling_method, half_pixel_space_preservation
+
+characterization = characterize_step_factor_scaling_method(
+    lambda x, factor: ndimage.affine_transform(
+        np.asarray(x, dtype=float),
+        np.array([[factor]]),
+        offset=(factor - 1) / 2,  # <- this decides `translating`
+        output_shape=(math.ceil(len(x) / factor),),  # <- this decides `rounding`
+        order=1,
+        mode="nearest",
+    )
+)
+
+assert characterization.pixel_sizing == "exact_factor"
+assert characterization.translating is half_pixel_space_preservation
+assert characterization.rounding == "ceil"
+```
+
+## Debugging a characterization
+
+Characterization calls your scaling function with several probe sequences.
+`characterization.probe_results` has the result of each call, in the order they were made:
+
+```python
+for result in characterization.probe_results:
+    print(result.describe())
+# Probe(source_length=1025, factor=3.7): returned 278 samples
+# Probe(source_length=1025, factor=0.67): returned 1530 samples
+# ...
+print(characterization.probe_results[0].output[:3])  # (0.0, 3.7, 7.4)
+```
+
+Each `ProbeResult` has the `probe` (input length and factor), the `output` (or `None` if the function raised), and the `error` (`"ExceptionType: message"`, or `None`).
+The probe input is the sequence `0, 1, 2, ...`, so the output values are the input positions the method sampled.
+The failure messages of the `characterize_*` functions list every probe and its error.
+
 ## Rounding
 
 Factor-based scaling methods have a problem:

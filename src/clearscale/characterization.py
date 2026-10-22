@@ -1,5 +1,5 @@
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import (
     Callable,
     Iterable,
@@ -141,6 +141,9 @@ class ScalingMethodCharacterization:
     warnings: Tuple[str, ...] = ()
     """Non-fatal concerns about the characterization's reliability (noisy/ambiguous fits etc).
     Non-empty means `translating`, `pixel_sizing` and/or `rounding` might be plain wrong."""
+    probe_results: Tuple["ProbeResult", ...] = field(default=(), compare=False, repr=False)
+    """What the scaling function returned (or the error it raised) for every probe the characterization tried.
+    For debugging how the method behaves."""
 
     def to_shape_kwargs(self) -> ShapeScalingKwargs:
         """kwargs to `**`-splat into `BlueprintShapes.apply_to_scale(scale, **shape_kwargs)`."""
@@ -168,6 +171,24 @@ class ScalingMethodCharacterization:
 class Probe(NamedTuple):
     source_length: int
     factor: float
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeResult:
+    """The outcome of calling the scaling function with one `Probe`: Either its (1D) output, or the error it raised."""
+
+    probe: Probe
+    """NamedTuple[source_length: int, factor: float].
+    For `characterize_shape_scaling_method`, `probe.factor` is the target length instead."""
+    output: Optional[Tuple[float, ...]]
+    """The scaled sequence. None if the scaling function raised."""
+    error: Optional[str]
+    """`ExceptionType: message` if the scaling function raised, else None."""
+
+    def describe(self) -> str:
+        if self.output is None:
+            return f"{self.probe!r}: failed with {self.error}"
+        return f"{self.probe!r}: returned {len(self.output)} samples"
 
 
 class FailedUnevenScalingError(ValueError):
@@ -200,10 +221,14 @@ def characterize_shape_scaling_method(
     #    half_pixel_space_preservation: 0.5 * (<3.89733 or 3.90839> - 1) = <1.44866 or 1.45419>
     #    discrete_bin_center: 0.5 * (ceil(<3.89733 or 3.90839>) - 1) = 1.5
     #    first_value_decimation: 0.0
-    out = _as_1d_float_list(scaling_function([float(i) for i in range(source_length)], 263))
+    target_length = 263
+    out = _as_1d_float_tuple(scaling_function([float(i) for i in range(source_length)], target_length))
     characterization, is_tied = _characterize_affine(out, source_length, exact_factor_spacing=None)
     assert not is_tied, "unreachable: no exact_factor candidate and source != target"
-    return characterization
+    return replace(
+        characterization,
+        probe_results=(ProbeResult(Probe(source_length, target_length), out, None),),
+    )
 
 
 def characterize_shape_factor_scaling_method(
@@ -302,8 +327,10 @@ def _characterize_factor_scaling_method(
     `factor_to_spacing` resolves a probe's factor value to its predicted "exact_factor"
     pixel spacing under the caller's convention (1/f for multiplier, f for divisor).
     """
-    discriminating_results = dict(zip(discriminating_probes, _run_probes(scaling_function, discriminating_probes)))
-    exact_results = dict(zip(exact_probes, _run_probes(scaling_function, exact_probes)))
+    discriminating_runs = _run_probes(scaling_function, discriminating_probes)
+    exact_runs = _run_probes(scaling_function, exact_probes)
+    discriminating_results = {run.probe: run.output for run in discriminating_runs}
+    exact_results = {run.probe: run.output for run in exact_runs}
 
     rounding: Union[RoundingMethod, Literal["indeterminate"]]
     try:
@@ -317,7 +344,8 @@ def _characterize_factor_scaling_method(
         else:
             raise ValueError(
                 "Scaling method failed to execute more than one attempted parameter combination. Attempts with rounding: "
-                f"{discriminating_results!r}. Attempts without rounding: {exact_results!r}"
+                f"{'; '.join(run.describe() for run in discriminating_runs)}. "
+                f"Attempts without rounding: {'; '.join(run.describe() for run in exact_runs)}"
             )
     except IndeterminateRoundingError:
         rounding = "indeterminate"
@@ -347,25 +375,27 @@ def _characterize_factor_scaling_method(
         characterization,
         rounding=rounding,
         rounding_error=float(rounding_error),
+        probe_results=(*discriminating_runs, *exact_runs),
     )
 
 
 def _run_probes(
     scaling_function: Callable[[Sequence[float], float], Iterable[float]], probes: Sequence[Probe]
-) -> List[Optional[List[float]]]:
-    results: List[Optional[List[float]]] = []
+) -> List[ProbeResult]:
+    results: List[ProbeResult] = []
     for probe in probes:
         coords = [float(i) for i in range(probe.source_length)]
         try:
             scaled = scaling_function(coords, probe.factor)
-        except Exception:
-            scaled = None
-        results.append(None if scaled is None else _as_1d_float_list(scaled))
+        except Exception as e:
+            results.append(ProbeResult(probe, None, f"{type(e).__name__}: {e}"))
+            continue
+        results.append(ProbeResult(probe, _as_1d_float_tuple(scaled), None))
     return results
 
 
 def _detect_rounding(
-    discriminating_results: Mapping[Probe, Optional[List[float]]],
+    discriminating_results: Mapping[Probe, Optional[Sequence[float]]],
     rounding_to_implementation: RoundingRuleTable,
 ) -> Tuple[RoundingMethod, int]:
     successful_discriminating_results = {p: o for p, o in discriminating_results.items() if o is not None}
@@ -401,16 +431,19 @@ def _detect_rounding(
 
 
 def _get_first_unambiguous_affine_characterization(
-    successes: Sequence[Tuple[Probe, List[float]]],
+    successes: Sequence[Tuple[Probe, Sequence[float]]],
     factor_to_spacing: Callable[[float], float],
     pixel_sizing_tie_expected: bool,
 ) -> ScalingMethodCharacterization:
     for probe, output in successes:
-        characterization, is_pixel_sizing_tied = _characterize_affine(
-            output,
-            probe.source_length,
-            exact_factor_spacing=factor_to_spacing(probe.factor),
-        )
+        try:
+            characterization, is_pixel_sizing_tied = _characterize_affine(
+                output,
+                probe.source_length,
+                exact_factor_spacing=factor_to_spacing(probe.factor),
+            )
+        except ValueError as e:
+            raise ValueError(f"Probe {probe!r} produced unusable output. {e}") from e
 
         if not is_pixel_sizing_tied or pixel_sizing_tie_expected:
             return characterization
@@ -518,17 +551,19 @@ def _characterize_affine(
     return characterization, is_pixel_sizing_tie
 
 
-def _as_1d_float_list(values: Iterable[float]) -> list[float]:
+def _as_1d_float_tuple(values: Iterable[float]) -> Tuple[float, ...]:
     if getattr(values, "ndim", 1) != 1:
         raise ValueError(f"Scaling function must return a one-dimensional array. Received: {values!r}")
 
     try:
-        return [float(value) for value in values]
+        return tuple(float(value) for value in values)
     except (TypeError, ValueError) as e:
         raise ValueError(f"Scaling function must return a one-dimensional array. Received: {values!r}") from e
 
 
 __all__ = [
+    "Probe",
+    "ProbeResult",
     "discrete_bin_center",
     "half_pixel_space_preservation",
     "first_value_decimation",
