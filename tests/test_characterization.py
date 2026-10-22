@@ -170,7 +170,6 @@ class TestCharacterizeShapeScaler:
         assert characterization.pixel_sizing == expected_pixel_sizing
         assert characterization.pixel_sizing_error < 1e-9
         assert characterization.rounding is None
-        assert characterization.rounding_error is None
 
     def test_is_resistant_to_edge_errors(self):
         def scaling_function(source, target_length):
@@ -252,7 +251,7 @@ class TestCharacterizeShapeScaler:
         assert characterization.rounding is None
 
 
-def _mock_factor_scaling_function(*, rounding_rule, pixel_sizing, shift_fn, divisor_convention):
+def _mock_factor_scaling_function(*, rounding_rule, pixel_sizing, shift_fn, uses_divisor_convention):
     """
     rounding_rule: (n, factor) -> target_length, using the convention's own direction
         (n*factor for shape multiplier, n/factor for step factor / shape divisor).
@@ -264,7 +263,7 @@ def _mock_factor_scaling_function(*, rounding_rule, pixel_sizing, shift_fn, divi
         n = len(source)
         target_length = rounding_rule(n, factor)
         if pixel_sizing == "exact_factor":
-            spacing = float(factor) if divisor_convention else 1.0 / factor
+            spacing = float(factor) if uses_divisor_convention else 1.0 / factor
         elif pixel_sizing == "shape_ratio":
             spacing = n / target_length
         else:
@@ -283,13 +282,12 @@ class TestCharacterizeShapeFactorScaler:
             rounding_rule=lambda n, s: math.ceil(n * s),
             pixel_sizing="exact_factor",
             shift_fn=first_value_decimation,
-            divisor_convention=False,
+            uses_divisor_convention=False,
         )
 
         characterization = characterize_shape_factor_scaling_method(scaling_function)
 
         assert characterization.rounding == "ceil"
-        assert characterization.rounding_error is not None and characterization.rounding_error >= 1
         assert characterization.pixel_sizing == "exact_factor"
         assert characterization.pixel_sizing_error < 1e-9
         assert characterization.translating is first_value_decimation
@@ -300,7 +298,7 @@ class TestCharacterizeShapeFactorScaler:
             rounding_rule=lambda n, s: math.floor(n * s + 0.5),
             pixel_sizing="shape_ratio",
             shift_fn=half_pixel_space_preservation,
-            divisor_convention=False,
+            uses_divisor_convention=False,
         )
 
         characterization = characterize_shape_factor_scaling_method(scaling_function)
@@ -314,7 +312,7 @@ class TestCharacterizeShapeFactorScaler:
             rounding_rule=lambda n, s: math.ceil(n * s),
             pixel_sizing="exact_factor",
             shift_fn=first_value_decimation,
-            divisor_convention=False,
+            uses_divisor_convention=False,
         )
 
         def scaling_function(source, factor):
@@ -374,7 +372,7 @@ class TestCharacterizeStepFactorScaler:
             rounding_rule=lambda n, s: math.floor(n / s),
             pixel_sizing="shape_ratio",
             shift_fn=discrete_bin_center,
-            divisor_convention=True,
+            uses_divisor_convention=True,
         )
 
         characterization = characterize_step_factor_scaling_method(scaling_function)
@@ -388,7 +386,7 @@ class TestCharacterizeStepFactorScaler:
             rounding_rule=lambda n, s: math.ceil(n / s),
             pixel_sizing="exact_factor",
             shift_fn=first_value_decimation,
-            divisor_convention=True,
+            uses_divisor_convention=True,
         )
 
         characterization = characterize_step_factor_scaling_method(scaling_function)
@@ -414,7 +412,6 @@ class TestCharacterizeExactDivisionOnlyFunction:
         characterization = characterize_shape_factor_scaling_method(exact_division_only)
 
         assert characterization.rounding == "error_on_round"
-        assert characterization.rounding_error == math.inf
         assert characterization.pixel_sizing == "shape_ratio"
         assert characterization.translating is first_value_decimation
 
@@ -431,7 +428,6 @@ class TestCharacterizeExactDivisionOnlyFunction:
         characterization = characterize_step_factor_scaling_method(exact_division_only)
 
         assert characterization.rounding == "error_on_round"
-        assert characterization.rounding_error == math.inf
         assert characterization.pixel_sizing == "shape_ratio"
         assert characterization.translating is first_value_decimation
 
@@ -458,8 +454,7 @@ class TestProbeResults:
         results = {result.probe: result for result in characterization.probe_results}
         assert len(results) == 8
         assert all(result.error is None for result in results.values())
-        probe = Probe(1025, 4)
-        output = results[probe].output
+        output = results[Probe(1025, 4)].output
         assert output is not None
         assert len(output) == 257
         assert output[:3] == (0.0, 4.0, 8.0)
@@ -605,7 +600,6 @@ class TestCharacterizationKwargsApply:
             pixel_sizing="shape_ratio",
             pixel_sizing_error=0.0,
             rounding="indeterminate",
-            rounding_error=None,
         )
 
         with pytest.raises(ValueError, match="could not determine rounding behavior"):
