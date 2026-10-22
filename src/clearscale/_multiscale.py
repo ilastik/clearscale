@@ -2165,7 +2165,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         `Affine` is the only SpatialRelation that can express scaling.
         The user has to state the scaling conversion explicitly as an `Affine`, rather than e.g. clearscale auto-inferring it.
 
-        Whether the Affine is numerically correct for the conversion is not validated (yet) - any Affine bypasses the
+        Whether the Affine is numerically correct for the conversion is not validated - any Affine bypasses the
         check for unit mismatch.
 
         Blank units mean "unspecified" (as in OME-Zarr), so they never conflict. Axes present on only one side never conflict.
@@ -2186,8 +2186,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         details = ", ".join(f"{axis!r}: {src!r} vs {tgt!r}" for axis, (src, tgt) in conflicts.items())
         raise ValueError(
             f"The units of {source_label} and {target_label} differ ({details}), but no relation converts between them. "
-            "clearscale does not convert units yet. State the conversion explicitly, using an `Affine` "
-            "(e.g. `Affine.from_factor({axis: factor})`) in the relation, or use the same unit for both."
+            "clearscale does not convert units. State the conversion explicitly, using an `Affine` "
+            "(e.g. `Affine.from_unit_conversion(source_unit, target_unit)`) in the relation, or use the same unit for both."
         )
 
     @staticmethod

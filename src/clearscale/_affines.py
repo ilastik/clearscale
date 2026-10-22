@@ -3,7 +3,7 @@
 from collections import OrderedDict
 from collections.abc import Mapping as ABCMapping
 from dataclasses import dataclass, replace
-from typing import List, Sequence, Tuple, Mapping, Optional
+from typing import List, Sequence, Tuple, Mapping, Optional, Union
 
 from clearscale._axis_values import (
     Axes,
@@ -16,9 +16,11 @@ from clearscale._axis_values import (
     Scalar,
     Translation,
     _require_identical_axes,
+    Unit,
 )
+from clearscale._services.units import unit_conversion_factor
 from clearscale._spatial_relations import SpatialRelation
-from clearscale.types import FactorLike, HasPixelGrid
+from clearscale.types import FactorLike, HasPixelGrid, AxisKeyT
 from clearscale._services.matrices import matrix_invert, matrix_vector_multiply, DEFAULT_SINGULARITY_TOLERANCE
 
 
@@ -382,6 +384,53 @@ class Affine(SpatialRelation):
         """
         factor = Factor(factor)
         return cls(linear=Linear.identity(factor).with_values({axis: {axis: value} for axis, value in factor.items()}))
+
+    @classmethod
+    def from_unit_conversion(
+        cls, source_unit: Union[Unit, Mapping[AxisKeyT, str]], target_unit: Union[Unit, Mapping[AxisKeyT, str]]
+    ):
+        """
+        Returns the Affine that converts from source_unit to target_unit:
+        `assert Affine.from_unit_conversion(
+            source_unit={"x": "micrometer"},
+            target_unit={"x": "nanometer"}
+        ) == Affine.from_array([[0.001, 0]], axes="x")`
+
+        The returned Affine can be used as-is to relate a source to a target with different units:
+        ```
+        source_ms = Multiscale.from_single(Scale.from_lists("xy", unit=["micrometer", "micrometer"]))
+        target_unit = Unit(x="nanometer", y="nanometer")
+        annotated = source_ms.with_coordinate_system(
+            "nm_target",
+            unit=target_unit,
+            reached_by=Affine.from_unit_conversion(source_ms.unit, target_unit)
+        )
+        ```
+
+        Recognises the space and time units of OME-Zarr, and common spellings such as "nm", "um", "µm" and "micron".
+        Axes with identical units on both sides (including both unspecified) have factor 1.0, whether recognised or not.
+        Raises ValueError for any other unrecognised unit, for conversions between space and time, and for axes
+        where only one side is unspecified, because an unspecified unit has no known size.
+        """
+        source = Unit(source_unit)
+        target = Unit(target_unit)
+        _require_identical_axes(source, target)
+        factors = []
+        for axis, unit in source.items():
+            other_unit = target[axis]
+            if unit == other_unit:
+                factors.append((axis, 1.0))
+                continue
+            if not unit or not other_unit:
+                raise ValueError(
+                    f"Cannot convert between {unit!r} and {other_unit!r} on axis {axis!r}: "
+                    "An unspecified unit has no known size."
+                )
+            try:
+                factors.append((axis, unit_conversion_factor(unit, other_unit)))
+            except ValueError as e:
+                raise ValueError(f"Axis {axis!r}: {e}") from e
+        return cls(linear=Linear.identity(source).with_values({axis: {axis: value} for axis, value in factors}))
 
     def __init__(self, *, linear: Optional[Linear] = None, translation: Optional[Translation] = None):
         if not isinstance(linear, Linear) and not isinstance(translation, Translation):

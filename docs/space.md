@@ -289,6 +289,33 @@ world_to_image = Affine.from_array(registration_matrix, "yx")
 multiscale.with_coordinate_system("world", reached_by=world_to_image.inverted())
 ```
 
+#### Unit conversion
+
+`Affine.from_unit_conversion` knows all space and time units that OME-Zarr recognises (`"nanometer"`, `"millisecond"`, `"inch"`, ...) and common spellings of them (`"nm"`, `"um"`, `"µm"`, `"micron"`, `"Å"`, `"ms"`, ...).
+It returns an `Affine` that converts values from the source unit to the target:
+
+```python
+from clearscale import Multiscale, Scale, Shape, Unit, Affine
+
+source_ms = Multiscale.from_single(
+    Scale(
+        shape=Shape.all_singletons("xy"),
+        unit=Unit(x="micrometer", y="micrometer")
+    )
+)
+
+target_unit = Unit(x="nanometer", y="nanometer")
+
+annotated = source_ms.with_coordinate_system(
+    "nm_target",
+    unit=target_unit,
+    reached_by=Affine.from_unit_conversion(
+        source_ms.unit,
+        target_unit
+    )
+)
+```
+
 #### Matrices in pixel index space
 
 Image resampling may work with pixel indices, not physical coordinates.

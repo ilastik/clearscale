@@ -8,7 +8,7 @@
 - `_affines.py` defines nested AxisValues (Linear matrices, their Coefficient building block, and Affine container)
 - `_transforms` contains the new concepts from OME-Zarr 0.6. `_base.py` defines the transformation graph, transform base class, IdentityTransform and TransformSequence. `_transform_types.py` implements the payload-specific Transform subclasses according to the OME-Zarr 0.6 spec. The public API for users to interact with Transforms is the SpatialRelation.
 - `_multiscale.py` defines the primary user-value objects (Scale, Multiscale, BlueprintShapes and BlueprintFactors)
-- `_services` breaks out static helpers, mostly for `_multiscale.py`. `matrices.py` is for `_transforms` (Rotation, Affine)
+- `_services` breaks out static helpers, mostly for `_multiscale.py`, `_transforms` and `_affines.py` at the moment
 - `characterization.py` public helpers for characterizing scaling methods (mainly intended for learning during dev, not to run in production)
 - `_scene.py` defines the Scene concept of OME-Zarr 0.6
 - `_collections.py` serves as the primary entrypoint to discover OME-Zarr contents of arbitrary zarr attrs 
