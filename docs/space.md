@@ -212,7 +212,7 @@ State the conversion explicitly with a scaling `Affine` instead (see [`Affine`](
 Things to know:
 
 * An empty unit (like `Unit(x="")`) means "unspecified" and never causes an error. Axes that exist on only one side are not compared.
-* Units are compared as plain strings: `"nm"` and `"nanometer"` count as different.
+* Different spellings of the same unit count as the same unit: `"nm"` and `"NANOMETER"`, or `"um"`, `"µm"` and `"micron"`. Unrecognized units only match by string equality (e.g. `"a.u."` does not match `"A.U."`).
 * Any `Affine` bypasses the check. clearscale does not verify that it converts correctly.
 
 ## Available spatial relations
@@ -314,6 +314,22 @@ annotated = source_ms.with_coordinate_system(
         target_unit
     )
 )
+```
+
+clearscale maintains and writes unit strings as you provide them: `"nm"` stays `"nm"`, because tool interoperability can depend on the exact spelling.
+For OME-Zarr, unless your workflow strictly requires a custom spelling, you should use the standard forms `"nanometer"`, `"micrometer"`, `"second"`, etc.
+
+You can use `Unit.normalized()` to clean up if you prefer to use abbreviations internally but want to write compliant metadata:
+
+```python
+scale = Scale(
+    shape=Shape(y=512, x=512),
+    unit=Unit(y="um", x="um")
+)
+
+cleaned_up = scale.with_unit_replaced(scale.unit.normalized())
+
+assert cleaned_up.unit == Unit(y="micrometer", x="micrometer")
 ```
 
 #### Matrices in pixel index space

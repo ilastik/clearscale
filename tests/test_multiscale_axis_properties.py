@@ -874,3 +874,34 @@ class TestScaleWithUnitReplaced:
         """Why with_unit_replaced exists"""
         with pytest.raises(ValueError, match="Conflicting unit"):
             replace(self._scale(), unit=Unit(z="nanometer", y="nanometer", x="nanometer"))
+
+
+class TestUnitSpellings:
+    @staticmethod
+    def _axes(unit):
+        return {"y": ome_zarr.Axis(type="space", unit=unit), "x": ome_zarr.Axis(type="space", unit=unit)}
+
+    def test_scale_accepts_unit_and_ome_zarr_axes_with_different_spellings(self):
+        scale = Scale(shape=Shape(y=4, x=4), unit=Unit(y="nm", x="nm"), ome_zarr_axes=self._axes("nanometer"))
+
+        assert scale.unit == Unit(y="nm", x="nm")
+
+    def test_scale_still_rejects_different_units_given_by_alias(self):
+        with pytest.raises(ValueError, match="Conflicting unit"):
+            Scale(shape=Shape(y=4, x=4), unit=Unit(y="um", x="um"), ome_zarr_axes=self._axes("nanometer"))
+
+    def test_multiscale_merges_scales_with_different_spellings_keeping_the_first(self):
+        first = Scale(shape=Shape(y=8, x=8), unit=Unit(y="nm", x="nm"), ome_zarr_axes="infer")
+        second = Scale(shape=Shape(y=4, x=4), unit=Unit(y="nanometer", x="nanometer"), ome_zarr_axes="infer")
+
+        ms = Multiscale({"s0": first, "s1": second})
+
+        assert ms.unit == Unit(y="nm", x="nm")
+        assert ms["s1"].unit == Unit(y="nm", x="nm")
+
+    def test_multiscale_rejects_scales_with_different_units_given_by_alias(self):
+        first = Scale(shape=Shape(y=8, x=8), unit=Unit(y="nm", x="nm"), ome_zarr_axes="infer")
+        second = Scale(shape=Shape(y=4, x=4), unit=Unit(y="um", x="um"), ome_zarr_axes="infer")
+
+        with pytest.raises(ValueError, match="Conflicting 'unit'"):
+            Multiscale({"s0": first, "s1": second})
