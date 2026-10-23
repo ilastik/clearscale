@@ -60,6 +60,11 @@ def zero_matrix_columns(matrix: FloatMatrix, *, tolerance: float) -> AxisIndices
     return zero_matrix_rows(matrix_transpose(matrix), tolerance=tolerance)
 
 
+def nonzero_columns_by_row(matrix: FloatMatrix, *, tolerance: float) -> Tuple[AxisIndices, ...]:
+    """For each row, the indices of the columns whose values are non-zero beyond `tolerance`."""
+    return tuple(tuple(j for j, value in enumerate(row) if abs(value) > tolerance) for row in matrix)
+
+
 def monomial_matrix_decompose(matrix: FloatMatrix, *, tolerance: float) -> Optional[Tuple[AxisIndices, FloatVector]]:
     """Decompose a square monomial matrix into a permutation and row factors.
 
