@@ -1028,6 +1028,12 @@ class TransformSequence(Transform):
             )
         self._validate_child_ndim_chain()
         Transform.__post_init__(self)
+        # Now that endpoint-independent validation has passed (relative ndim of the children is valid),
+        # check again if concrete (absolute) endpoint ndim are known.
+        source_ndim = len(self.source.owner.axes) if isinstance(self.source, NodeRef) else None
+        target_ndim = len(self.target.owner.axes) if isinstance(self.target, NodeRef) else None
+        if source_ndim is not None or target_ndim is not None:
+            self._validate_child_ndim_chain(source_ndim, target_ndim)
 
     def _ndim_by_payload(self) -> _EndpointDimensionConstraints:
         constraints = tuple(t._ndim_by_payload() for t in self.transforms)
@@ -1113,9 +1119,13 @@ class TransformSequence(Transform):
         Rotation, Scale, and Translation depending on its values."""
         return self.collapsed().simplified()
 
-    def _validate_child_ndim_chain(self) -> None:
-        earlier_target_min: Optional[int] = None
-        earlier_target_max: Optional[int] = None
+    def _validate_child_ndim_chain(self, source_ndim: Optional[int] = None, target_ndim: Optional[int] = None) -> None:
+        """Check that the children's payload ndim constraints can be satisfied one after another.
+        Without `source_ndim`, only checks that *some* source ndim exists that makes the chain work.
+        With the exactly known `source_ndim` and/or `target_ndim` (from bound endpoints), also checks the chain
+        against these absolute values."""
+        earlier_target_min: Optional[int] = source_ndim
+        earlier_target_max: Optional[int] = source_ndim
         earlier: Optional[Transform] = None
 
         for transform in self.transforms:
@@ -1129,7 +1139,11 @@ class TransformSequence(Transform):
                 source_max = min(source_max or earlier_target_max, earlier_target_max)
 
             if source_max is not None and source_min is not None and source_min > source_max:
-                assert earlier is not None, "cannot happen in the first iteration"
+                if earlier is None:
+                    raise ValueError(
+                        f"Transform chain ndim mismatch: {type(transform).__name__}(ndim={ndim!r}) cannot "
+                        f"receive the chain's {source_ndim} source axes."
+                    )
                 # source_max must have come from earlier. min>max on current ndim would be dev error caught earlier.
                 raise ValueError(
                     f"Transform chain ndim mismatch: {source_min=} > {source_max=}. "
@@ -1157,6 +1171,15 @@ class TransformSequence(Transform):
             earlier_target_min = target_min
             earlier_target_max = target_max
             earlier = transform
+
+        if target_ndim is not None and (
+            (earlier_target_min is not None and target_ndim < earlier_target_min)
+            or (earlier_target_max is not None and target_ndim > earlier_target_max)
+        ):
+            raise ValueError(
+                f"Transform chain ndim mismatch: the chain produces between {earlier_target_min} and "
+                f"{earlier_target_max} target axes from {source_ndim} source axes, but the target has {target_ndim}."
+            )
 
     def _iter_flattened(self) -> Iterator[Transform]:
         """Performance-optimisation for recursively iterating and flattening this sequence and its child sequences."""
