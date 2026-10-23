@@ -130,3 +130,17 @@ def unit_conversion_factor(unit: str, other: str) -> float:
     if dimension != other_dimension:
         raise ValueError(f"Cannot convert between {unit!r} ({dimension}) and {other!r} ({other_dimension}).")
     return float(other_size / size)
+
+
+def normalized_unit(unit: str) -> str:
+    """The OME-Zarr name of `unit` if it is recognised, otherwise `unit` unchanged (including blank)."""
+    return canonical_unit_name(unit) or unit
+
+
+def is_same_unit(unit: str, other: str) -> bool:
+    """Whether `unit` and `other` are the same unit, up to spelling: Identical strings, or both recognised as the
+    same OME-Zarr unit ("nm" and "nanometer"). Unrecognised units are only the same if the strings are identical."""
+    if unit == other:
+        return True
+    name = canonical_unit_name(unit)
+    return name is not None and name == canonical_unit_name(other)

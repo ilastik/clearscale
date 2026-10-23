@@ -1041,6 +1041,13 @@ class TestFromUnitConversion:
             1000.0,
         ), "coordinate transform should be forward (coordinate at 1 micrometer = coordinate at 1000 nanometer)"
 
+    def test_accepts_nonstandard_spellings(self):
+        assert Affine.from_unit_conversion(source_unit={"x": "micron"}, target_unit={"x": "nm"}) == Affine.from_array(
+            [[0.001, 0]], axes="x"
+        )
+
+        assert Affine.from_unit_conversion(source_unit={"x": "micron"}, target_unit={"x": "um"}) == Affine.identity("x")
+
     def test_requires_identical_axes(self):
         with pytest.raises(ValueError, match="Incompatible axes/order"):
             Affine.from_unit_conversion(Unit(y="nm", x="nm"), Unit(x="nm", y="nm"))

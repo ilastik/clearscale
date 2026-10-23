@@ -23,6 +23,7 @@ from typing import (
     overload,
 )
 
+from clearscale._services import units
 from clearscale._spatial_relations import SpatialRelation
 from clearscale.types import AxisKey, _Ordered, OrderedAxes, ShapeLike, AxisKeyT
 
@@ -658,6 +659,13 @@ class Unit(_AxisValues[AxisKey, str]):
     def empty(cls, axes: OrderedAxes) -> "Unit":
         """Create a new Unit with `axes` and empty string values."""
         return super().fromkeys(axes)
+
+    def normalized(self) -> "Unit":
+        """
+        The same Unit with every recognized unit spelled as OME-Zarr names it: "nm", "um" and "micron" become
+        "nanometer", "micrometer" and "micrometer". Unrecognized and unspecified units are left as they are.
+        """
+        return self.__class__((axis, units.normalized_unit(unit)) for axis, unit in self.items())
 
 
 class PixelOffset(_AxisValues[AxisKey, int]):
