@@ -5,7 +5,7 @@ import warnings
 from abc import ABC
 from collections import OrderedDict, defaultdict
 from collections.abc import Mapping as ABCMapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from functools import cached_property
 from typing import (
@@ -264,6 +264,36 @@ class Scale:
             unit=self.unit,
             translation=self.translation,
             ome_zarr_axes=self.ome_zarr_axes.with_types_inferred(),
+        )
+
+    def with_unit_replaced(self, unit: Union[Unit, Mapping[AxisKeyT, str]]) -> "Scale":
+        """
+        Replace the unit strings for the axes provided, leaving unmentioned axes untouched.
+        Conceptually, this is `dataclasses.replace(scale, unit=...)` + partial merge.
+
+        This only relabels, it does not convert: pixel size and translation keep their numbers.
+        To express the same physical sizes in another unit, you would also need to replace `.pixel_size`
+        (and `.translation`) with the converted values.
+
+        Replacing the value for an axis with an empty string makes the unit unspecified (explicit "unitless"
+        cannot be represented).
+        """
+        unit = Unit(unit)
+        unknown = [axis for axis in unit if axis not in self.unit]
+        if unknown:
+            raise ValueError(
+                f"Cannot replace unit of axes {unknown!r}: this Scale has axes {list(self.unit.keys())!r}."
+            )
+        new_unit = self.unit.with_values(unit)
+        new_ome_zarr_axes = OmeZarrAxes(
+            (a, replace(ax, unit=new_unit[a] or None)) for a, ax in self.ome_zarr_axes.items()
+        )
+        return Scale(
+            shape=self.shape,
+            pixel_size=self.pixel_size,
+            unit=new_unit,
+            translation=self.translation,
+            ome_zarr_axes=new_ome_zarr_axes,
         )
 
     def has_physical_meta(self):
