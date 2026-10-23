@@ -116,6 +116,36 @@ def _normalize_ome_zarr_axes_param(ome_zarr_axes: Optional[OmeZarrAxesParam], ke
         return OmeZarrAxes(ome_zarr_axes).with_axes(keys)
 
 
+def _reconcile_axis_prop_params(
+    target_axes: Tuple[AxisKey, ...],
+    dependencies: AxisKeyDependencies,
+    source_ome_axes: OmeZarrAxes,
+    provided_ome_axes: Optional[OmeZarrAxesParam],
+    unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]],
+) -> OmeZarrAxes:
+    unit = Unit.empty(target_axes) if unit is None else Unit(unit)
+    parsed_ome_axes = _normalize_ome_zarr_axes_param(provided_ome_axes, target_axes)
+
+    conflicts = parsed_ome_axes.conflicts_with_unit(unit)
+    if conflicts:
+        raise ValueError(
+            f"Conflicting unit between `unit` and `ome_zarr_axes`: "
+            f"{ {a: f'{slf!r} vs {oth!r}' for a, (slf, oth) in conflicts.items()} }. Only specify unit once."
+        )
+
+    carried_ome_axes = source_ome_axes.with_axes_carried_over(target_axes, dependencies)
+    if provided_ome_axes == "infer":
+        result = carried_ome_axes
+        inserted_axes = {axis for axis, deps in zip(target_axes, dependencies) if not deps}
+        if inserted_axes:
+            inserted_ome_axes = parsed_ome_axes.without_axes_except(inserted_axes)
+            result = result.with_blanks_filled_from(inserted_ome_axes)
+    else:
+        result = parsed_ome_axes.with_axes(target_axes).with_blanks_filled_from(carried_ome_axes)
+
+    return result.with_unit_merged(unit)
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Scale:
     shape: Shape
@@ -1840,35 +1870,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         """Add a coordinate system to this Multiscale's spatial context.
 
         The returned Multiscale is spatially identical with `self`, but additionally knows the new coordinate system."""
-
-        def _reconcile_axis_prop_params(
-            target_axes: Tuple[AxisKey, ...],
-            dependencies: AxisKeyDependencies,
-            source_ome_axes: OmeZarrAxes,
-            provided_ome_axes: Optional[OmeZarrAxesParam],
-            unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]],
-        ) -> OmeZarrAxes:
-            unit = Unit.empty(target_axes) if unit is None else Unit(unit)
-            parsed_ome_axes = _normalize_ome_zarr_axes_param(provided_ome_axes, target_axes)
-
-            conflicts = parsed_ome_axes.conflicts_with_unit(unit)
-            if conflicts:
-                raise ValueError(
-                    f"Conflicting unit between `unit` and `ome_zarr_axes`: "
-                    f"{ {a: f'{slf!r} vs {oth!r}' for a, (slf, oth) in conflicts.items()} }. Only specify unit once."
-                )
-
-            carried_ome_axes = source_ome_axes.with_axes_carried_over(target_axes, dependencies)
-            if provided_ome_axes == "infer":
-                result = carried_ome_axes
-                inserted_axes = {axis for axis, deps in zip(target_axes, dependencies) if not deps}
-                if inserted_axes:
-                    inserted_ome_axes = parsed_ome_axes.without_axes_except(inserted_axes)
-                    result = result.with_blanks_filled_from(inserted_ome_axes)
-            else:
-                result = parsed_ome_axes.with_axes(target_axes).with_blanks_filled_from(carried_ome_axes)
-
-            return result.with_unit_merged(unit)
 
         if name == self._intrinsic_ref.name or name in self.coordinate_systems:
             raise ValueError(f"Coordinate system name {name!r} already exists on this Multiscale.")
