@@ -1,7 +1,15 @@
 import pytest
 
 from clearscale import Unit
-from clearscale._services.units import UNITS, canonical_unit_name, is_same_unit, normalized_unit, unit_conversion_factor
+from clearscale._services.units import (
+    SYMBOLS,
+    UNITS,
+    abbreviated_unit,
+    canonical_unit_name,
+    is_same_unit,
+    normalized_unit,
+    unit_conversion_factor,
+)
 
 OME_ZARR_SPACE_UNITS = (
     "angstrom attometer centimeter decimeter exameter femtometer foot gigameter hectometer inch kilometer megameter "
@@ -169,3 +177,60 @@ class TestUnitNormalized:
         unit.normalized()
 
         assert unit == Unit(x="nm")
+
+
+def test_every_unit_has_a_unique_symbol_that_is_recognised_as_that_unit():
+    assert set(SYMBOLS) == set(UNITS)
+    assert len(set(SYMBOLS.values())) == len(SYMBOLS)
+    for name, symbol in SYMBOLS.items():
+        assert canonical_unit_name(symbol) == name
+        assert len(symbol) <= len(name)
+
+
+@pytest.mark.parametrize(
+    "unit, expected",
+    [
+        ("nanometer", "nm"),
+        ("micrometer", "\u00b5m"),
+        ("micron", "\u00b5m"),
+        ("um", "\u00b5m"),
+        ("meter", "m"),
+        ("kilometer", "km"),
+        ("zettameter", "Zm"),
+        ("angstrom", "\u00c5"),
+        ("inch", "in"),
+        ("second", "s"),
+        ("millisecond", "ms"),
+        ("microsecond", "\u00b5s"),
+        ("minute", "min"),
+        ("hour", "h"),
+        ("day", "d"),
+        ("nm", "nm"),
+        ("furlong", "furlong"),
+        ("a.u.", "a.u."),
+        ("", ""),
+        ("\u03bcm", "\u00b5m"),  # Greek letter mu U+03BC -> micro sign U+00B5
+    ],
+)
+def test_abbreviated_unit(unit, expected):
+    assert abbreviated_unit(unit) == expected
+
+
+class TestUnitAbbreviated:
+    def test_abbreviates_recognised_units_per_axis(self):
+        unit = Unit(t="second", z="micron", y="nanometer", x="nm", c="")
+
+        assert unit.abbreviated() == Unit(t="s", z="\u00b5m", y="nm", x="nm", c="")
+
+    def test_ignores_unrecognised_strings(self):
+        assert Unit(x="a.u.", y="Pixel").abbreviated() == Unit(x="a.u.", y="Pixel")
+
+    def test_is_idempotent(self):
+        unit = Unit(x="micrometer", y="millisecond")
+
+        assert unit.abbreviated().abbreviated() == unit.abbreviated()
+
+    def test_normalized_undoes_abbreviated(self):
+        unit = Unit(t="ms", z="um", y="Micron", x="nanometers", c="")
+
+        assert unit.abbreviated().normalized() == unit.normalized()

@@ -354,6 +354,15 @@ cleaned_up = scale.with_unit_replaced(scale.unit.normalized())
 assert cleaned_up.unit == Unit(y="micrometer", x="micrometer")
 ```
 
+For display, the other direction is `Unit.abbreviated()`: it gives every recognized unit its standard short symbol (`"nm"`, `"µm"`, `"min"`).
+The micro symbol is the micro sign U+00B5, which clearscale treats as the same unit as `"um"` and `"micron"`.
+Replace it if you need pure ASCII.
+
+```python
+assert Unit(x="micrometer", t="second").abbreviated() == Unit(x="\u00b5m", t="s"), "for display"
+assert Unit(x="\u00b5m", t="s").abbreviated().normalized() == Unit(x="micrometer", t="second"), "roundtrip"
+```
+
 #### Matrices in pixel index space
 
 Image resampling may work with pixel indices, not physical coordinates.
