@@ -24,7 +24,7 @@ from typing import (
 )
 
 from clearscale._services import units
-from clearscale._spatial_relations import SpatialRelation
+from clearscale._spatial_relations import AxisKeyDependencies, SpatialRelation
 from clearscale.types import AxisKey, _Ordered, OrderedAxes, ShapeLike, AxisKeyT
 
 OrderedAxesT = _Ordered[AxisKeyT]
@@ -529,6 +529,9 @@ class Translation(_AxisFloats, SpatialRelation):
     def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
         _require_identical_axes(source_axes, self.keys())
         return tuple(self.keys())
+
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        return tuple((axis,) for axis in self.target_axes(source_axes))
 
     @classmethod
     def identity(cls, axes: OrderedAxes) -> "Translation":

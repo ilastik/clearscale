@@ -6,6 +6,7 @@ from clearscale._affines import Affine
 from clearscale._errors import CannotConvertToAffineError, CannotConvertToSpatialRelationError
 from clearscale._axis_values import Translation
 from clearscale._spatial_relations import (
+    AxisRenaming,
     normalize_relations_param,
     PermutationTo,
     ProjectionTo,
@@ -68,6 +69,11 @@ def relation_to_transform(relation: SpatialRelation, source_axes: OrderedAxes) -
         except ValueError as e:
             raise ValueError(f"Affine relation must be invertible to connect two coordinate systems: {e}") from e
         return AffineTransform(affine=inverse.to_tuples())
+
+    if isinstance(relation, AxisRenaming):
+        _ensure_compatible = relation.target_axes(source_axes)
+        # The new names live on the target coordinate system, not on the transform: Axes are the same, positionally.
+        return IdentityTransform()
 
     if isinstance(relation, ProjectionTo):
         target_axes = relation.target_axes(source_axes)

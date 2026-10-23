@@ -227,6 +227,7 @@ To chain relations, pass a list; they are applied in order.
 | `PermutationTo`       | Reordered axes                   | Same values, new axis order                     |
 | `ProjectionTo`        | Dropped and/or inserted axes     | Dropped axes are gone, inserted axes start at 0 |
 | `AxisRearrangementTo` | Any combination of the two above | See below                                       |
+| `AxisRenaming`        | Renamed axes                     | Same values, new axis names                     |
 
 ### `Affine`
 
@@ -460,6 +461,16 @@ Dropping an axis loses information, so a relation like this can't be reversed.
 the result has exactly these axes in this order, whichever were dropped, inserted or reordered to get there. 
 When applied to `"zyx"`, `AxisRearrangementTo("xcy")` drops `z`, inserts `c`, and reorders `y` and `x`. 
 If you aren't sure which of the three you need, use this one.
+
+### `AxisRenaming`
+
+`AxisRenaming({"z": "Z"})` (or `AxisRenaming(z="Z")`) says "the same image, but this axis is called differently now".
+The data and its values don't change, only the axis name does, and axis properties (type, unit, ...) stay with the renamed axis.
+Axes the renaming doesn't mention keep their name.
+All renames apply at once, so `AxisRenaming(y="x", x="y")` swaps the names of the two axes without moving any data, unlike `PermutationTo("xy")`, which swaps the data.
+
+Renaming an axis that doesn't exist, or renaming two axes to the same name, raises.
+Relations later in a list must use the new names.
 
 ### Combining relations
 

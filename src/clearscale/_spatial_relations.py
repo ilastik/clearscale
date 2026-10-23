@@ -1,8 +1,13 @@
 from abc import abstractmethod, ABC
 from dataclasses import dataclass
-from typing import Tuple, Iterator, Sequence, overload, Union, Optional
+from typing import Tuple, Iterator, Mapping, Sequence, overload, Union, Optional, Dict
 
 from clearscale.types import AxisKey, OrderedAxes
+
+AxisKeyDependencies = Tuple[Tuple[AxisKey, ...], ...]
+"""One entry per target axis, in target order: the keys of the source axes it depends on.
+`()`: a new axis. `(a,)`: it descends from source axis `a` alone. Longer: it mixes several source axes.
+The key-based counterpart to `Transform._axis_dependencies`, which uses source axis indices."""
 
 
 class SpatialRelation(ABC):
@@ -11,6 +16,16 @@ class SpatialRelation(ABC):
     @abstractmethod
     def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
         """Raise if self is not compatible with `source_axes`, and return the axes this relation results in when applied to source_axes."""
+
+    @abstractmethod
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        """Raise if self is not compatible with `source_axes`, and return for each of the target axes the keys of
+        the `source_axes` it depends on. Axes of `source_axes` that no entry mentions are dropped.
+        Lets axis properties (type, unit, ...) follow the axes they belong to through renamings and rearrangements.
+
+        Exact for relations that don't mix axes. For sequences that mix them (Affine), this is an upper bound:
+        Dependencies are combined step by step, so cancellations between steps (a combined matrix element that is
+        exactly zero because terms offset each other) are not detected."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +48,9 @@ class PermutationTo(SpatialRelation):
                 f"Source axes {source_axes!r} are not the same set as target axes {self._order!r}."
             )
         return self._order
+
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        return tuple((axis,) for axis in self.target_axes(source_axes))
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +78,10 @@ class ProjectionTo(SpatialRelation):
         source_axes = tuple(source_axes)
         self._require_retained_axes_not_reordered(source_axes)
         return tuple(a for a in self._targets if a not in source_axes)
+
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        source_axes = tuple(source_axes)
+        return tuple((axis,) if axis in source_axes else () for axis in self.target_axes(source_axes))
 
     def _require_retained_axes_not_reordered(self, source_axes: OrderedAxes) -> None:
         shared_source = tuple(a for a in source_axes if a in self._targets)
@@ -107,11 +129,65 @@ class AxisRearrangementTo(SpatialRelation):
         self._require_unique_source_axes(source_axes)
         return tuple(axis for axis in source_axes if axis in self._targets)
 
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        source_axes = tuple(source_axes)
+        return tuple((axis,) if axis in source_axes else () for axis in self.target_axes(source_axes))
+
     @staticmethod
     def _require_unique_source_axes(source_axes: OrderedAxes) -> None:
         source_axes = tuple(source_axes)
         if len(set(source_axes)) != len(source_axes):
             raise ValueError(f"source_axes must be unique. Received: {source_axes!r}")
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class AxisRenaming(SpatialRelation):
+    """Rename axes, leaving the image unchanged: `AxisRenaming({"z": "Z"})` or `AxisRenaming(z="Z")`.
+
+    Axes that aren't mentioned keep their names. All renames apply simultaneously, so
+    `AxisRenaming(y="x", x="y")` swaps the names (it does not move any data, unlike `PermutationTo`).
+    Applying it to axes that don't exist, or producing duplicate axis names, raises."""
+
+    _renames: Tuple[Tuple[AxisKey, AxisKey], ...]
+
+    def __init__(self, renames: Optional[Mapping[AxisKey, AxisKey]] = None, /, **kwargs: AxisKey):
+        pairs = tuple({**(renames or {}), **kwargs}.items())
+        if not pairs:
+            raise ValueError("AxisRenaming requires at least one renamed axis.")
+        new_names = [new for _old, new in pairs]
+        if len(set(new_names)) != len(new_names):
+            raise ValueError(f"Cannot rename different axes to the same name. Received: {dict(pairs)!r}")
+        object.__setattr__(self, "_renames", pairs)
+
+    @property
+    def mapping(self) -> Dict[AxisKey, AxisKey]:
+        """{old_name: new_name} (a copy)"""
+        return dict(self._renames)
+
+    def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
+        source_axes = tuple(source_axes)
+        mapping = self.mapping
+        missing = [old for old in mapping if old not in source_axes]
+        if missing:
+            raise ValueError(f"Cannot rename axes {missing!r}: not present in source axes {source_axes!r}.")
+        target_axes = tuple(mapping.get(axis, axis) for axis in source_axes)
+        if len(set(target_axes)) != len(target_axes):
+            raise ValueError(f"Renaming {mapping!r} would produce duplicate axes {target_axes!r} from {source_axes!r}.")
+        return target_axes
+
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        source_axes = tuple(source_axes)
+        self.target_axes(source_axes)
+        return tuple((axis,) for axis in source_axes)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, AxisRenaming) and frozenset(self._renames) == frozenset(other._renames)
+
+    def __hash__(self) -> int:
+        return hash(frozenset(self._renames))
+
+    def __repr__(self) -> str:
+        return f"AxisRenaming({self.mapping!r})"
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +207,19 @@ class SpatialRelationSequence(SpatialRelation, Sequence[SpatialRelation]):
         for relation in self.relations:
             axes = relation.target_axes(axes)
         return axes
+
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        source = tuple(source_axes)
+        axes = source
+        dependencies: AxisKeyDependencies = tuple((axis,) for axis in source)
+        for relation in self.relations:
+            by_axis = dict(zip(axes, dependencies))
+            step = relation._axis_dependencies(axes)  # Refers to the keys of this step's source, i.e. `axes`
+            dependencies = tuple(
+                tuple(sorted({d for axis in step_axes for d in by_axis[axis]}, key=source.index)) for step_axes in step
+            )
+            axes = relation.target_axes(axes)
+        return dependencies
 
     def __iter__(self) -> Iterator[SpatialRelation]:
         return iter(self.relations)
