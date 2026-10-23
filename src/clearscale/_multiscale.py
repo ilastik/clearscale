@@ -146,6 +146,27 @@ def _reconcile_axis_prop_params(
     return result.with_unit_merged(unit)
 
 
+def _merge_ome_zarr_axes(axes_list: Sequence[OmeZarrAxes], *, sources: str) -> OmeZarrAxes:
+    axes = list(axes_list[0].keys())
+    merged: Dict[AxisKey, Dict[str, Any]] = {a: {} for a in axes}
+    for field_name in ("unit", "type", "discrete", "long_name"):
+        for a in axes:
+            values = list(
+                dict.fromkeys(v for ome_axes in axes_list if (v := getattr(ome_axes[a], field_name)) not in (None, ""))
+            )
+            if field_name == "unit":
+                # Normalise different spellings so "nm" and "nanometer" merge fine.
+                # First spelling wins.
+                values = [v for i, v in enumerate(values) if not any(is_same_unit(v, w) for w in values[:i])]
+            if len(values) > 1:
+                raise ValueError(
+                    f"Conflicting {field_name!r} for axis {a!r} across {sources}: {set(values)!r}. "
+                    "Only the first Scale providing a value gets to define it; all others must agree or be blank."
+                )
+            merged[a][field_name] = next(iter(values), None)
+    return OmeZarrAxes([(a, OmeZarrAxis(name=a, **merged[a])) for a in axes])
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Scale:
     shape: Shape
@@ -1497,7 +1518,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             # No internals supplied - "From scratch" construction with new graph
             if _transform_graph:
                 raise AssertionError("Must specify _intrinsic_ref when _transform_graph is given.")
-            canonical_axes = self._merge_ome_zarr_axes(list(self._mapping.values()))
+            canonical_axes = _merge_ome_zarr_axes(
+                [scale.ome_zarr_axes for scale in self._mapping.values()], sources="this Multiscale's Scales"
+            )
             canonical_unit = Unit([(a, ax.unit or "") for a, ax in canonical_axes.items()])
             # Dedup: every Scale shares the same canonical Unit/OmeZarrAxes instances.
             self._mapping = OrderedDict(
@@ -2244,27 +2267,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
           It's what a Scene uses to connect different Multiscales.
         """
         return self._as_ref(self._intrinsic_ref.name)
-
-    @staticmethod
-    def _merge_ome_zarr_axes(scales: Sequence["Scale"]) -> OmeZarrAxes:
-        axes = list(scales[0].ome_zarr_axes.keys())
-        merged: Dict[AxisKey, Dict[str, Any]] = {a: {} for a in axes}
-        for field_name in ("unit", "type", "discrete", "long_name"):
-            for a in axes:
-                values = list(
-                    dict.fromkeys(v for s in scales if (v := getattr(s.ome_zarr_axes[a], field_name)) not in (None, ""))
-                )
-                if field_name == "unit":
-                    # Normalise different spellings so "nm" and "nanometer" merge fine.
-                    # First spelling wins.
-                    values = [v for i, v in enumerate(values) if not any(is_same_unit(v, w) for w in values[:i])]
-                if len(values) > 1:
-                    raise ValueError(
-                        f"Conflicting {field_name!r} for axis {a!r} across this Multiscale's Scales: {set(values)!r}. "
-                        "Only the first Scale providing a value gets to define it; all others must agree or be blank."
-                    )
-                merged[a][field_name] = next(iter(values), None)
-        return OmeZarrAxes([(a, OmeZarrAxis(name=a, **merged[a])) for a in axes])
 
     def _relation_with_coordinate_system(self, name: str, *, towards_system: bool) -> Optional[SpatialRelation]:
         matches = [ref for ref in self._transform_graph.all_system_refs if ref.name == name]
