@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from clearscale import (
@@ -815,3 +817,60 @@ def test_precomputed_axis_types_are_hardcoded():
     ms = Multiscale.from_precomputed(info)
     assert ms.ome_zarr_axes["c"].type == "channel"
     assert ms.ome_zarr_axes["z"].type == "space"
+
+
+class TestScaleWithUnitReplaced:
+    @staticmethod
+    def _scale():
+        return Scale(
+            shape=Shape(z=4, y=8, x=8),
+            pixel_size=PixelSize(z=2.0, y=0.5, x=0.5),
+            unit=Unit(z="micrometer", y="micrometer", x="micrometer"),
+            translation=Translation(z=1.0, y=2.0, x=3.0),
+        )
+
+    def test_replaces_all_units_and_keeps_everything_else(self):
+        scale = self._scale()
+
+        result = scale.with_unit_replaced(Unit(z="nanometer", y="nanometer", x="nanometer"))
+
+        assert result.unit == Unit(z="nanometer", y="nanometer", x="nanometer")
+        assert result.shape == scale.shape
+        assert result.pixel_size == scale.pixel_size
+        assert result.translation == scale.translation
+
+    def test_partial_mapping_replaces_only_given_axes(self):
+        result = self._scale().with_unit_replaced({"z": "nanometer"})
+
+        assert result.unit == Unit(z="nanometer", y="micrometer", x="micrometer")
+
+    def test_keeps_ome_zarr_axes_in_sync(self):
+        scale = self._scale()
+
+        result = scale.with_unit_replaced({"x": "nanometer"})
+
+        assert result.ome_zarr_axes["x"].unit == "nanometer"
+        assert result.ome_zarr_axes["x"].type == scale.ome_zarr_axes["x"].type
+        assert result.ome_zarr_axes["y"].unit == "micrometer"
+
+    def test_empty_string_makes_unit_unspecified(self):
+        result = self._scale().with_unit_replaced({"z": ""})
+
+        assert result.unit["z"] == ""
+        assert result.ome_zarr_axes["z"].unit is None
+
+    def test_does_not_modify_the_original(self):
+        scale = self._scale()
+
+        scale.with_unit_replaced({"z": "nanometer"})
+
+        assert scale.unit["z"] == "micrometer"
+
+    def test_rejects_axes_the_scale_does_not_have(self):
+        with pytest.raises(ValueError, match=r"Cannot replace unit of axes \['t'\]"):
+            self._scale().with_unit_replaced({"t": "second"})
+
+    def test_plain_replace_conflicts_with_ome_zarr_axes(self):
+        """Why with_unit_replaced exists"""
+        with pytest.raises(ValueError, match="Conflicting unit"):
+            replace(self._scale(), unit=Unit(z="nanometer", y="nanometer", x="nanometer"))
