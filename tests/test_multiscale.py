@@ -1300,6 +1300,34 @@ class TestMultiscaleWithCoordinateSystemUnitValidation:
             ms.with_coordinate_system("um", reached_by=relation, unit=Unit(y="micrometer", x="micrometer"))
 
 
+class TestMultiscaleUnitSpellings:
+    def test_with_coordinate_system_accepts_another_spelling_of_the_same_unit(self):
+        ms = _multiscale_with_unit("nanometer")
+
+        result = ms.with_coordinate_system("same", unit=Unit(y="nm", x="Nanometers"))
+
+        assert "same" in result.coordinate_systems
+
+    def test_with_coordinate_system_rejects_different_units_given_by_alias(self):
+        ms = _multiscale_with_unit("nanometer")
+
+        with pytest.raises(ValueError, match=r"'y': 'nanometer' vs 'um', 'x': 'nanometer' vs 'um'"):
+            ms.with_coordinate_system("um", unit=Unit(y="um", x="um"))
+
+    def test_as_derived_from_accepts_another_spelling_of_the_same_unit(self):
+        derived = _multiscale_with_unit("um")
+        source = _multiscale_with_unit("micrometer")
+
+        assert derived.as_derived_from(source).unit == Unit(y="um", x="um")
+
+    def test_as_derived_from_rejects_different_units_given_by_alias(self):
+        derived = _multiscale_with_unit("um")
+        source = _multiscale_with_unit("nm")
+
+        with pytest.raises(ValueError, match="no relation converts between them"):
+            derived.as_derived_from(source)
+
+
 class TestMultiscaleAsDerivedFromUnitValidation:
     def test_accepts_identical_units(self):
         derived = _multiscale_with_unit("nanometer")

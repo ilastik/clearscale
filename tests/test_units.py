@@ -1,6 +1,7 @@
 import pytest
 
-from clearscale._services.units import UNITS, canonical_unit_name, unit_conversion_factor
+from clearscale import Unit
+from clearscale._services.units import UNITS, canonical_unit_name, is_same_unit, normalized_unit, unit_conversion_factor
 
 OME_ZARR_SPACE_UNITS = (
     "angstrom attometer centimeter decimeter exameter femtometer foot gigameter hectometer inch kilometer megameter "
@@ -110,3 +111,61 @@ def test_unit_conversion_factor_rejects_unknown_units(unit, other):
 def test_unit_conversion_factor_rejects_space_to_time():
     with pytest.raises(ValueError, match=r"Cannot convert between 'meter' \(space\) and 'second' \(time\)"):
         unit_conversion_factor("meter", "second")
+
+
+@pytest.mark.parametrize(
+    "unit, other, expected",
+    [
+        ("nm", "nanometer", True),
+        ("\u00b5m", "um", True),
+        ("micron", "micrometer", True),
+        ("nanometer", "nanometer", True),
+        ("a.u.", "a.u.", True),
+        ("nm", "um", False),
+        ("nm", "second", False),
+        ("a.u.", "A.U.", False),
+        ("furlong", "nm", False),
+        ("", "nm", False),
+        ("", "", True),
+    ],
+)
+def test_is_same_unit(unit, other, expected):
+    assert is_same_unit(unit, other) is expected
+    assert is_same_unit(other, unit) is expected
+
+
+@pytest.mark.parametrize(
+    "unit, expected",
+    [
+        ("nm", "nanometer"),
+        ("Microns", "micrometer"),
+        ("nanometer", "nanometer"),
+        ("furlong", "furlong"),
+        ("", ""),
+        (" nm ", "nanometer"),
+    ],
+)
+def test_normalized_unit(unit, expected):
+    assert normalized_unit(unit) == expected
+
+
+class TestUnitNormalized:
+    def test_spells_recognised_units_as_ome_zarr_names_per_axis(self):
+        unit = Unit(t="s", z="micron", y="nm", x="nanometer", c="")
+
+        assert unit.normalized() == Unit(t="second", z="micrometer", y="nanometer", x="nanometer", c="")
+
+    def test_leaves_unrecognised_units_alone(self):
+        assert Unit(x="a.u.", y="Pixel").normalized() == Unit(x="a.u.", y="Pixel")
+
+    def test_is_idempotent(self):
+        unit = Unit(x="um", y="ms").normalized()
+
+        assert unit.normalized() == unit
+
+    def test_does_not_modify_the_original(self):
+        unit = Unit(x="nm")
+
+        unit.normalized()
+
+        assert unit == Unit(x="nm")

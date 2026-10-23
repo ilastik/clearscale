@@ -29,6 +29,7 @@ from clearscale._axis_values import (
     Unit,
 )
 from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscaleError
+from clearscale._services.units import is_same_unit
 
 RelativePath = str  # 0.6: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]
@@ -286,14 +287,15 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
 
     def conflicts_with_unit(self, unit: Unit) -> Dict[AxisKey, Tuple[str, str]]:
         """Return {axis: (self_unit, other_unit)} for axes where both self and `unit` state a non-blank,
-        disagreeing unit. Empty (falsy) if there's no conflict; axes present on only one side never conflict."""
+        disagreeing unit. Different spellings of the same unit ("nm" and "nanometer") do not disagree.
+        Empty (falsy) if there's no conflict; axes present on only one side never conflict."""
         aligned = unit.with_axes(self.keys())
         conflicts = {}
 
         for a in self:
             self_unit = self[a].unit
             other_unit = aligned[a]
-            if self_unit and other_unit and self_unit != other_unit:
+            if self_unit and other_unit and not is_same_unit(self_unit, other_unit):
                 conflicts[a] = (self_unit, other_unit)
 
         return conflicts
