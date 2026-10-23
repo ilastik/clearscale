@@ -29,6 +29,7 @@ from clearscale._axis_values import (
     Unit,
 )
 from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscaleError
+from clearscale._services.matrices import AxisIndices
 from clearscale._services.units import is_same_unit
 
 RelativePath = str  # 0.6: scene["coordinateTransformations"][]["input"]["path"]
@@ -39,6 +40,8 @@ _TransformSelf = TypeVar("_TransformSelf", bound="Transform")
 _TransformSequenceSelf = TypeVar("_TransformSequenceSelf", bound="TransformSequence")
 _RefT = TypeVar("_RefT")
 
+AxisDependencies = Tuple[AxisIndices, ...]
+"""One entry per target axis (in target order), with the indices of the source axes it depends on."""
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
 PRE_COLLECTIONS_VERSIONS = PRE_TRANSFORMS_VERSIONS + ("0.6",)
 
@@ -587,6 +590,21 @@ class Transform(ABC):
         """Endpoint dimensionality constraints implied by this transform's payload."""
         ...
 
+    def _axis_dependencies(self, source_ndim: int) -> Optional[AxisDependencies]:
+        """For a source with `source_ndim` axes, tell which source axes each target axis depends on.
+
+        Returns one tuple per target axis, in target order, holding the indices of the source axes whose coordinates
+        influence that target axis:
+        - `()`: newly created axis (depends on nothing).
+        - `(i,)`: the target axis descends from source axis `i` alone (it may still be scaled, flipped, or shifted by a constant).
+        - `(i, j, ...)`: the target axis mixes several source axes (e.g. rotations).
+        Source axes that no entry mentions are dropped.
+        Returns None if this can't be determined from the payload alone: default; path-backed payloads; and transforms
+        whose dependence lives in array contents (displacements, coordinates).
+        Subclasses raise ValueError if `source_ndim` does not fit their payload.
+        """
+        return None
+
     @abstractmethod
     def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
         """Must return the OME-Zarr object properties that are specific to the respective Transform type.
@@ -945,6 +963,9 @@ class IdentityTransform(Transform):
 
     def _ndim_by_payload(self) -> _EndpointDimensionConstraints:
         return _EndpointDimensionConstraints(delta=0)
+
+    def _axis_dependencies(self, source_ndim: int) -> AxisDependencies:
+        return tuple((i,) for i in range(source_ndim))
 
     def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
         return {"type": "identity"}

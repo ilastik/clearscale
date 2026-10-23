@@ -32,6 +32,7 @@ from clearscale._services.matrices import (
     matrix_multiply,
     matrix_vector_multiply,
     matrix_transpose,
+    nonzero_columns_by_row,
     matrix_invert,
     matrix_determinant,
     zero_matrix_columns,
@@ -40,6 +41,7 @@ from clearscale._services.matrices import (
     is_identity_scale,
 )
 from clearscale._transforms._base import (
+    AxisDependencies,
     _EndpointDimensionConstraints,
     IdentityTransform,
     RelativePath,
@@ -250,6 +252,10 @@ class ScaleTransform(AffineRepresentableTransform):
             return _EndpointDimensionConstraints(delta=0)
         return _EndpointDimensionConstraints.exact(source=len(self.scale), target=len(self.scale))
 
+    def _axis_dependencies(self, source_ndim: int) -> AxisDependencies:
+        self._validate_ndims_compatible_with_payload(source_ndim, source_ndim)
+        return tuple((i,) for i in range(source_ndim))
+
     @classmethod
     def from_ome_zarr(cls, ome_dict: Mapping[str, Any]) -> "ScaleTransform":
         source, target = cls._parse_source_and_target(ome_dict)
@@ -368,6 +374,10 @@ class TranslationTransform(AffineRepresentableTransform):
             return _EndpointDimensionConstraints(delta=0)
         return _EndpointDimensionConstraints.exact(source=len(self.translation), target=len(self.translation))
 
+    def _axis_dependencies(self, source_ndim: int) -> AxisDependencies:
+        self._validate_ndims_compatible_with_payload(source_ndim, source_ndim)
+        return tuple((i,) for i in range(source_ndim))
+
     @classmethod
     def from_ome_zarr(cls, ome_dict: Mapping[str, Any]) -> "TranslationTransform":
         source, target = cls._parse_source_and_target(ome_dict)
@@ -483,6 +493,12 @@ class RotationTransform(AffineRepresentableTransform):
             return _EndpointDimensionConstraints(delta=0)
         rows, cols = matrix_shape(self.rotation)
         return _EndpointDimensionConstraints.exact(source=cols, target=rows)
+
+    def _axis_dependencies(self, source_ndim: int) -> Optional[AxisDependencies]:
+        if self.rotation is None:
+            return None
+        self._validate_ndims_compatible_with_payload(source_ndim, source_ndim)
+        return nonzero_columns_by_row(self.rotation, tolerance=IDENTITY_TOLERANCE)
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Mapping[str, Any]) -> "RotationTransform":
@@ -655,6 +671,13 @@ class AffineTransform(AffineRepresentableTransform):
             return _EndpointDimensionConstraints()
         rows, cols = matrix_shape(self.affine)
         return _EndpointDimensionConstraints.exact(source=cols - 1, target=rows)
+
+    def _axis_dependencies(self, source_ndim: int) -> Optional[AxisDependencies]:
+        if self.affine is None:
+            return None
+        target_ndim = len(self.affine)
+        self._validate_ndims_compatible_with_payload(source_ndim, target_ndim)
+        return nonzero_columns_by_row(self._linear(), tolerance=IDENTITY_TOLERANCE)
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Mapping[str, Any]) -> "AffineTransform":
@@ -887,6 +910,14 @@ class DisplacementsTransform(Transform):
         """Same source and target dimensionality required by spec for displacements."""
         return _EndpointDimensionConstraints(delta=0)
 
+    def _axis_dependencies(self, source_ndim: int) -> None:
+        """
+        Unknown: target = source + D(source), where the vector field D is looked up per pixel.
+        Displacements cannot change ndim or target axis order, but each vector can individually mix axes.
+        Hence, without array contents, we can't determine which target axes depend on which source axes.
+        """
+        return None
+
     @classmethod
     def from_ome_zarr(cls, ome_dict: Mapping[str, Any]) -> "DisplacementsTransform":
         source, target = cls._parse_source_and_target(ome_dict)
@@ -973,6 +1004,10 @@ class MapAxisTransform(AffineRepresentableTransform):
 
     def _ndim_by_payload(self) -> _EndpointDimensionConstraints:
         return _EndpointDimensionConstraints.exact(source=len(self.map_axis), target=len(self.map_axis))
+
+    def _axis_dependencies(self, source_ndim: int) -> AxisDependencies:
+        self._validate_ndims_compatible_with_payload(source_ndim, source_ndim)
+        return tuple((source_index,) for source_index in self.map_axis)
 
     @classmethod
     def from_ome_zarr(cls, ome_dict: Mapping[str, Any]) -> "MapAxisTransform":
@@ -1122,6 +1157,12 @@ class ProjectAxisTransform(AffineRepresentableTransform):
             delta=len(self.inserts) - len(self.drops),
         )
 
+    def _axis_dependencies(self, source_ndim: int) -> AxisDependencies:
+        target_ndim = source_ndim - len(self.drops) + len(self.inserts)
+        self._validate_ndims_compatible_with_payload(source_ndim, target_ndim)
+        retained_sources = iter(i for i in range(source_ndim) if i not in self.drops)
+        return tuple(() if i in self.inserts else (next(retained_sources),) for i in range(target_ndim))
+
     @classmethod
     def from_ome_zarr(cls, ome_dict: Mapping[str, Any]) -> "ProjectAxisTransform":
         source, target = cls._parse_source_and_target(ome_dict)
@@ -1237,6 +1278,16 @@ class BijectionTransform(Transform):
             target_max=_min_optional(forward_ndim.target_max, inverse_ndim_inverted.target_max),
             delta=forward_ndim.delta if forward_ndim.delta is not None else inverse_ndim_inverted.delta,
         )
+
+    def _axis_dependencies(self, source_ndim: int) -> Optional[AxisDependencies]:
+        """Prefers the forward transform. If that can't tell (e.g. coordinates, displacements), and the inverse is
+        invertible, then the inverse's inverse *is* the forward map and can answer exactly.
+        (Transposing the inverse's dependencies would not: Inverting `t1 = s1, t2 = s1 + s2` gives `s2 = t2 - t1`,
+        which depends on t1, but t1 does not depend on s2.)"""
+        forward_dependencies = self.forward._axis_dependencies(source_ndim)
+        if forward_dependencies is not None or not self.inverse.is_invertible:
+            return forward_dependencies
+        return self.inverse.inverted()._axis_dependencies(source_ndim)
 
     def unbound(self) -> "BijectionTransform":
         return replace(self, forward=self.forward.unbound(), inverse=self.inverse.unbound(), source=None, target=None)
@@ -1554,6 +1605,19 @@ class ByDimensionTransform(Transform):
             target_min=target_ndim,
             target_max=target_ndim,
         )
+
+    def _axis_dependencies(self, source_ndim: int) -> Optional[AxisDependencies]:
+        target_ndim = sum(len(child.target_indices) for child in self.transforms)
+        self._validate_ndims_compatible_with_payload(source_ndim, target_ndim)
+        dependencies: List[Optional[AxisIndices]] = [None] * target_ndim
+        for child in self.transforms:
+            child_dependencies = child.transform._axis_dependencies(len(child.source_indices))
+            if child_dependencies is None:
+                return None
+            for target_index, child_target_dependencies in zip(child.target_indices, child_dependencies):
+                dependencies[target_index] = tuple(child.source_indices[j] for j in child_target_dependencies)
+        assert all(d is not None for d in dependencies), "dev error: children must cover all target indices"
+        return tuple(d for d in dependencies if d is not None)
 
     def unbound(self) -> "ByDimensionTransform":
         children = tuple(replace(c, transform=c.transform.unbound()) for c in self.transforms)
