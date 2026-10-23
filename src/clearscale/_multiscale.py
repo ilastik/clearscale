@@ -66,7 +66,7 @@ from clearscale._transforms import (
     relation_to_transform_canonic,
 )
 from clearscale._services import ome_zarr, precomputed
-from clearscale._services.units import is_same_unit
+from clearscale._services.units import is_same_unit, unit_conversion_factor
 from clearscale.types import PixelSizingMethod, ShapeSource, TranslationShiftFunction, ShapeLike, FactorLike, AxisKeyT
 
 ScaleKey = str
@@ -267,25 +267,25 @@ class Scale:
             ome_zarr_axes=self.ome_zarr_axes.with_types_inferred(),
         )
 
-    def with_unit_replaced(self, unit: Union[Unit, Mapping[AxisKeyT, str]]) -> "Scale":
+    def with_unit_replaced(self, new: Union[Unit, Mapping[AxisKeyT, str]]) -> "Scale":
         """
         Replace the unit strings for the axes provided, leaving unmentioned axes untouched.
         Conceptually, this is `dataclasses.replace(scale, unit=...)` + partial merge.
 
         This only relabels, it does not convert: pixel size and translation keep their numbers.
-        To express the same physical sizes in another unit, you would also need to replace `.pixel_size`
-        (and `.translation`) with the converted values.
+        Use `with_unit_converted` if you want update numbers so the new Scale expresses the same physical
+        geometry in a different unit.
 
         Replacing the value for an axis with an empty string makes the unit unspecified (explicit "unitless"
         cannot be represented).
         """
-        unit = Unit(unit)
-        unknown = [axis for axis in unit if axis not in self.unit]
+        new = Unit(new)
+        unknown = [axis for axis in new if axis not in self.unit]
         if unknown:
             raise ValueError(
                 f"Cannot replace unit of axes {unknown!r}: this Scale has axes {list(self.unit.keys())!r}."
             )
-        new_unit = self.unit.with_values(unit)
+        new_unit = self.unit.with_values(new)
         new_ome_zarr_axes = OmeZarrAxes(
             (a, replace(ax, unit=new_unit[a] or None)) for a, ax in self.ome_zarr_axes.items()
         )
@@ -295,6 +295,51 @@ class Scale:
             unit=new_unit,
             translation=self.translation,
             ome_zarr_axes=new_ome_zarr_axes,
+        )
+
+    def with_unit_converted(self, new: Union[Unit, Mapping[AxisKeyT, str]]) -> "Scale":
+        """
+        Express this Scale in other units, describing the same physical sizes and positions:
+        Pixel size and translation for specified axes are converted to the specified unit, and the unit
+        labels set accordingly. Shape and the other axes are untouched.
+
+        Example: A pixel size of 500.0 in "nanometer" becomes 0.5 in "micrometer".
+        Converting to a different spelling of the same unit just relabels (e.g. "nm" -> "nanometer").
+
+        Use `with_unit_replaced` if you only want to replace unit labels without changing numbers.
+
+        Raises ValueError for unrecognised units, for conversions between space and time, and for axes where only one
+        of the old and new unit is unspecified (an unspecified unit has no known size).
+        """
+        new = Unit(new)
+        unknown = [axis for axis in new if axis not in self.unit]
+        if unknown:
+            raise ValueError(
+                f"Cannot convert unit of axes {unknown!r}: this Scale has axes {list(self.unit.keys())!r}."
+            )
+        factors: Dict[AxisKey, float] = {}
+        for axis, new_unit in new.items():
+            old_unit = self.unit[axis]
+            if old_unit == new_unit:
+                continue
+            if not old_unit or not new_unit:
+                raise ValueError(
+                    f"Cannot convert the unit of axis {axis!r} from {old_unit!r} to {new_unit!r}: "
+                    "An unspecified unit has no known size. Use `with_unit_replaced` to set or remove a unit label."
+                )
+            try:
+                # Need to use exactly the "wrong way round" here because unit_conversion_factor returns the convenient
+                # direction for Affine (old = new * factor), but we need the opposite here (new = old * factor).
+                factors[axis] = unit_conversion_factor(new_unit, old_unit)
+            except ValueError as e:
+                raise ValueError(f"Axis {axis!r}: {e}") from e
+        relabelled = self.with_unit_replaced(new)
+        if not factors:
+            return relabelled
+        return replace(
+            relabelled,
+            pixel_size=self.pixel_size.scaled_by(factors),
+            translation=self.translation.scaled_by(factors),
         )
 
     def has_physical_meta(self):

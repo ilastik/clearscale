@@ -110,9 +110,14 @@ def canonical_unit_name(unit: str) -> Optional[str]:
 
 
 def unit_conversion_factor(unit: str, other: str) -> float:
-    """How many `unit` are one `other`: `unit_conversion_factor("nanometer", "micrometer") == 1000.0`.
-    Multiplying a value in `other` with it gives the same value in `unit`
-    (i.e. the factor is numerically exactly in Affine's pull direction: x_source = factor * x_target).
+    """How many `unit` are one `other` (`unit/other`):
+      `unit_conversion_factor("nanometer", "micrometer") == 1000.0`
+    It is used in Affine's "pull" direction:
+      `value_in_unit = value_in_other * factor`
+    If `unit` is source and `other` is target:
+      `value_in_source = value_in_target * factor`
+    For example sampling micrometer from nanometer (which is what "pull" means):
+      `1000nm = 1um * 1000.0 nm/um`
     Raises ValueError if either unit is not recognised, or if they measure different things (space vs time).
     Identical strings convert with factor 1.0, even if they are not recognised."""
     if unit == other:
@@ -126,10 +131,11 @@ def unit_conversion_factor(unit: str, other: str) -> float:
                 "and common spellings like 'nm', 'um' or 'micron'."
             )
         sizes.append(UNITS[name])
-    (dimension, size), (other_dimension, other_size) = sizes
-    if dimension != other_dimension:
-        raise ValueError(f"Cannot convert between {unit!r} ({dimension}) and {other!r} ({other_dimension}).")
-    return float(other_size / size)
+    # "meter" for unit_type SPACE, "seconds" for TIME
+    (unit_type, meter_per_unit), (other_type, meter_per_other) = sizes
+    if unit_type != other_type:
+        raise ValueError(f"Cannot convert between {unit!r} ({unit_type}) and {other!r} ({other_type}).")
+    return float(meter_per_other / meter_per_unit)  # = `meters/other * unit/meters` = `unit/other`
 
 
 def normalized_unit(unit: str) -> str:
