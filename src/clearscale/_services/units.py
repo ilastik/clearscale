@@ -65,38 +65,56 @@ for _name in UNITS:
 _NAME_ALIASES.update({"micron": "micrometer", "microns": "micrometer", "sec": "second", "secs": "second"})
 _NAME_ALIASES.update({"hr": "hour", "hrs": "hour"})
 
-_SYMBOL_ALIASES: Dict[str, str] = {
-    # Case-sensitive, because e.g. "mm" (millimeter) and "Mm" (megameter) differ. The micro sign U+00B5 is
-    # turned into the Greek letter mu U+03BC by the normalization, so only the latter is listed here.
-    "m": "meter",
-    "km": "kilometer",
-    "dm": "decimeter",
-    "cm": "centimeter",
-    "mm": "millimeter",
-    "um": "micrometer",
-    "\u03bcm": "micrometer",
-    "nm": "nanometer",
-    "pm": "picometer",
-    "fm": "femtometer",
-    "Mm": "megameter",
-    "Gm": "gigameter",
-    "\u00c5": "angstrom",
-    "ft": "foot",
-    "in": "inch",
-    "yd": "yard",
-    "mi": "mile",
-    "pc": "parsec",
-    "s": "second",
-    "ms": "millisecond",
-    "us": "microsecond",
-    "\u03bcs": "microsecond",
-    "ns": "nanosecond",
-    "ps": "picosecond",
-    "fs": "femtosecond",
-    "min": "minute",
-    "h": "hour",
-    "d": "day",
+_SI_PREFIX_SYMBOLS: Dict[str, str] = {
+    "yocto": "y",
+    "zepto": "z",
+    "atto": "a",
+    "femto": "f",
+    "pico": "p",
+    "nano": "n",
+    # U+00B5 is the micro sign; unicodedata.normalize turns it into the Greek letter mu U+03BC.
+    # We get the round-trip via normalize:
+    # SYMBOLS["micrometer"] == "\u00b5m"
+    # _SYMBOL_ALIASES["\u03bcm"] == "micrometer"
+    # _SYMBOL_ALIASES[unicodedata.normalize("NFKC", SYMBOLS["micrometer"])] == "micrometer"
+    "micro": "\u00b5",
+    "milli": "m",
+    "centi": "c",
+    "deci": "d",
+    "": "",
+    "hecto": "h",
+    "kilo": "k",
+    "mega": "M",
+    "giga": "G",
+    "tera": "T",
+    "peta": "P",
+    "exa": "E",
+    "zetta": "Z",
+    "yotta": "Y",
 }
+
+SYMBOLS: Dict[str, str] = {}
+"""The standard short symbol of every unit in UNITS: {OME-Zarr name: symbol}, e.g. {"nanometer": "nm"}."""
+for _prefix, _symbol in _SI_PREFIX_SYMBOLS.items():
+    SYMBOLS[f"{_prefix}meter"] = f"{_symbol}m"
+    SYMBOLS[f"{_prefix}second"] = f"{_symbol}s"
+SYMBOLS.update(
+    {
+        "angstrom": "\u00c5",
+        "foot": "ft",
+        "inch": "in",
+        "yard": "yd",
+        "mile": "mi",
+        "parsec": "pc",
+        "minute": "min",
+        "hour": "h",
+        "day": "d",
+    }
+)
+
+_SYMBOL_ALIASES: Dict[str, str] = {unicodedata.normalize("NFKC", symbol): name for name, symbol in SYMBOLS.items()}
+"""Symbols (case-sensitive, because e.g. "mm" (millimeter) and "Mm" (megameter) differ) -> OME-Zarr name"""
+_SYMBOL_ALIASES.update({"um": "micrometer", "us": "microsecond"})  # ASCII spellings of the micro symbols
 
 
 def canonical_unit_name(unit: str) -> Optional[str]:
@@ -150,3 +168,10 @@ def is_same_unit(unit: str, other: str) -> bool:
         return True
     name = canonical_unit_name(unit)
     return name is not None and name == canonical_unit_name(other)
+
+
+def abbreviated_unit(unit: str) -> str:
+    """The standard short symbol of `unit` if it is recognised ("nanometer" -> "nm", "micron" -> "\u00b5m"),
+    otherwise `unit` unchanged (including blank)."""
+    name = canonical_unit_name(unit)
+    return unit if name is None else SYMBOLS[name]

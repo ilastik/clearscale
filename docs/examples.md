@@ -141,6 +141,13 @@ multiscale = Multiscale.from_single(
     translating=half_pixel_space_preservation,
 )
 
+print(multiscale)
+# Multiscale(
+#     "s0" (y: 1001, x: 1536) at pixel size: y: 0.3 µm, x: 0.3 µm
+#     "s1" (y: 500, x: 768) at pixel size: y: 0.6006 µm, x: 0.6 µm
+#     "s2" (y: 250, x: 384) at pixel size: y: 1.2012 µm, x: 1.2 µm
+# )
+
 for scale_key, target in multiscale.items():
     shift = target.translation - base.translation
     matrix = (target.pixel_size / base.pixel_size).values_tuple()
