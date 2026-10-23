@@ -31,6 +31,7 @@ from clearscale._axis_values import (
 from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscaleError
 from clearscale._services.matrices import AxisIndices
 from clearscale._services.units import is_same_unit
+from clearscale._spatial_relations import AxisKeyDependencies
 
 RelativePath = str  # 0.6: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]
@@ -247,6 +248,29 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
         inserts = self.__class__(inserts_items).with_types_inferred()
         new_axes = self.__class__([(a, self[a] if a in self else inserts[a]) for a in axes])
         return new_axes
+
+    def with_axes_carried_over(self, target_axes: OrderedAxes, dependencies: AxisKeyDependencies) -> "OmeZarrAxes":
+        """Build axes for `target_axes` from `self` as described by `dependencies` (see SpatialRelation._axis_dependencies):
+        An axis that descends from exactly one axis of self takes that axis's properties and replaces only the name,
+        so properties follow renamed axes. An axis that depends on several axes (e.g. a sheared axis) takes the
+        properties that all of them agree on, and leaves the others blank. Axes that are new are blank."""
+        target_axes = tuple(target_axes)
+        if len(dependencies) != len(target_axes):
+            raise ValueError(
+                f"Need one dependency entry per target axis. Received {dependencies!r} for {target_axes!r}."
+            )
+
+        def carried(axis: AxisKey, deps: Tuple[AxisKey, ...]) -> OmeZarrAxis:
+            if not deps:
+                return self._default(axis)
+            sources = [self[d] for d in deps]
+            agreed = {
+                field: (values.pop() if len(values := {getattr(src, field) for src in sources}) == 1 else None)
+                for field in ("discrete", "type", "unit", "long_name")
+            }
+            return OmeZarrAxis(name=str(axis), **agreed)
+
+        return self.__class__((axis, carried(axis, deps)) for axis, deps in zip(target_axes, dependencies))
 
     def with_unit_merged(self, unit: Unit) -> "OmeZarrAxes":
         """Override any .unit property on self.values with provided (only for axes where provided has non-empty string)"""

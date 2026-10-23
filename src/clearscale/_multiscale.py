@@ -46,7 +46,12 @@ from clearscale._axis_values import (
 )
 from clearscale._errors import NoSuchCoordinateSystemError
 from clearscale._affines import Affine
-from clearscale._spatial_relations import SpatialRelation, SpatialRelationSequence, normalize_relations_param
+from clearscale._spatial_relations import (
+    AxisKeyDependencies,
+    SpatialRelation,
+    SpatialRelationSequence,
+    normalize_relations_param,
+)
 from clearscale._transforms import (
     CoordinateSystemName,
     CoordinateSystem,
@@ -1837,6 +1842,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         def _reconcile_axis_prop_params(
             target_axes: Tuple[AxisKey, ...],
+            dependencies: AxisKeyDependencies,
             source_ome_axes: OmeZarrAxes,
             provided_ome_axes: Optional[OmeZarrAxesParam],
             unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]],
@@ -1851,14 +1857,15 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     f"{ {a: f'{slf!r} vs {oth!r}' for a, (slf, oth) in conflicts.items()} }. Only specify unit once."
                 )
 
+            carried_ome_axes = source_ome_axes.with_axes_carried_over(target_axes, dependencies)
             if provided_ome_axes == "infer":
-                result = source_ome_axes.with_axes(target_axes)
-                inserted_axes = set(target_axes) - set(source_ome_axes.keys())
+                result = carried_ome_axes
+                inserted_axes = {axis for axis, deps in zip(target_axes, dependencies) if not deps}
                 if inserted_axes:
                     inserted_ome_axes = parsed_ome_axes.without_axes_except(inserted_axes)
                     result = result.with_blanks_filled_from(inserted_ome_axes)
             else:
-                result = parsed_ome_axes.with_axes(target_axes).with_blanks_filled_from(source_ome_axes)
+                result = parsed_ome_axes.with_axes(target_axes).with_blanks_filled_from(carried_ome_axes)
 
             return result.with_unit_merged(unit)
 
@@ -1868,7 +1875,10 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         relation = normalize_relations_param(reached_by)
         source_axes = self.axes
         target_axes = relation.target_axes(source_axes) if relation else source_axes
-        target_ome_axes = _reconcile_axis_prop_params(target_axes, self.ome_zarr_axes, ome_zarr_axes, unit)
+        dependencies = relation._axis_dependencies(source_axes) if relation else tuple((a,) for a in source_axes)
+        target_ome_axes = _reconcile_axis_prop_params(
+            target_axes, dependencies, self.ome_zarr_axes, ome_zarr_axes, unit
+        )
         self._require_matching_units_or_affine_relation(
             self.ome_zarr_axes,
             target_ome_axes,
@@ -1937,7 +1947,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             source_label="`other`",
             target_label="this Multiscale",
         )
-        merged_ome_axes = self.ome_zarr_axes.with_blanks_filled_from(other.ome_zarr_axes)
+        dependencies = relation._axis_dependencies(source_axes) if relation else tuple((a,) for a in source_axes)
+        carried_from_other = other.ome_zarr_axes.with_axes_carried_over(target_axes, dependencies)
+        merged_ome_axes = self.ome_zarr_axes.with_blanks_filled_from(carried_from_other)
         if merged_ome_axes == self.ome_zarr_axes:
             intrinsic_ref = self._intrinsic_ref
             transform_graph = self._transform_graph
