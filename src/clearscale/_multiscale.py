@@ -66,6 +66,7 @@ from clearscale._transforms import (
     relation_to_transform_canonic,
 )
 from clearscale._services import ome_zarr, precomputed
+from clearscale._services.units import is_same_unit
 from clearscale.types import PixelSizingMethod, ShapeSource, TranslationShiftFunction, ShapeLike, FactorLike, AxisKeyT
 
 ScaleKey = str
@@ -2152,10 +2153,16 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         merged: Dict[AxisKey, Dict[str, Any]] = {a: {} for a in axes}
         for field_name in ("unit", "type", "discrete", "long_name"):
             for a in axes:
-                values = {v for s in scales if (v := getattr(s.ome_zarr_axes[a], field_name)) not in (None, "")}
+                values = list(
+                    dict.fromkeys(v for s in scales if (v := getattr(s.ome_zarr_axes[a], field_name)) not in (None, ""))
+                )
+                if field_name == "unit":
+                    # Normalise different spellings so "nm" and "nanometer" merge fine.
+                    # First spelling wins.
+                    values = [v for i, v in enumerate(values) if not any(is_same_unit(v, w) for w in values[:i])]
                 if len(values) > 1:
                     raise ValueError(
-                        f"Conflicting {field_name!r} for axis {a!r} across this Multiscale's Scales: {values!r}. "
+                        f"Conflicting {field_name!r} for axis {a!r} across this Multiscale's Scales: {set(values)!r}. "
                         "Only the first Scale providing a value gets to define it; all others must agree or be blank."
                     )
                 merged[a][field_name] = next(iter(values), None)
