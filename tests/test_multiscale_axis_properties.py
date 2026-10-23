@@ -14,6 +14,7 @@ from clearscale import (
     ProjectionTo,
     PermutationTo,
     AxisRearrangementTo,
+    Factor,
 )
 
 
@@ -874,6 +875,145 @@ class TestScaleWithUnitReplaced:
         """Why with_unit_replaced exists"""
         with pytest.raises(ValueError, match="Conflicting unit"):
             replace(self._scale(), unit=Unit(z="nanometer", y="nanometer", x="nanometer"))
+
+
+class TestScaleWithUnitConverted:
+    @staticmethod
+    def _scale():
+        return Scale(
+            shape=Shape(z=4, y=8, x=8),
+            pixel_size=PixelSize(z=2.0, y=0.5, x=0.5),
+            unit=Unit(z="micrometer", y="micrometer", x="micrometer"),
+            translation=Translation(z=1.0, y=2.0, x=3.0),
+        )
+
+    def test_converts_units_and_updates_other_physical_properties(self):
+        scale = self._scale()
+
+        # axiswise and recognises other spellings (mm instead of millimeter)
+        result = scale.with_unit_converted(Unit(z="nanometer", y="mm", x="micrometer"))
+
+        assert result.unit == Unit(z="nanometer", y="mm", x="micrometer")
+        assert result.shape == scale.shape
+
+        # 1 micron * 1000 nm/micron = 1000 nm (Factor multiplies pixel size)
+        expected_factor = Factor(zip("zyx", [1000.0, 0.001, 1.0]))
+        assert result.pixel_size == scale.pixel_size * expected_factor
+        assert result.pixel_size == PixelSize(z=2000.0, y=0.0005, x=0.5)
+        assert result.translation == scale.translation * expected_factor
+        assert result.translation == Translation(z=1000.0, y=0.002, x=3.0)
+
+    def test_other_spelling_of_the_same_unit_only_relabels(self):
+        converted = self._scale().with_unit_converted({"x": "um"})
+        replaced = self._scale().with_unit_replaced({"x": "um"})
+
+        assert converted == replaced
+
+    def test_converts_time_axes(self):
+        scale = Scale(
+            shape=Shape(t=3, y=8, x=8),
+            pixel_size=PixelSize(t=0.5, y=0.5, x=0.5),
+            unit=Unit(t="second", y="micrometer", x="micrometer"),
+            translation=Translation(t=2.0, y=0.0, x=0.0),
+        )
+
+        result = scale.with_unit_converted({"t": "millisecond"})
+
+        assert result.pixel_size["t"] == 500.0
+        assert result.translation["t"] == 2000.0
+        assert result.unit["t"] == "millisecond"
+
+    def test_converting_back_restores_the_scale(self):
+        scale = self._scale()
+        nm = Unit(z="nanometer", y="nanometer", x="nanometer")
+        um = Unit(z="micrometer", y="micrometer", x="micrometer")
+        assert scale.unit == um, "starting with um"
+
+        result = scale.with_unit_converted(nm).with_unit_converted(um)
+
+        assert result is not scale
+        assert result == scale
+
+    def test_partial_mapping_converts_only_given_axes(self):
+        scale = self._scale()
+
+        result = scale.with_unit_converted({"z": "nanometer"})
+
+        assert result.unit == Unit(z="nanometer", y="micrometer", x="micrometer")
+        expected_factor = Factor(z=1000.0)
+        assert result.pixel_size == scale.pixel_size * expected_factor
+        assert result.translation == scale.translation * expected_factor
+
+    def test_keeps_ome_zarr_axes_in_sync(self):
+        scale = self._scale()
+
+        result = scale.with_unit_converted({"x": "nanometer"})
+
+        assert result.ome_zarr_axes["x"].unit == "nanometer"
+        assert result.ome_zarr_axes["x"].type == scale.ome_zarr_axes["x"].type
+        assert result.ome_zarr_axes["y"].unit == "micrometer"
+
+    def test_does_not_modify_the_original(self):
+        scale = self._scale()
+
+        scale.with_unit_converted({"z": "nanometer"})
+
+        assert scale.unit["z"] == "micrometer"
+
+    def test_empty_conversion_is_noop(self):
+        scale = Scale(shape=Shape(y=8, x=8), unit=Unit(y="", x=""))
+
+        assert scale.with_unit_converted({"x": ""}) == scale
+
+    def test_unrecognised_unit_conversion_is_noop(self):
+        scale = Scale(shape=Shape(y=8, x=8), unit=Unit(y="a.u.", x="a.u."))
+
+        assert scale.with_unit_converted({"x": "a.u."}) == scale
+
+    def test_rejects_conversion_to_unspecified(self):
+        with pytest.raises(ValueError, match="Cannot convert.*from 'micrometer' to ''"):
+            self._scale().with_unit_converted({"z": ""})
+
+    def test_rejects_conversion_from_unspecified(self):
+        scale = Scale(shape=Shape(z=8, x=8), unit=Unit(z="", x=""))
+
+        with pytest.raises(ValueError, match="Cannot convert.*from '' to 'nanometer'"):
+            scale.with_unit_converted({"z": "nanometer"})
+
+    def test_rejects_axes_the_scale_does_not_have(self):
+        with pytest.raises(ValueError, match=r"Cannot convert unit of axes \['t'\]"):
+            self._scale().with_unit_converted({"t": "second"})
+
+    def test_rejects_unrecognised_unit(self):
+        with pytest.raises(ValueError, match="Axis 'x': Unknown unit 'furlong'"):
+            self._scale().with_unit_converted({"x": "furlong"})
+
+    def test_rejects_space_to_time(self):
+        with pytest.raises(ValueError, match=r"Cannot convert between 'second' \(time\) and 'micrometer' \(space\)"):
+            self._scale().with_unit_converted({"x": "second"})
+
+    def test_rejects_empty_arg(self):
+        with pytest.raises(ValueError, match="Empty Unit"):
+            self._scale().with_unit_converted({})
+
+    def test_converted_multiscale_relates_to_the_original_by_the_unit_conversion_docs_example(self):
+        """Converting a Scale is the same physical space in other numbers, so the two Multiscales connect through exactly the unit conversion."""
+        original_base = Scale(
+            shape=Shape(zip("zyx", (23, 256, 256))),
+            pixel_size={"z": 220, "y": 10, "x": 10},
+            unit={"z": "um", "y": "nm", "x": "nm"},
+        )
+        original_ms = Multiscale.from_single(original_base, scale_key="s0")
+
+        converted_base = original_base.with_unit_converted({"z": "nm"})
+        converted_ms = Multiscale.from_single(converted_base, scale_key="s0")
+
+        conversion_relation = Affine.from_unit_conversion(original_ms.unit, converted_ms.unit)
+
+        derived = converted_ms.as_derived_from(original_ms, by=conversion_relation)
+
+        scale = derived.to_ome_zarr(version="0.6")["coordinateTransformations"][0]["scale"]
+        assert scale == [1000.0, 1.0, 1.0]
 
 
 class TestUnitSpellings:
