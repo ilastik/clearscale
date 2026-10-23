@@ -829,3 +829,31 @@ def test_transform_sequence_simplified_maintains_sequence_endpoints_on_children(
     if isinstance(simplified, TransformSequence):
         assert simplified.transforms[0].source is source
         assert simplified.transforms[-1].target is target
+
+
+def test_bound_transform_sequence_rejects_intermediate_ndim_mismatch_given_absolute_endpoint_ndim():
+    children = (ProjectAxisTransform(inserts=(0,)), ScaleTransform((1.0, 1.0)), ProjectAxisTransform(inserts=(0,)))
+    # Fine unbound: The chain *can* be valid
+    TransformSequence(children)
+    # Fine bound to 1D source: after inserting one axis, the middle Scale sees ndim=2
+    TransformSequence(children).bound(_sys_ref("a", "x"), _sys_ref("b", "cdx"))
+    # Not fine bound 2D source: after inserting one, the middle Scale sees ndim=3 and must raise
+    with pytest.raises(ValueError, match="Transform chain ndim mismatch"):
+        TransformSequence(children).bound(_sys_ref("a", "yx"), _sys_ref("b", "cdyx"))
+    # Both in .bound and direct construction
+    with pytest.raises(ValueError, match="Transform chain ndim mismatch"):
+        TransformSequence(children, source=_sys_ref("a", "yx"), target=_sys_ref("b", "cdyx"))
+
+
+def test_bound_transform_sequence_checks_target_ndim_when_only_target_is_bound():
+    children = (ProjectAxisTransform(inserts=(0,)), ScaleTransform((1.0, 1.0)), ProjectAxisTransform(inserts=(0,)))
+    with pytest.raises(ValueError, match="Transform chain ndim mismatch"):
+        TransformSequence(children).bound(None, _sys_ref("b", "cdyx"))
+    TransformSequence(children).bound(None, _sys_ref("b", "cdx"))
+
+
+def test_bound_transform_sequence_still_reports_end_mismatches_with_specific_messages():
+    with pytest.raises(ValueError, match="expects 2 source axes, but its source coordinate system has 3"):
+        TransformSequence((ScaleTransform((1.0, 1.0)), TranslationTransform((0.0, 0.0)))).bound(
+            _sys_ref("a", "zyx"), _sys_ref("b", "zyx")
+        )
