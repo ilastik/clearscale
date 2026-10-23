@@ -346,6 +346,7 @@ class Scale:
         return not self.unit.is_default() or not self.pixel_size.is_default()
 
     def to_display_string(self, name=""):
+        abbreviated_unit = self.unit.abbreviated()
         shape = ", ".join(f"{axis}: {size}" for axis, size in self.shape.items())
         name_and_shape = f'"{name}" ({shape})' if name else f"{shape}"
         pixel_size = ""
@@ -356,8 +357,8 @@ class Scale:
                     continue
                 pixel_size = self.pixel_size[axis]
                 unit = ""
-                if self.unit[axis]:
-                    unit = f" {self.unit[axis]}"
+                if abbreviated_unit[axis]:
+                    unit = f" {abbreviated_unit[axis]}"
                 elif axis != "t":
                     unit = " px"
                 axis_strings.append(f"{axis}: {pixel_size:g}{unit}")
