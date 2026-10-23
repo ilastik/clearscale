@@ -667,6 +667,15 @@ class Unit(_AxisValues[AxisKey, str]):
         """
         return self.__class__((axis, units.normalized_unit(unit)) for axis, unit in self.items())
 
+    def abbreviated(self) -> "Unit":
+        """
+        The same Unit with every recognized unit as its standard short symbol, e.g. for display:
+        "nanometer" becomes "nm", "micron" becomes "\u00b5m" (with the micro sign U+00B5), "minute" becomes "min".
+        Unrecognized and unspecified units are left as they are.
+        OME-Zarr prefers the spelled-out names. `.normalized()` is the way back.
+        """
+        return self.__class__((axis, units.abbreviated_unit(unit)) for axis, unit in self.items())
+
 
 class PixelOffset(_AxisValues[AxisKey, int]):
     """
