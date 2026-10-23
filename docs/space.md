@@ -207,7 +207,7 @@ Trying to relate a source and target with different units in `with_coordinate_sy
 Intentional conversions from one unit to another need to be explicitly specified as a relation.
 Without a conversion, a coordinate in one space would be assumed to equal the same number in the other.
 
-State the conversion explicitly with a scaling `Affine` instead (see [`Affine`](#affine)).
+State the conversion explicitly with a scaling `Affine` instead (see [Affine](#affine), specifically [Unit conversion](#unit-conversion)).
 
 Things to know:
 
@@ -314,6 +314,28 @@ annotated = source_ms.with_coordinate_system(
         target_unit
     )
 )
+```
+
+When converting units between different Multiscales, you can use `Scale.with_unit_converted` to create the base for the converted Multiscale:
+
+```python
+from clearscale import Multiscale, Scale, Shape, PixelSize, Affine
+
+original_base = Scale(
+    shape=Shape(zip("zyx", (23, 256, 256))),
+    pixel_size={"z": 2.3, "y": 10, "x": 10},
+    unit={"z": "um", "y": "nm", "x": "nm"}
+)
+original_ms = Multiscale.from_single(original_base, scale_key="s0")
+
+# Scale.with_unit_converted also updates pixel_size and translation, so the resulting Scale is geometrically identical
+converted_base = original_base.with_unit_converted({"z": "nm"})
+assert converted_base.pixel_size == PixelSize(z=2300.0, y=10.0, x=10.0), "2.3 micron = 2300 nm"
+
+converted_ms = Multiscale.from_single(converted_base, scale_key="s0")
+conversion_relation = Affine.from_unit_conversion(original_ms.unit, converted_ms.unit)
+
+derived = converted_ms.as_derived_from(original_ms, by=conversion_relation)
 ```
 
 clearscale maintains and writes unit strings as you provide them: `"nm"` stays `"nm"`, because tool interoperability can depend on the exact spelling.
