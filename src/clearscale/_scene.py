@@ -479,18 +479,19 @@ class Scene:
                 )
         return replace(self, _multiscale_paths={**kept, **new_paths})
 
-    def to_ome_zarr(self, *, version: str, multiscales_by_path: Optional[MultiscalesByPath] = None) -> Dict:
+    def to_ome_zarr(self, *, version: str) -> Dict:
         if version != "0.6":
             raise ValueError(f"Scenes can only be written in OME-Zarr version 0.6. Received: {version}")
-        all_paths = dict(self._multiscale_paths)
-        if multiscales_by_path is not None:
-            if not isinstance(multiscales_by_path, MappingABC):
-                raise TypeError(
-                    f"multiscales_by_path must be a mapping like {{path: Multiscale}}. Received: {multiscales_by_path!r}"
-                )
-            cleaned = {k: v for k, v in multiscales_by_path.items() if k not in (None, "")}
-            all_paths.update(cleaned)
-        return self._internal_graph.to_ome_zarr(version=version, nodes_by_path=all_paths)
+        unlocated = {id(ms) for ms in self.multiscales} - {
+            id(multiscale) for multiscale in self._multiscale_paths.values()
+        }
+        if unlocated:
+            raise ValueError(
+                f"Cannot write this Scene: no path is known for {len(unlocated)} of its Multiscales. "
+                "Use `Scene.with_multiscale_paths({path: multiscale})` to provide the paths where they are stored, "
+                "relative to the group that stores the Scene."
+            )
+        return self._internal_graph.to_ome_zarr(version=version, nodes_by_path=self._multiscale_paths)
 
     def relation_from(
         self,

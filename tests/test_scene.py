@@ -1153,3 +1153,35 @@ def test_scene_with_multiscale_paths_roundtrips_through_ome_zarr():
         "tile_0": tile_0,
         "tile_1": tile_1,
     }
+
+
+def test_to_ome_zarr_requires_paths_for_all_graph_multiscales():
+    scene, _tile_0, _tile_1 = _two_tile_scene()
+
+    with pytest.raises(ValueError, match=r"no path is known for 2 of its Multiscales") as excinfo:
+        scene.to_ome_zarr(version="0.6")
+
+    assert "with_multiscale_paths" in str(excinfo.value)
+
+
+def test_to_ome_zarr_reports_only_multiscales_without_path():
+    scene, tile_0, _tile_1 = _two_tile_scene()
+    scene = scene.with_multiscale_paths({"tile_0": tile_0})
+
+    with pytest.raises(ValueError, match=r"no path is known for 1 of its Multiscales"):
+        scene.to_ome_zarr(version="0.6")
+
+
+def test_to_attrs_reports_missing_multiscale_paths():
+    scene, _tile_0, _tile_1 = _two_tile_scene()
+
+    with pytest.raises(ValueError, match=r"with_multiscale_paths"):
+        OmeZarrGroup.from_single(scene).to_attrs(version="0.6")
+
+
+def test_to_ome_zarr_does_not_require_paths_for_coordinate_systems():
+    world = CoordinateSystem.fromkeys("yx")._as_ref("world")
+    other = CoordinateSystem.fromkeys("yx")._as_ref("other")
+    scene = Scene._from_graph_edges([(world, TranslationTransform((1, 1)), other)])
+
+    assert scene.to_ome_zarr(version="0.6")["coordinateTransformations"]
