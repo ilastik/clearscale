@@ -72,6 +72,12 @@ class ChainStep(NamedTuple):
     who want to see everything in the space of this step."""
 
 
+def _describe_multiscale(multiscale: Multiscale) -> str:
+    """Describe a Multiscale by content the user recognises from their own code (scale keys, shape)."""
+    first_shape = dict(multiscale.first_value.shape)
+    return f"Multiscale with scales {list(multiscale.keys())} (first scale shape: {first_shape})"
+
+
 @dataclass(frozen=True)
 class Scene:
     _internal_graph: TransformGraph
@@ -85,6 +91,7 @@ class Scene:
                 f"Received: {self._multiscale_paths!r}"
             )
         paths = dict(self._multiscale_paths)
+        self._validate_multiscale_paths(paths)
         object.__setattr__(self, "_multiscale_paths", paths)
 
     def __eq__(self, other):
@@ -575,3 +582,47 @@ class Scene:
             if isinstance(new_ref, NodeRef) and isinstance(new_ref.owner, Multiscale) and new_ref.owner is multiscale:
                 resolved_paths[old_ref.file.path] = multiscale
         return resolved_paths
+
+    def _validate_multiscale_paths(self, paths: Mapping[RelativePath, Multiscale]) -> None:
+        """
+        A path may only annotate a Multiscale that is a resolved node of this Scene's graph (by identity),
+        and each instance may have at most one path. Scenes cannot hold Multiscales that no transform connects.
+        """
+        owners = {id(ms): ms for ms in self.multiscales}
+        path_by_instance: Dict[int, RelativePath] = {}
+        for path, multiscale in paths.items():
+            if not isinstance(path, str) or not path:
+                raise ValueError(f"Multiscale paths must be non-empty strings. Received: {path!r}")
+            if not isinstance(multiscale, Multiscale):
+                raise TypeError(f"Path {path!r} must map to a Multiscale. Received: {multiscale!r}")
+            if id(multiscale) not in owners:
+                raise ValueError(self._unrelated_multiscale_message(path, multiscale, owners.values()))
+            if id(multiscale) in path_by_instance:
+                raise ValueError(
+                    f"The {_describe_multiscale(multiscale)} has more than one path: "
+                    f"{path_by_instance[id(multiscale)]!r} and {path!r}. Each Multiscale instance can only be "
+                    "stored at one path. Use `.copy()` if you need the same metadata at a second path "
+                    "(it becomes a separate node of the graph)."
+                )
+            path_by_instance[id(multiscale)] = path
+
+    def _unrelated_multiscale_message(
+        self, path: RelativePath, multiscale: Multiscale, graph_multiscales: Iterable[Any]
+    ) -> str:
+        description = _describe_multiscale(multiscale)
+        if any(owner == multiscale for owner in graph_multiscales):
+            return (
+                f"The {description} given for path {path!r} is equal to a Multiscale in this Scene's graph, "
+                "but is not the same instance. Paths must be attached to the exact instances that the Scene's "
+                "transforms connect, not to equal copies (such as the result of `.copy()`)."
+            )
+        message = (
+            f"The {description} given for path {path!r} is not part of this Scene's graph. "
+            "A Scene cannot hold Multiscales that none of its transforms connect."
+        )
+        if path in self.unresolved_paths:
+            message += (
+                f" The graph has an unresolved reference to {path!r}: "
+                f"use `Scene.with_resolved({{{path!r}: multiscale}})` to resolve it."
+            )
+        return message

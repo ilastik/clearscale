@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from clearscale import (
@@ -153,6 +155,112 @@ def test_transforms_between_can_include_child_multiscale_graphs():
         ms_transform_within_scene.inverted(),
         scene_transform,
     ], "hop1 is stored as ms->warped, hop2 is ms->world, so the path is warped--inv(hop1)->ms--hop2->world"
+
+
+def _two_tile_scene():
+    tile_0 = _multiscale(y=2, x=3)
+    tile_1 = _multiscale(y=2, x=3)
+    scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
+    return scene, tile_0, tile_1
+
+
+def test_scene_accepts_paths_for_graph_multiscales():
+    scene, tile_0, tile_1 = _two_tile_scene()
+
+    with_paths = replace(scene, _multiscale_paths={"tile_0": tile_0, "tile_1": tile_1})
+
+    assert with_paths._multiscale_paths == {"tile_0": tile_0, "tile_1": tile_1}
+
+
+def test_scene_accepts_paths_for_only_some_graph_multiscales():
+    scene, tile_0, _tile_1 = _two_tile_scene()
+
+    with_paths = replace(scene, _multiscale_paths={"tile_0": tile_0})
+
+    assert with_paths._multiscale_paths == {"tile_0": tile_0}
+
+
+def test_scene_rejects_path_for_multiscale_outside_graph():
+    scene, _tile_0, _tile_1 = _two_tile_scene()
+    stray = _multiscale(y=5, x=7)
+
+    with pytest.raises(ValueError, match=r"'stray' is not part of this Scene's graph") as excinfo:
+        replace(scene, _multiscale_paths={"stray": stray})
+
+    assert "'s0'" in str(excinfo.value), "message describes the Multiscale by its scale keys"
+    assert "'y': 5" in str(excinfo.value), "message describes the Multiscale by its shape"
+
+
+def test_scene_rejects_path_for_equal_but_not_identical_multiscale():
+    scene, tile_0, _tile_1 = _two_tile_scene()
+    assert tile_0.copy() == tile_0
+
+    with pytest.raises(ValueError, match="equal to a Multiscale in this Scene's graph, but is not the same instance"):
+        replace(scene, _multiscale_paths={"tile_0": tile_0.copy()})
+
+
+def test_scene_rejects_same_instance_at_two_paths():
+    scene, tile_0, _tile_1 = _two_tile_scene()
+
+    with pytest.raises(ValueError, match=r"more than one path: 'a' and 'b'"):
+        replace(scene, _multiscale_paths={"a": tile_0, "b": tile_0})
+
+
+@pytest.mark.parametrize("path", ["", None, 3])
+def test_scene_rejects_non_string_or_empty_paths(path):
+    scene, tile_0, _tile_1 = _two_tile_scene()
+
+    with pytest.raises(ValueError, match="non-empty strings"):
+        replace(scene, _multiscale_paths={path: tile_0})
+
+
+def test_scene_rejects_non_multiscale_path_values():
+    scene, _tile_0, _tile_1 = _two_tile_scene()
+
+    with pytest.raises(TypeError, match="must map to a Multiscale"):
+        replace(scene, _multiscale_paths={"tile_0": "not a multiscale"})
+
+
+def test_scene_stray_path_error_suggests_with_resolved_for_unresolved_path():
+    scene = Scene.from_ome_zarr(
+        {
+            "coordinateSystems": [{"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}],
+            "coordinateTransformations": [
+                {
+                    "type": "translation",
+                    "input": {"path": "tile_0", "name": "physical"},
+                    "output": {"name": "world"},
+                    "translation": [0, 0],
+                }
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError, match=r"with_resolved\(\{'tile_0': multiscale\}\)"):
+        replace(scene, _multiscale_paths={"tile_0": _multiscale(y=2, x=3)})
+
+
+def test_with_resolved_rejects_same_multiscale_for_two_paths():
+    ms = _multiscale(y=2, x=3)
+    object.__setattr__(ms._intrinsic_ref, "name", "physical")
+    world = {"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}
+    scene = Scene.from_ome_zarr(
+        {
+            "coordinateSystems": [world],
+            "coordinateTransformations": [
+                {
+                    "type": "translation",
+                    "input": {"path": path, "name": "physical"},
+                    "output": {"name": "world"},
+                    "translation": [0, 0],
+                }
+                for path in ("tile_0", "tile_1")
+            ],
+        }
+    )
+
+    with pytest.raises(ValueError, match=r"more than one path: 'tile_0' and 'tile_1'"):
+        scene.with_resolved({"tile_0": ms, "tile_1": ms})
 
 
 def test_transforms_between_with_children_through_axis_changing_child_system():
