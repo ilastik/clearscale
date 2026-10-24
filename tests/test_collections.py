@@ -3,7 +3,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from clearscale import Multiscale, Scene
+from clearscale import Multiscale, Scale, Scene, Shape
+from clearscale._transforms import TranslationTransform
 from clearscale._collections import OmeZarrGroup, GroupKind, ChildRef
 
 
@@ -84,7 +85,7 @@ def test_ome_zarr_group_with_no_metadata():
     "obj, expected_kind",
     [
         (Mock(spec=Multiscale), GroupKind.MULTISCALE),
-        (Mock(spec=Scene), GroupKind.SCENE),
+        (Mock(spec=Scene, multiscale_paths={}, unresolved_paths=[]), GroupKind.SCENE),
     ],
 )
 def test_ome_zarr_group_single(obj, expected_kind):
@@ -643,3 +644,70 @@ def test_ome_zarr_group_uses_first_string_multiscale_version(monkeypatch):
     result = OmeZarrGroup.from_group(group)
 
     assert result.version == "0.4"
+
+
+def _tile() -> Multiscale:
+    return Multiscale({"s0": Scale(Shape(y=2, x=3))})
+
+
+def _child_paths(group: OmeZarrGroup):
+    return [(child.child_type, child.file.path) for child in group.children]
+
+
+def test_ome_zarr_group_single_scene_without_paths_has_no_children():
+    tile_0, tile_1 = _tile(), _tile()
+    scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
+
+    group = OmeZarrGroup.from_single(scene)
+
+    assert group.kind is GroupKind.SCENE
+    assert group.children == ()
+
+
+def test_ome_zarr_group_single_scene_children_are_its_multiscale_paths():
+    tile_0, tile_1 = _tile(), _tile()
+    scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
+    scene = scene.with_multiscale_paths({"tiles/0": tile_0, "tiles/1": tile_1})
+
+    group = OmeZarrGroup.from_single(scene)
+
+    assert group.kind is GroupKind.SCENE
+    assert _child_paths(group) == [("multiscale", "tiles/0"), ("multiscale", "tiles/1")]
+
+
+def test_ome_zarr_group_single_scene_children_include_unresolved_and_resolved_paths_once():
+    tile_0, tile_1 = _tile(), _tile()
+    scene = Scene.from_ome_zarr(
+        {
+            "coordinateSystems": [{"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}],
+            "coordinateTransformations": [
+                {
+                    "type": "translation",
+                    "input": {"path": path, "name": tile._intrinsic_ref.name},
+                    "output": {"name": "world"},
+                    "translation": [0, 0],
+                }
+                for path, tile in (("tile_0", tile_0), ("tile_1", tile_1))
+            ],
+        }
+    )
+    assert _child_paths(OmeZarrGroup.from_single(scene)) == [("multiscale", "tile_0"), ("multiscale", "tile_1")]
+
+    partly_resolved = scene.with_resolved({"tile_0": tile_0})
+
+    assert _child_paths(OmeZarrGroup.from_single(partly_resolved)) == [
+        ("multiscale", "tile_0"),
+        ("multiscale", "tile_1"),
+    ]
+
+
+def test_ome_zarr_group_single_scene_children_match_children_after_writing_and_reading():
+    tile_0, tile_1 = _tile(), _tile()
+    scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
+    scene = scene.with_multiscale_paths({"tile_0": tile_0, "tile_1": tile_1})
+    written = OmeZarrGroup.from_single(scene)
+
+    read = OmeZarrGroup.from_attrs(written.to_attrs(version="0.6"), shape_source="singletons")
+
+    assert read.kind is GroupKind.SCENE
+    assert _child_paths(read) == _child_paths(written)
