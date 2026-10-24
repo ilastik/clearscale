@@ -74,8 +74,9 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         atlas = _multiscale(y=2, x=2)
         scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=Affine.from_factor(Factor(y=2, x=2)))
         paths = {"raw.zarr": raw, "atlas.zarr": atlas}
+        scene = scene.with_multiscale_paths(paths)
 
-        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=paths)
+        result = scene.to_ome_zarr(version="0.6")
 
         assert "coordinateSystems" not in result, "no coordinate systems of its own"
         assert result["coordinateTransformations"] == [
@@ -102,8 +103,9 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
             ],
         )
         paths = {"raw.zarr": raw, "downscaled.zarr": downscaled, "cropped.zarr": cropped}
+        scene = scene.with_multiscale_paths(paths)
 
-        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=paths)
+        result = scene.to_ome_zarr(version="0.6")
 
         assert [s["name"] for s in result["coordinateSystems"]] == ["start", "overview"]
         assert [

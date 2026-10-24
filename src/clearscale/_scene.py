@@ -118,6 +118,12 @@ class Scene:
     def is_fully_resolved(self) -> bool:
         return len(self._internal_graph.unresolved_transforms) == 0
 
+    @property
+    def multiscale_paths(self) -> Dict[RelativePath, Multiscale]:
+        """The paths of this Scene's resolved Multiscales, relative to the group that stores the Scene.
+        Multiscales that have no path yet cannot be written (see `with_multiscale_paths`)."""
+        return dict(self._multiscale_paths)
+
     @functools.cached_property
     def unresolved_paths(self) -> List[RelativePath]:
         paths = []  # Order might matter to the consumer
@@ -444,6 +450,34 @@ class Scene:
         paths.update(resolved_paths)
         graph = replace(self._internal_graph, transforms=tuple(transforms))
         return replace(self, _internal_graph=graph, _multiscale_paths=paths)
+
+    def with_multiscale_paths(self, multiscale_paths: MultiscalesByPath) -> "Scene":
+        """
+        Record the paths at which this Scene's Multiscales are stored, relative to the group that stores the Scene.
+
+        Every Multiscale must be the very instance that this Scene's transforms connect (not an equal copy).
+        A Multiscale that already has a path is moved to its new path.
+        Giving a path that belongs to a different Multiscale raises, unless that Multiscale is also moved in the same
+        call. Multiscales not mentioned keep their paths.
+        """
+        if not isinstance(multiscale_paths, MappingABC):
+            raise TypeError(
+                f"multiscale_paths must be a mapping like {{path: Multiscale}}. Received: {multiscale_paths!r}"
+            )
+        new_paths = dict(multiscale_paths)
+        if not new_paths:
+            return self
+        # Validate first: Mistakes such as passing a copy should be reported as such, and not as a path clash.
+        self._validate_multiscale_paths(new_paths)
+        moved = {id(multiscale) for multiscale in new_paths.values()}
+        kept = {path: ms for path, ms in self._multiscale_paths.items() if id(ms) not in moved}
+        for path in new_paths:
+            if path in kept:
+                raise ValueError(
+                    f"Path {path!r} is already used by the {_describe_multiscale(kept[path])}. "
+                    "To reuse the path, also give that Multiscale a new path in the same call."
+                )
+        return replace(self, _multiscale_paths={**kept, **new_paths})
 
     def to_ome_zarr(self, *, version: str, multiscales_by_path: Optional[MultiscalesByPath] = None) -> Dict:
         if version != "0.6":
