@@ -33,6 +33,7 @@ from clearscale._services.matrices import (
     matrix_vector_multiply,
     matrix_transpose,
     nonzero_columns_by_row,
+    pivot_columns,
     matrix_invert,
     matrix_determinant,
     zero_matrix_columns,
@@ -637,15 +638,11 @@ class AffineTransform(AffineRepresentableTransform):
         elif target_ndim > source_ndim:
             inserts = tuple(range(source_ndim, target_ndim))
             components.append(ProjectAxisTransform(inserts=inserts))
-            post_project_linear = tuple(
-                row + tuple(1.0 if row_index == col else 0.0 for col in inserts) for row_index, row in enumerate(linear)
-            )
+            post_project_linear = self._pad_to_square_matrix(linear)
             components.extend(self._decompose_square_linear_else_affine(post_project_linear))
         elif target_ndim < source_ndim:
             drops = tuple(range(target_ndim, source_ndim))
-            pre_project_linear = linear + tuple(
-                tuple(1.0 if row == col else 0.0 for col in range(source_ndim)) for row in drops
-            )
+            pre_project_linear = self._pad_to_square_matrix(linear)
             components.extend(self._decompose_square_linear_else_affine(pre_project_linear))
             components.append(ProjectAxisTransform(drops=drops))
         else:
@@ -720,6 +717,34 @@ class AffineTransform(AffineRepresentableTransform):
     def _translation(self) -> FloatVector:
         assert self.affine, "Ensure `self.affine is not None` before calling"
         return tuple(row[-1] for row in self.affine)
+
+    @staticmethod
+    def _pad_to_square_matrix(linear: FloatMatrix) -> FloatMatrix:
+        """
+        Pad a non-square matrix with unit vectors to make it square (if possible, an invertible square):
+        Add rows if it has fewer rows than columns, add columns if it has more.
+
+        This is the remainder of an affine that drops axes (more columns) or inserts axes (more rows), after the
+        ProjectAxisTransform is split off. The padded rows only compute values of axes that are dropped afterwards, and
+        the padded columns only see axes that were just inserted (always 0), so any padding that keeps the matrix
+        invertible describes the same transform.
+
+        The naive approach would be: find all-0 columns and complete them with an identity row.
+        This can produce non-invertible square matrices.
+        Instead, we add identity rows for columns that can be expressed as linear combinations
+        of preceding columns (i.e. that are not pivots in Gaussian elimination).
+        """
+        rows, cols = matrix_shape(linear)
+        if rows == cols:
+            return linear
+        if rows > cols:
+            # Keep one implementation that pads rows. Work on transpose temporarily to pad cols instead.
+            return matrix_transpose(AffineTransform._pad_to_square_matrix(matrix_transpose(linear)))
+        pivots = pivot_columns(linear, tolerance=IDENTITY_TOLERANCE)
+        unpivoted = [col for col in range(cols) if col not in pivots]
+        return linear + tuple(
+            tuple(1.0 if col == unit else 0.0 for col in range(cols)) for unit in unpivoted[: cols - rows]
+        )
 
     @staticmethod
     def _decompose_project_axis(linear: FloatMatrix) -> Optional[Tuple["ProjectAxisTransform", FloatMatrix]]:

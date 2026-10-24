@@ -752,7 +752,7 @@ def test_affine_map_and_project_axis_compose_in_both_directions(earlier: Transfo
         pytest.param(
             ((1, 0), (1, 0), (0, 1)),
             TransformSequence(
-                (ProjectAxisTransform(inserts=(2,)), AffineTransform(((1, 0, 0, 0), (1, 0, 0, 0), (0, 1, 1, 0))))
+                (ProjectAxisTransform(inserts=(2,)), AffineTransform(((1, 0, 0, 0), (1, 0, 1, 0), (0, 1, 0, 0))))
             ),
             id="non_square_missing_col_no_matching_zero_row",
         ),
