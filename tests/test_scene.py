@@ -1172,11 +1172,11 @@ def test_to_ome_zarr_reports_only_multiscales_without_path():
         scene.to_ome_zarr(version="0.6")
 
 
-def test_to_attrs_reports_missing_multiscale_paths():
+def test_ome_zarr_group_from_single_reports_missing_multiscale_paths():
     scene, _tile_0, _tile_1 = _two_tile_scene()
 
     with pytest.raises(ValueError, match=r"with_multiscale_paths"):
-        OmeZarrGroup.from_single(scene).to_attrs(version="0.6")
+        OmeZarrGroup.from_single(scene)
 
 
 def test_to_ome_zarr_does_not_require_paths_for_coordinate_systems():

@@ -134,6 +134,9 @@ class OmeZarrGroup:
 
     def __post_init__(self):
         assert self.version != "", "Must not instantiate with empty version string"
+        for scene in self.scenes:
+            # Unlike Scene itself, a group exists to be written. Fail early, while the Scene is still at hand to fix.
+            scene._require_located_multiscales()
 
         detected_kind = None
         child_types = {child.child_type for child in self.children}

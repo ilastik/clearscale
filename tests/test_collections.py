@@ -4,7 +4,7 @@ from unittest.mock import Mock
 import pytest
 
 from clearscale import Multiscale, Scale, Scene, Shape
-from clearscale._transforms import TranslationTransform
+from clearscale._transforms import CoordinateSystem, TranslationTransform
 from clearscale._collections import OmeZarrGroup, GroupKind, ChildRef
 
 
@@ -654,14 +654,37 @@ def _child_paths(group: OmeZarrGroup):
     return [(child.child_type, child.file.path) for child in group.children]
 
 
-def test_ome_zarr_group_single_scene_without_paths_has_no_children():
-    tile_0, tile_1 = _tile(), _tile()
-    scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
+def test_ome_zarr_group_single_scene_without_multiscales_has_no_children():
+    world = CoordinateSystem.fromkeys("yx")._as_ref("world")
+    other = CoordinateSystem.fromkeys("yx")._as_ref("other")
+    scene = Scene._from_graph_edges([(world, TranslationTransform((1, 1)), other)])
 
     group = OmeZarrGroup.from_single(scene)
 
     assert group.kind is GroupKind.SCENE
     assert group.children == ()
+
+
+def test_ome_zarr_group_rejects_scene_with_unlocated_multiscales():
+    tile_0, tile_1 = _tile(), _tile()
+    scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
+
+    with pytest.raises(ValueError, match=r"no path is known for 2 of its Multiscales.*with_multiscale_paths"):
+        OmeZarrGroup.from_single(scene)
+
+    with pytest.raises(ValueError, match="no path is known for 1 of its Multiscales"):
+        OmeZarrGroup.from_single(scene.with_multiscale_paths({"tile_0": tile_0}))
+
+
+def test_ome_zarr_group_rejects_unlocated_scene_among_multiple_scenes():
+    tile_0, tile_1 = _tile(), _tile()
+    unlocated = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
+    located = unlocated.with_multiscale_paths({"tile_0": tile_0, "tile_1": tile_1})
+
+    OmeZarrGroup(scenes=(located, located))  # no error
+
+    with pytest.raises(ValueError, match="no path is known"):
+        OmeZarrGroup(scenes=(located, unlocated))
 
 
 def test_ome_zarr_group_single_scene_children_are_its_multiscale_paths():
