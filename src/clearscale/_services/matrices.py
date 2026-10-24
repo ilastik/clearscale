@@ -65,6 +65,30 @@ def nonzero_columns_by_row(matrix: FloatMatrix, *, tolerance: float) -> Tuple[Ax
     return tuple(tuple(j for j, value in enumerate(row) if abs(value) > tolerance) for row in matrix)
 
 
+def pivot_columns(matrix: FloatMatrix, *, tolerance: float) -> AxisIndices:
+    """
+    The columns at which Gaussian elimination finds a pivot, scanning columns from left to right: These are the first
+    columns that are linearly independent of the columns before them, and there are as many as the matrix's rank.
+    The unit vectors of the *other* columns complete the rows of a full-row-rank matrix to a basis.
+    """
+    work = [list(row) for row in matrix]
+    pivots = []
+    next_row = 0
+    for col in range(len(work[0])):
+        if next_row == len(work):
+            break
+        best = max(range(next_row, len(work)), key=lambda row: abs(work[row][col]))
+        if abs(work[best][col]) <= tolerance:
+            continue  # nothing left in this column that the earlier columns haven't already accounted for
+        work[next_row], work[best] = work[best], work[next_row]
+        for row in range(next_row + 1, len(work)):
+            factor = work[row][col] / work[next_row][col]
+            work[row] = [v - factor * pivot_v for v, pivot_v in zip(work[row], work[next_row])]
+        pivots.append(col)
+        next_row += 1
+    return tuple(pivots)
+
+
 def monomial_matrix_decompose(matrix: FloatMatrix, *, tolerance: float) -> Optional[Tuple[AxisIndices, FloatVector]]:
     """Decompose a square monomial matrix into a permutation and row factors.
 
