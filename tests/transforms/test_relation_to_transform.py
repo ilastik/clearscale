@@ -77,3 +77,17 @@ def test_affine_relation_rejects_singular_matrix():
 def test_affine_relation_rejects_mismatching_source_axes():
     with pytest.raises(ValueError, match="Incompatible axes/order"):
         relation_to_transform(Affine.identity("yx"), source_axes=("z", "y", "x"))
+
+
+def test_affine_chain_dependencies_are_an_upper_bound_when_the_steps_cancel_out():
+    # Two opposite shears. Each one mixes y and x, but together they are the identity.
+    shear = Affine.from_array(((1, 1, 0), (0, 1, 0)), "yx")
+    opposite = Affine.from_array(((1, -1, 0), (0, 1, 0)), "yx")
+    assert shear._axis_dependencies("yx") == opposite._axis_dependencies("yx") == (("y", "x"), ("x",))
+
+    chain = SpatialRelationSequence((shear, opposite))
+    transform = relation_to_transform_canonic(chain, "yx")
+    assert isinstance(transform, IdentityTransform), "the matrices in this test compose to identity"
+    assert transform._axis_dependencies(2) == ((0,), (1,))
+    # SpatialRelationSequence combines the dependencies step by step, and does not notice the cancellation
+    assert chain._axis_dependencies("yx") == (("y", "x"), ("x",))

@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Affine, ProjectionTo
+from clearscale import Affine, Factor, ProjectionTo, AxisRearrangementTo, Translation
 from clearscale._affines import Linear
 from clearscale._spatial_relations import SpatialRelationSequence, PermutationTo
 
@@ -89,3 +89,52 @@ def test_affine_in_relation_sequence_target_axes():
     relations = SpatialRelationSequence((Affine.identity("zyx"), PermutationTo(("x", "y", "z"))))
 
     assert relations.target_axes("zyx") == ("x", "y", "z")
+
+
+class TestAxisDependencies:
+    @pytest.mark.parametrize(
+        "relation, source, expected",
+        [
+            (PermutationTo("xyz"), "zyx", (("x",), ("y",), ("z",))),
+            (ProjectionTo("cyx"), "zyx", ((), ("y",), ("x",))),
+            (AxisRearrangementTo("xcy"), "zyx", (("x",), (), ("y",))),
+            (Affine.from_factor(Factor(y=2, x=2)), "yx", (("y",), ("x",))),
+            (Translation(y=1.0, x=1.0), "yx", (("y",), ("x",))),
+        ],
+    )
+    def test_single_relations(self, relation, source, expected):
+        assert relation._axis_dependencies(source) == expected
+
+    @pytest.mark.parametrize(
+        "relation, source",
+        [
+            (PermutationTo("xy"), "zyx"),
+            (Affine.from_factor(Factor(y=2)), "yx"),
+        ],
+    )
+    def test_reject_incompatible_source_axes(self, relation, source):
+        with pytest.raises(ValueError):
+            relation._axis_dependencies(source)
+
+    @pytest.mark.parametrize(
+        "rows, expected",
+        [
+            (((2, 0, 0), (0, 3, 0)), (("y",), ("x",))),  # diagonal
+            (((0, 1, 0), (1, 0, 0)), (("x",), ("y",))),  # axes swapped by values: new y <- old x, new x <- old y
+            (((1, 0, 0), (-1, 1, 0)), (("y",), ("y", "x"))),
+            (((1, 2, 5), (0, 1, 7)), (("y", "x"), ("x",))),  # translation does not matter
+        ],
+    )
+    def test_affine_follow_the_matrix_pattern(self, rows, expected):
+        assert Affine.from_array(rows, "yx")._axis_dependencies("yx") == expected
+
+    def test_affine_are_those_of_the_inverse_not_of_the_transposed_matrix(self):
+        # x_old = L x_new with L upper bidiagonal. L's inverse is a full upper triangle, so the new z depends on all.
+        affine = Affine.from_array(((1, 1, 0, 0), (0, 1, 1, 0), (0, 0, 1, 0)), "zyx")
+        assert affine._axis_dependencies("zyx") == (("z", "y", "x"), ("y", "x"), ("x",))
+
+    def test_affine_require_an_invertible_matrix_and_matching_axes(self):
+        with pytest.raises(ValueError, match="must be invertible"):
+            Affine.from_array(((1, 2, 0), (2, 4, 0)), "yx")._axis_dependencies("yx")
+        with pytest.raises(ValueError, match="Incompatible axes"):
+            Affine.identity("yx")._axis_dependencies("xy")

@@ -4,6 +4,14 @@ from typing import Tuple, Iterator, Sequence, overload, Union, Optional
 
 from clearscale.types import AxisKey, OrderedAxes
 
+AxisKeyDependencies = Tuple[Tuple[AxisKey, ...], ...]
+"""AxisKey counterpart to `Transform._axis_dependencies`, which uses axis indices.
+One tuple of source axes per target axis, in target axis order.
+() = target depends on nothing (is new insert)
+(s,) = target is s
+(a, b, ...) = target mixes source axes a, b, ...
+"""
+
 
 class SpatialRelation(ABC):
     """Any object that can describe how a new image was derived from an existing one is a spatial relation."""
@@ -11,6 +19,13 @@ class SpatialRelation(ABC):
     @abstractmethod
     def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
         """Raise if self is not compatible with `source_axes`, and return the axes this relation results in when applied to source_axes."""
+
+    @abstractmethod
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        """Raise if self is not compatible with `source_axes`, and return for each `self.target_axes` the keys of
+        the `source_axes` it depends on / descends from.
+        Allows axis properties (type, unit, ...) to follow the axes they belong to through renamings and rearrangements.
+        """
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +48,9 @@ class PermutationTo(SpatialRelation):
                 f"Source axes {source_axes!r} are not the same set as target axes {self._order!r}."
             )
         return self._order
+
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        return tuple((axis,) for axis in self.target_axes(source_axes))
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +78,10 @@ class ProjectionTo(SpatialRelation):
         source_axes = tuple(source_axes)
         self._require_retained_axes_not_reordered(source_axes)
         return tuple(a for a in self._targets if a not in source_axes)
+
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        source_axes = tuple(source_axes)
+        return tuple((axis,) if axis in source_axes else () for axis in self.target_axes(source_axes))
 
     def _require_retained_axes_not_reordered(self, source_axes: OrderedAxes) -> None:
         shared_source = tuple(a for a in source_axes if a in self._targets)
@@ -107,6 +129,10 @@ class AxisRearrangementTo(SpatialRelation):
         self._require_unique_source_axes(source_axes)
         return tuple(axis for axis in source_axes if axis in self._targets)
 
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        source_axes = tuple(source_axes)
+        return tuple((axis,) if axis in source_axes else () for axis in self.target_axes(source_axes))
+
     @staticmethod
     def _require_unique_source_axes(source_axes: OrderedAxes) -> None:
         source_axes = tuple(source_axes)
@@ -131,6 +157,34 @@ class SpatialRelationSequence(SpatialRelation, Sequence[SpatialRelation]):
         for relation in self.relations:
             axes = relation.target_axes(axes)
         return axes
+
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        """
+        Traces dependencies step-by-step. As a consequence, it cannot detect when inverse dependencies across steps
+        cancel out. This is a (probably mostly theoretical) chains-of-Affine edge case, see
+        test_affine_chain_dependencies_are_an_upper_bound_when_the_steps_cancel_out
+        """
+        original_sources = tuple(source_axes)
+        current_sources = original_sources
+        dependencies: AxisKeyDependencies = tuple((axis,) for axis in current_sources)
+        for relation in self.relations:
+            original_sources_by_current = dict(zip(current_sources, dependencies))
+            current_dependencies = relation._axis_dependencies(current_sources)
+            dependencies = tuple(
+                tuple(
+                    sorted(
+                        {
+                            original_source
+                            for current_source in sources
+                            for original_source in original_sources_by_current[current_source]
+                        },
+                        key=original_sources.index,
+                    )
+                )
+                for sources in current_dependencies
+            )
+            current_sources = relation.target_axes(current_sources)
+        return dependencies
 
     def __iter__(self) -> Iterator[SpatialRelation]:
         return iter(self.relations)
