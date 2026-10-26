@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Affine, Factor, ProjectionTo, AxisRearrangementTo, Translation
+from clearscale import Affine, Factor, ProjectionTo, AxisRenaming, AxisRearrangementTo, Translation
 from clearscale._affines import Linear
 from clearscale._spatial_relations import SpatialRelationSequence, PermutationTo
 
@@ -72,6 +72,41 @@ def test_relation_sequence_target_axes_across_hops():
     assert relations.target_axes("zyx") == ("t", "y", "x", "z")
 
 
+def test_axis_renaming_target_axes():
+    assert AxisRenaming(z="Z").target_axes("zyx") == ("Z", "y", "x")
+    assert AxisRenaming({"z": "Z", "x": "X"}).target_axes("zyx") == ("Z", "y", "X")
+    assert AxisRenaming({"z": 0, "y": 1}).target_axes("zyx") == (0, 1, "x"), "any hashable key"
+
+
+def test_axis_renaming_applies_simultaneously():
+    assert AxisRenaming(y="x", x="y").target_axes("zyx") == ("z", "x", "y")
+    assert AxisRenaming(z="y", y="z").target_axes("zyx") == ("y", "z", "x")
+    assert AxisRenaming(z="y").target_axes("zx") == ("y", "x")
+
+
+def test_axis_renaming_equality_ignores_order_and_is_hashable():
+    assert AxisRenaming(z="Z", y="Y") == AxisRenaming({"y": "Y", "z": "Z"})
+    assert hash(AxisRenaming(z="Z", y="Y")) == hash(AxisRenaming(y="Y", z="Z"))
+    assert AxisRenaming(z="Z") != AxisRenaming(z="Y")
+    assert AxisRenaming(z="Z") != PermutationTo("Z")
+    assert AxisRenaming({"z": "Z"}).mapping == {"z": "Z"}
+    assert repr(AxisRenaming(z="Z")) == "AxisRenaming({'z': 'Z'})"
+
+
+def test_axis_renaming_rejects_invalid_construction():
+    with pytest.raises(ValueError, match="at least one"):
+        AxisRenaming()
+    with pytest.raises(ValueError, match="same name"):
+        AxisRenaming({"z": "a", "y": "a"})
+
+
+def test_axis_renaming_rejects_incompatible_source_axes():
+    with pytest.raises(ValueError, match="not present"):
+        AxisRenaming(c="C").target_axes("zyx")
+    with pytest.raises(ValueError, match="duplicate"):
+        AxisRenaming(z="y").target_axes("zyx")
+
+
 @pytest.mark.parametrize("source", ["yx", ("y", "x"), ["y", "x"]])
 def test_affine_target_axes_are_own_axes(source):
     affine = Affine(linear=Linear.from_array(((2, 0), (0, 2)), "yx"))
@@ -97,6 +132,8 @@ class TestAxisDependencies:
         [
             (PermutationTo("xyz"), "zyx", (("x",), ("y",), ("z",))),
             (ProjectionTo("cyx"), "zyx", ((), ("y",), ("x",))),
+            (AxisRenaming(z="Z"), "zyx", (("z",), ("y",), ("x",))),
+            (AxisRenaming(y="x", x="y"), "yx", (("y",), ("x",))),
             (AxisRearrangementTo("xcy"), "zyx", (("x",), (), ("y",))),
             (Affine.from_factor(Factor(y=2, x=2)), "yx", (("y",), ("x",))),
             (Translation(y=1.0, x=1.0), "yx", (("y",), ("x",))),
@@ -110,11 +147,21 @@ class TestAxisDependencies:
         [
             (PermutationTo("xy"), "zyx"),
             (Affine.from_factor(Factor(y=2)), "yx"),
+            (AxisRenaming(c="C"), "zyx"),
         ],
     )
     def test_reject_incompatible_source_axes(self, relation, source):
         with pytest.raises(ValueError):
             relation._axis_dependencies(source)
+
+    def test_sequence_follows_axes_through_renamings(self):
+        sequence = SpatialRelationSequence((AxisRenaming(z="Z"), PermutationTo("yxZ"), AxisRenaming(Z="depth")))
+        assert sequence._axis_dependencies("zyx") == (("y",), ("x",), ("z",))
+
+    def test_sequence_does_not_carry_across_drop_and_reinsert(self):
+        # Z is dropped, and a *new* z is inserted. Net rename z->Z followed by Z->z would claim the new z descends from z.
+        sequence = SpatialRelationSequence((AxisRenaming(z="Z"), ProjectionTo("zyx")))
+        assert sequence._axis_dependencies("zyx") == ((), ("y",), ("x",))
 
     @pytest.mark.parametrize(
         "rows, expected",

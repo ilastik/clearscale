@@ -1,6 +1,6 @@
 from abc import abstractmethod, ABC
 from dataclasses import dataclass
-from typing import Tuple, Iterator, Sequence, overload, Union, Optional
+from typing import Tuple, Iterator, Mapping, Sequence, overload, Union, Optional, Dict
 
 from clearscale.types import AxisKey, OrderedAxes
 
@@ -138,6 +138,56 @@ class AxisRearrangementTo(SpatialRelation):
         source_axes = tuple(source_axes)
         if len(set(source_axes)) != len(source_axes):
             raise ValueError(f"source_axes must be unique. Received: {source_axes!r}")
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class AxisRenaming(SpatialRelation):
+    """Rename axes, leaving the image unchanged: `AxisRenaming({"z": "Z"})` or `AxisRenaming(z="Z")`.
+
+    Axes that aren't mentioned keep their names. All renames apply simultaneously, so
+    `AxisRenaming(y="x", x="y")` swaps the names (it does not move any data, unlike `PermutationTo`).
+    Applying it to axes that don't exist, or producing duplicate axis names, raises."""
+
+    _renames: Tuple[Tuple[AxisKey, AxisKey], ...]
+
+    def __init__(self, renames: Optional[Mapping[AxisKey, AxisKey]] = None, /, **kwargs: AxisKey):
+        pairs = tuple({**(renames or {}), **kwargs}.items())
+        if not pairs:
+            raise ValueError("AxisRenaming requires at least one renamed axis.")
+        new_names = [new for _old, new in pairs]
+        if len(set(new_names)) != len(new_names):
+            raise ValueError(f"Cannot rename different axes to the same name. Received: {dict(pairs)!r}")
+        object.__setattr__(self, "_renames", pairs)
+
+    @property
+    def mapping(self) -> Dict[AxisKey, AxisKey]:
+        """{old_name: new_name} (a copy)"""
+        return dict(self._renames)
+
+    def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
+        source_axes = tuple(source_axes)
+        mapping = self.mapping
+        missing = [old for old in mapping if old not in source_axes]
+        if missing:
+            raise ValueError(f"Cannot rename axes {missing!r}: not present in source axes {source_axes!r}.")
+        target_axes = tuple(mapping.get(axis, axis) for axis in source_axes)
+        if len(set(target_axes)) != len(target_axes):
+            raise ValueError(f"Renaming {mapping!r} would produce duplicate axes {target_axes!r} from {source_axes!r}.")
+        return target_axes
+
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        source_axes = tuple(source_axes)
+        self.target_axes(source_axes)
+        return tuple((axis,) for axis in source_axes)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, AxisRenaming) and frozenset(self._renames) == frozenset(other._renames)
+
+    def __hash__(self) -> int:
+        return hash(frozenset(self._renames))
+
+    def __repr__(self) -> str:
+        return f"AxisRenaming({self.mapping!r})"
 
 
 @dataclass(frozen=True, slots=True)

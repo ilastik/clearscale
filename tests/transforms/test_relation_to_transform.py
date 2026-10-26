@@ -2,7 +2,7 @@ import pytest
 
 from clearscale import Affine, Translation
 from clearscale._affines import Linear
-from clearscale._spatial_relations import ProjectionTo, SpatialRelationSequence
+from clearscale._spatial_relations import ProjectionTo, SpatialRelationSequence, AxisRenaming
 from clearscale._transforms import (
     AffineTransform,
     ProjectAxisTransform,
@@ -10,6 +10,7 @@ from clearscale._transforms import (
     TransformSequence,
     TranslationTransform,
     relation_to_transform_canonic,
+    IdentityTransform,
 )
 from clearscale._transforms._to_from_spatial_relation import relation_to_transform
 
@@ -26,6 +27,21 @@ def test_relation_to_transform_canonic_unwraps_sequence():
     result = relation_to_transform_canonic(relations, source_axes=("z", "y", "x"))
     assert isinstance(result, ProjectAxisTransform)
     assert result.inserts == (0,)
+
+
+def test_axis_renaming_to_transform_is_identity():
+    # Transforms retain no information about the axis names; it happens via bound source/target
+    assert relation_to_transform(AxisRenaming(z="Z"), "zyx") == IdentityTransform()
+    assert relation_to_transform_canonic(AxisRenaming(z="Z"), "zyx") == IdentityTransform()
+
+
+def test_axis_renaming_in_a_sequence_requires_later_relations_to_use_the_new_names():
+    relation = SpatialRelationSequence((AxisRenaming(y="Y"), Translation(z=1, Y=2, x=2)))
+    transform = relation_to_transform_canonic(relation, "zyx")
+    assert isinstance(transform, TranslationTransform)
+    assert transform.translation == (-1.0, -2.0, -2.0)
+    with pytest.raises(ValueError):
+        relation_to_transform(SpatialRelationSequence((AxisRenaming(y="Y"), Translation(z=1, y=2, x=2))), "zyx")
 
 
 def test_affine_relation_to_transform_inverts_matrix_and_translation():
