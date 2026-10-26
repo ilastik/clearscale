@@ -19,7 +19,7 @@ from clearscale._axis_values import (
     Unit,
 )
 from clearscale._services.units import unit_conversion_factor
-from clearscale._spatial_relations import SpatialRelation
+from clearscale._spatial_relations import AxisKeyDependencies, SpatialRelation
 from clearscale.types import FactorLike, HasPixelGrid, AxisKeyT
 from clearscale._services.matrices import matrix_invert, matrix_vector_multiply, DEFAULT_SINGULARITY_TOLERANCE
 
@@ -461,6 +461,22 @@ class Affine(SpatialRelation):
     def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
         _require_identical_axes(source_axes, self.axes)
         return self.axes
+
+    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        """
+        An Affine keeps its axis names, but its values may mix them. As a relation, it maps the new space's
+        coordinates to the old space's (see inversion in `relation_to_transform`). Then the dependencies
+        is that of the inverse.
+        """
+        _ensure_compatible = self.target_axes(source_axes)
+        try:
+            inverse = self.inverted()
+        except ValueError as e:
+            raise ValueError(f"Affine relation must be invertible to connect two coordinate systems: {e}") from e
+        return tuple(
+            tuple(axis for axis, value in row.items() if abs(value) > DEFAULT_SINGULARITY_TOLERANCE)
+            for row in inverse.linear.values()
+        )
 
     def with_axes(self, axes: OrderedAxes) -> "Affine":
         """Order like axes. Drop axes, or insert new identity axes if necessary."""
