@@ -2,16 +2,74 @@
 
 `clearscale` is a small dependency-free Python package for clear multi-scale image metadata manipulation.
 
-Fits in any Python environment. Works with existing code. Handles all OME-Zarr versions.
+## Features
 
-With `clearscale`, metadata runs alongside data processing.
+* Zero dependencies, pure Python
+* Compatible with Python 3.10+
+* Read OME-Zarr metadata and even Neuroglancer Precomputed (very basic support)
+* Read all OME-Zarr versions (0.1 to 0.6) using one code path - no version branching, future versions come for free
+* Write OME-Zarr versions 0.4, 0.5 and 0.6
+* Virtually no knowledge about OME-Zarr required
+* Create, manipulate, save and load multiscale metadata
+* Make sure metadata are correct for any scaling method
+* Find out how exactly your scaling method resamples with [characterization](docs/characterization.md)
+* Read and write multiscale transformations into alternate [coordinate systems](docs/space.md)
+* Read and write transformations between multiscales using [scenes](docs/scene.md)
 
-Ideally, to ensure data and metadata are in sync, the pipeline first specifies the operation plan, and then uses the metadata itself as parameters:
+## Minimal OME-Zarr example
+
+The absolute minimum requirements for writing OME-Zarr:
+* axis keys (`"zyx"`)
+* writing the data to a zarr *array* inside a zarr *group* (and recording the array sub-path)
+* `zarr_format=3` for OME-Zarr `version="0.5"`
+
+```python
+# Assuming you have numpy and zarr-python 3.* installed
+import numpy as np
+import zarr
+from clearscale import OmeZarrGroup, Multiscale, Scale
+
+# You have some array
+image = np.random.random((128, 1024, 1024)).astype(np.float32)
+
+# 1. Data: Make a group and write the array into it
+# (no clearscale involved)
+group = zarr.open_group(
+    "demo-output/example1.ome.zarr", 
+    mode="w", 
+    zarr_format=3
+)
+array_path = "s0"
+group.create_array(array_path, data=image)
+
+# 2. Metadata: Scale -> Multiscale -> Group -> attrs
+group.attrs.update(
+    OmeZarrGroup
+    .from_single(
+        Multiscale.from_single(
+            scale=Scale.from_lists("zyx"), 
+            scale_key=array_path
+        )
+    )
+    .to_attrs(version="0.5")
+)
+```
+
+## Zero dependencies
+
+Being dependency-free means:
+
+* `clearscale` fits in any Python environment. Installing or uninstalling it will not modify any other installed packages.
+* `clearscale` does *not* interact with data (numpy/zarr arrays). You implement data processing according to your needs, and use `clearscale` to generate metadata that describes your processing.
+
+This provides full flexibility for data processing, but it comes at the risk of desynchronization between data and metadata.
+
+You can mitigate this by coupling data processing to the metadata, for example by using the generated metadata as the parameter for image scaling and data writing:
 
 ```python
 from clearscale import Shape, PixelSize, Unit, BlueprintShapes, Scale, Multiscale, OmeZarrGroup
 
-# 1. Define operation plan
+# 1. Define operation plan as metadata
 shape = Shape(zip("tzyx", my_data.shape))
 scaling_blueprint = BlueprintShapes.downscale_powers_of_2_xyz(
     base_shape=shape,
@@ -19,23 +77,24 @@ scaling_blueprint = BlueprintShapes.downscale_powers_of_2_xyz(
     limit_all=Shape(z=8, y=128, x=128),
 )
 
-# 2. Scale data according to the blueprint
+# 2. Scale data according to the blueprint.
+# Metadata as parameter for data processing.
 for scale_key, target_shape in scaling_blueprint.items():
+    # Target shape from blueprint
     scaled_data = do_my_scaling(my_data, target_shape.values_tuple())
+    # Target array path from blueprint
     zarr_group.create_array(scale_key, data=scaled_data)
 
-# 3. Annotate
+# 3. Write metadata: Scale -> Multiscale -> Group -> attrs
 pixel_size = PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
 unit       = Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
-
-# 4. Write metadata: Scale -> Multiscale -> Group -> attrs
 base       = Scale(shape, pixel_size, unit)
+
 ms         = Multiscale.from_single(base, blueprint=scaling_blueprint)
 group_meta = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 zarr_group.attrs.update(group_meta)
 ```
 
-`clearscale` is independent of the actual data-handling packages in your environment.
 For example, if you use `numpy`, `scikit-image` and `zarr-python`, the placeholders above could look like:
 
 ```
@@ -47,17 +106,6 @@ zarr_group = zarr.open_group(os.path.expanduser("demo-output/sweet.ome.zarr"), m
 
 # Now you can actually run the example snippet above and produce a valid `sweet.ome.zarr`
 ```
-
-## Features
-
-* Zero dependencies, runs with Python 3.10+
-* Read Neuroglancer Precomputed and OME-Zarr metadata (all versions)
-* Write OME-Zarr versions 0.4, 0.5 and 0.6
-* Virtually no knowledge about OME-Zarr or its versions required
-* Create, manipulate, save and load multiscale metadata
-* Make sure metadata are correct for any scaling method
-* Find out how exactly your scaling method scales
-* Save multiscale transformations into alternate coordinate systems
 
 ## Install
 
@@ -83,47 +131,17 @@ dependencies:
       - git+https://github.com/ilastik/clearscale.git
 ```
 
+## Documentation
+
+Docs for clearscale's concepts are at [`docs/index.md`](docs/index.md).
+The OME-Zarr How-To is at [`docs/ome_zarr.md`](docs/ome_zarr.md).
+
 ## End-to-end examples
-
-### Dump a numpy array to OME-Zarr
-
-The absolute minimum requirements for writing OME-Zarr:
-* axis keys (`"zyx"`)
-* writing the data to a zarr *array* inside a zarr *group* (and recording the array sub-path)
-* `zarr_format=3` for OME-Zarr `version="0.5"`
-
-```python
-import numpy as np
-import zarr
-from clearscale import OmeZarrGroup, Multiscale, Scale
-
-# You have some array
-image = np.random.random((128, 1024, 1024)).astype(np.float32)
-
-# 1. Data: Make a group and write the array into it
-# (no clearscale involved)
-group = zarr.open_group(
-    "demo-output/example1.ome.zarr", 
-    mode="w", 
-    zarr_format=3
-)
-array_path = "s0"
-group.create_array(array_path, data=image)
-
-# 2. Metadata: Scale -> Multiscale -> Group -> attrs
-scale = Scale.from_lists("zyx")
-group.attrs.update(
-    OmeZarrGroup
-    .from_single(
-        Multiscale.from_single(scale, scale_key=array_path)
-    )
-    .to_attrs(version="0.5")
-)
-```
 
 ### Downsample a numpy array and save it as OME-Zarr
 
-The first example at the top of this Readme used a "metadata-first" approach (first compute metadata blueprint, then scale data according to it).
+The previous example used a "metadata-first" approach (first compute metadata blueprint, then scale data according to it).
+
 This example works the other way round (first scale data, then record what was done in blueprint).
 
 ```python
@@ -204,13 +222,6 @@ local_group_meta = clear.OmeZarrGroup.from_single(target_multiscale)
 local_group.attrs.update(local_group_meta.to_attrs(version="0.4"))
 ```
 
-## Documentation
-
-Docs for clearscale's concepts are at [`docs/index.md`](docs/index.md).
-The OME-Zarr How-To is at [`docs/ome_zarr.md`](docs/ome_zarr.md).
-
-Generally though, we hope the API is sufficiently self-documenting and discoverable through tab-completion and type annotations ;)
-
 ## Why clearscale?
 
 The motivation behind clearscale is to make upgrading from
@@ -242,7 +253,7 @@ But maybe you can't, or don't want to, use any of the above.
 
 * Technical reasons (dependency conflicts)
 * Legal reasons (licensing conflicts, commercial use)
-* You don't want to reimplement existing data processing with another library. 
+* You already have data processing in place that you don't want to reimplement or risk adapting inefficiently.
 * You just want to minimise bloat.
 
 clearscale is tiny, dependency-free, permissively licensed, and works around your existing data processing.
