@@ -93,43 +93,55 @@ python script.py --path /data/might/be/zarr
 python script.py --path https://someserver.org/public-data/00121
 ```
 
-Your zarr backend will tell you whether that path points to a zarr object at all.
-Assuming it does, the next thing you will want to know is, "Is this *zarr* object an *OME-Zarr* object?"
+Your zarr backend will tell you whether that path points to a zarr object at all:
 
-`clearscale` recognises all valid OME-Zarr objects of all OME-Zarr versions, up to and including 0.6.
+```python
+obj = zarr.open(path)
+if isinstance(obj, zarr.Group):
+    zarr_group = obj
+else:
+    # obj is probably a zarr.Array
+    raise ValueError("Expected a path that points to a zarr group")
+```
+
+The next thing you will want to know is, "Is this *zarr* group an *OME-Zarr* group?"
 
 ## "Is this zarr thing an OME-Zarr thing?"
 `clearscale.OmeZarrGroup` answers this question.
+
+`OmeZarrGroup` recognizes all OME-Zarr objects of all OME-Zarr versions, up to and including 0.6.
+
+Reading is permissive: Some partial invalidity is tolerated as long as valid parts are unambiguous.
 
 ```python
 from clearscale import OmeZarrGroup
 
 # Option 1
-ome_meta = OmeZarrGroup.from_group(zarr_group)
+ome_zarr_group = OmeZarrGroup.from_group(zarr_group)
 
-# Option 2, if you want to avoid requests for array metadata (e.g. when reading remote Zarr)
-ome_meta = OmeZarrGroup.from_attrs(zarr_group.attrs, shape_source="singletons")
+# Option 2, if you want to avoid requests for array shapes (e.g. when reading from a server)
+ome_zarr_group = OmeZarrGroup.from_attrs(zarr_group.attrs, shape_source="singletons")
 ```
 
 You can either pass the group to `.from_group`, or the attrs to `.from_attrs`.
 
-`from_attrs` needs you to specify a `shape_source`, because it needs to obtain array shapes, and the only way to obtain array shapes is to read them from the group...
-So if you don't provide the group, there needs to be another way to obtain them.
+If you use `from_attrs`, you to need specify a `shape_source`, because it wants to obtain array shapes.
+The only way to obtain array shapes is to read them from the group, so if you don't provide the group, there needs to be another way.
 `"singletons"` is a magic word that will tell clearscale to skip obtaining shapes entirely and just put `1` along all axes.
 
 You can now find out whether the metadata describes an OME-Zarr dataset, and if so, what kind, through its `.kind`:
 
 ```python
-if ome_meta.kind is None:
+if ome_zarr_group.kind is None:
   print("This doesn't look like an OME-Zarr group at all")
 
-elif ome_meta.kind is clearscale.GroupKind.INVALID:
+elif ome_zarr_group.kind is clearscale.GroupKind.INVALID:
   print("This claims to be OME-Zarr, but its metadata violates the spec:")
-  for invalid in ome_meta.invalid_objects:
+  for invalid in ome_zarr_group.invalid_objects:
     print(invalid.error)
 
 else:
-  print(ome_meta.version)  # "0.4", "0.5", ... (or None, if the version wasn't written down)
+  print(ome_zarr_group.version)  # "0.4", "0.5", ... (or None, if the version wasn't written down)
 ```
 
 `.kind` describes the group's *valid* contents.
@@ -137,32 +149,32 @@ else:
 Invalid objects are excluded from `.multiscales` and `.scenes`.
 
 ```python
-if ome_meta.kind is clearscale.GroupKind.MULTISCALE:
+if ome_zarr_group.kind is clearscale.GroupKind.MULTISCALE:
     print("Nice - it's a multiscale")
-    multiscale = ome_meta.multiscales[0]
+    multiscale = ome_zarr_group.multiscales[0]
 
-if ome_meta.kind is clearscale.GroupKind.COLLECTION:
+if ome_zarr_group.kind is clearscale.GroupKind.COLLECTION:
     print("There's more stuff here.")
     print("This zarr group describes:")
-    print(f"- {len(ome_meta.multiscales)} multiscales")
-    print(f"- {len(ome_meta.scenes)} scenes (OME-Zarr 0.6)")
-    print(f"- {len(ome_meta.children)} references to OME-Zarr objects at other paths")
+    print(f"- {len(ome_zarr_group.multiscales)} multiscales")
+    print(f"- {len(ome_zarr_group.scenes)} scenes (OME-Zarr 0.6)")
+    print(f"- {len(ome_zarr_group.children)} references to OME-Zarr objects at other paths")
 ```
 
 ## Obtaining actual image data at a particular scale
 
 In the `MULTISCALE` case, you now know that there is exactly one (valid) multiscale you can find here:
 ```python
-if ome_meta.kind is GroupKind.MULTISCALE:
+if ome_zarr_group.kind is GroupKind.MULTISCALE:
     assert (
-        len(ome_meta.multiscales) == 1
-        and not ome_meta.scenes 
-        and not ome_meta.children
+        len(ome_zarr_group.multiscales) == 1
+        and not ome_zarr_group.scenes 
+        and not ome_zarr_group.children
     ), "The MULTISCALE kind guarantees there is exactly one multiscale"
 ```
 This is probably the most common case.
 
-`ome_meta.multiscales[0]` is a `clearscale.Multiscale` instance.
+`ome_zarr_group.multiscales[0]` is a `clearscale.Multiscale` instance.
 In clearscale, Multiscales work like a dict:
 
 ```python
@@ -218,8 +230,8 @@ The common practice is "bubbling up" the provided path to check whether any of t
 ```python
 path = "/drive/project/raw_data/multiscale_em.zarr/raw/scale3"
 zarr_object = zarr.open(path)  # Let's say this is actually a zarr array. OmeZarrGroup ignores that as long as zarr_object has `.attrs`
-ome_meta = OmeZarrGroup.from_group(zarr_object)
-assert ome_meta.kind is None, "scale3 is a zarr *array* and does not itself contain OME-Zarr group metadata"
+ome_zarr_group = OmeZarrGroup.from_group(zarr_object)
+assert ome_zarr_group.kind is None, "scale3 is a zarr *array* and does not itself contain OME-Zarr group metadata"
 
 parent = "/drive/project/raw_data/multiscale_em.zarr/raw"
 parent_group = zarr.open(parent)
@@ -343,9 +355,9 @@ Generating the new zarr attrs then simply becomes:
 ```python
 from clearscale import OmeZarrGroup
 
-new_ome_meta = OmeZarrGroup.from_single(new_multiscale)
+new_ome_zarr_group = OmeZarrGroup.from_single(new_multiscale)
 
-new_attrs = new_ome_meta.to_attrs(version="0.5")
+new_attrs = new_ome_zarr_group.to_attrs(version="0.5")
 
 new_zarr_group.attrs.update(new_attrs)
 ```
@@ -364,7 +376,7 @@ new_zarr_group.attrs.update(
 
 That's all.
 
-When re-writing group metadata (like `OmeZarrGroup.from_group(...).to_attrs(...)`), if there were any `invalid_objects`, these are excluded from the output.
+When re-writing existing metadata (like `OmeZarrGroup.from_group(...).to_attrs(...)`), if there were any `invalid_objects`, these are excluded from the output.
 
 ## OME-Zarr version specifics
 
@@ -396,10 +408,10 @@ This covers multiple multiscales, HCS plates, labels, bioformats2raw, scenes.
 Special cases for further path discovery that you may want to handle for full support:
 
 * OME-Zarr multiscale groups *usually* define only a single multiscale (in which case they would be `GroupKind.MULTISCALE`), but they can define multiple (in which case they are `GroupKind.COLLECTION`). In this case, you could obtain the first scale key from each Multiscale, form the full paths like `f"{group_path}/{first_scale_key}"`, and display them to choose from. Then on the second round, pick the Multiscale that contains the chosen scale key.
-* In the `GroupKind.BF2RAW` case, there may or may not be a subgroup called `"OME"` that you can try inspecting like `bf2raw_ome_meta = OmeZarrGroup.from_group(bf2raw_group["OME"])`.
-  If it exists, it may or may not have `bf2raw_ome_meta.children` with `child.file.path` like `"../ms_0"`.
-  The paths will all begin with `../` because they reference multiscales in `bf2raw_group`, which is the parent of `bf2raw_group["OME"]` (where the `bf2raw_ome_meta.children` are defined).
-  If the `bf2raw_group["OME"]` does *not* exist or if there are no `bf2raw_ome_meta.children`, this means there are an unknown number of multiscales in the parent `bf2raw_group` and the only way to find out how many is to try progressively loading `bf2raw_group["0"]`, `bf2raw_group["1"]`, etc., until a load fails because that number is absent.
+* In the `GroupKind.BF2RAW` case, there may or may not be a subgroup called `"OME"` that you can try inspecting like `bf2raw_ome_zarr_group = OmeZarrGroup.from_group(bf2raw_group["OME"])`.
+  If it exists, it may or may not have `bf2raw_ome_zarr_group.children` with `child.file.path` like `"../ms_0"`.
+  The paths will all begin with `../` because they reference multiscales in `bf2raw_group`, which is the parent of `bf2raw_group["OME"]` (where the `bf2raw_ome_zarr_group.children` are defined).
+  If the `bf2raw_group["OME"]` does *not* exist or if there are no `bf2raw_ome_zarr_group.children`, this means there are an unknown number of multiscales in the parent `bf2raw_group` and the only way to find out how many is to try progressively loading `bf2raw_group["0"]`, `bf2raw_group["1"]`, etc., until a load fails because that number is absent.
 * Any OME-Zarr group that has `.multiscales` may also have one `"labels"` subgroup per multiscale.
   This subgroup will be a sibling to the multiscale's individual scale arrays.
   If a multiscale's first key is `ms0/scale0`, there may or may not be a group at `ms0/labels` that points to label multiscales (usually segmentation overlays).
@@ -412,6 +424,6 @@ If a group is `GroupKind.SCENE` (single scene) or `GroupKind.COLLECTION`, the gr
 These are `clearscale.Scene` instances and handle the scene as defined in OME-Zarr version 0.6.
 The specifics of the `Scene` class in clearscale are still in development, so expect changes to methods and parameters in the future.
 
-If you want to specially handle HCS plates or labels, you would currently need to implement custom parsing.
-clearscale does not offer a convenient API to access plate layout or label display metadata yet, though the contained Multiscales can be found via `group_meta.children`.
-You can detect these cases using `GroupKind.PLATE`, `.WELL`, `.LABELS`.
+If you want to specially handle HCS plates, you would currently need to implement custom parsing.
+clearscale does not offer a convenient API to access plate layout yet, though the contained Multiscales can be found via `group_meta.children`.
+You can detect these cases using `GroupKind.PLATE`, `.WELL`.

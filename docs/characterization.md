@@ -98,6 +98,9 @@ assert characterization.translating is discrete_bin_center
 assert characterization.translating_error < 1e-13
 ```
 
+What the characterization measures is which input coordinates the generated output sampled.
+It cannot tell you anything about the sample *values*: whether the method interpolates, how it treats the edges (`mode=`), or whether it filters before downsampling.
+
 ## Characterization of common scaling functions
 
 These results come from running the `characterize_*` functions on the respective functions (scipy 1.17.1, scikit-image 0.26.0).
@@ -109,9 +112,6 @@ Your own parameters (interpolation order, anti-aliasing, ...) might change the r
 | `scipy.ndimage.zoom(..., order=1, grid_mode=False)`                 | `characterize_shape_factor_scaling_method` | `"round"`                 | `corner_ratio` | `first_value_decimation`        |
 | `skimage.transform.downscale_local_mean`                            | `characterize_step_factor_scaling_method`  | `"ceil"`                  | `exact_factor` | `discrete_bin_center`           |
 | `scipy.ndimage.affine_transform` with a diagonal matrix (see below) | `characterize_step_factor_scaling_method`  | depends on `output_shape` | `exact_factor` | depends on `offset`             |
-
-What the characterization measures is which input coordinates the generated output sampled.
-It cannot tell you anything about the sample *values*: whether the method interpolates, how it treats the edges (`mode=`), or whether it filters before downsampling.
 
 ### `scipy.ndimage.affine_transform`
 
