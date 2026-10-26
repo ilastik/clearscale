@@ -1,7 +1,13 @@
 """Multiscale abstractions for clearly coded metadata provenance"""
 
 from clearscale import ome_zarr
-from clearscale._spatial_relations import SpatialRelation, PermutationTo, ProjectionTo, AxisRearrangementTo
+from clearscale._spatial_relations import (
+    SpatialRelation,
+    PermutationTo,
+    ProjectionTo,
+    AxisRearrangementTo,
+    AxisRenaming,
+)
 from clearscale._affines import Affine, Coefficient, Linear
 from clearscale._axis_values import Factor, PixelOffset, PixelSize, Shape, Translation, Unit
 from clearscale._collections import OmeZarrGroup, GroupKind, ChildRef
@@ -22,6 +28,7 @@ __all__ = [
     "PermutationTo",
     "ProjectionTo",
     "AxisRearrangementTo",
+    "AxisRenaming",
     "BlueprintFactors",
     "BlueprintShapes",
     "DuplicatePolicy",
