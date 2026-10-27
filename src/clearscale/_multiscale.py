@@ -44,7 +44,7 @@ from clearscale._axis_values import (
     AxisKey,
     _axis_in,
 )
-from clearscale._errors import NoSuchCoordinateSystemError
+from clearscale._errors import CannotConvertToSpatialRelationError, NoSuchCoordinateSystemError
 from clearscale._affines import Affine
 from clearscale._spatial_relations import (
     AxisKeyDependencies,
@@ -69,6 +69,7 @@ from clearscale._transforms import (
     OmeZarrAxes,
     OmeZarrAxis,
     relation_to_transform_canonic,
+    transform_to_relation,
 )
 from clearscale._services import ome_zarr, precomputed
 from clearscale._services.units import is_same_unit, unit_conversion_factor
@@ -2099,6 +2100,38 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         new_ms.has_shapes = self.has_shapes or blueprint is not None
         return new_ms.as_derived_from(self)
 
+    def relation_to_coordinate_system(self, name: str) -> Optional[SpatialRelation]:
+        """
+        The spatial relation that describes how the coordinate system `name` is reached from this Multiscale's own
+        space: `self --relation--> name`. The counterpart of `with_coordinate_system(name, reached_by=relation)`.
+
+        Returns None if `name` is the same space as this Multiscale's own (only under another name).
+        Otherwise returns one SpatialRelation, or a SpatialRelationSequence of them. The result is in
+        canonical form: It describes the same transformation as what was originally specified, but may be
+        structured differently (merged, reordered; renamings last) and may differ by floating point rounding.
+        The target's units and other axis properties are not part of a relation, see `coordinate_system_ome_zarr_axes`.
+
+        Raises NoSuchCoordinateSystemError if `name` is not one of `self.coordinate_systems`, and
+        CannotConvertToSpatialRelationError if no relation expresses the connection (it cannot be inverted
+        to this direction, or it consists of transformations that have no SpatialRelation equivalent, such as
+        displacement fields). `relation_from_coordinate_system` is the other direction.
+        """
+        return self._relation_with_coordinate_system(name, towards_system=True)
+
+    def relation_from_coordinate_system(self, name: str) -> Optional[SpatialRelation]:
+        """
+        The spatial relation that describes how this Multiscale is reached from the coordinate system `name`:
+        `name --relation--> self`. The counterpart of `as_derived_from(other, by=relation)`, where `name` is the
+        coordinate system that `other` contributed.
+
+        Connections that cannot be retrieved with `relation_to_coordinate_system` because they lose information in
+        the `name -> self` direction, may be retrievable here.
+
+        Returns None if `name` is the same space as this Multiscale's own (only under another name).
+        See `relation_to_coordinate_system` for the canonical form of the result, and the raised errors.
+        """
+        return self._relation_with_coordinate_system(name, towards_system=False)
+
     # Ignore narrowing of `version: str` to Literal (nicer to be explicit)
     def to_ome_zarr(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
@@ -2227,6 +2260,25 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     )
                 merged[a][field_name] = next(iter(values), None)
         return OmeZarrAxes([(a, OmeZarrAxis(name=a, **merged[a])) for a in axes])
+
+    def _relation_with_coordinate_system(self, name: str, *, towards_system: bool) -> Optional[SpatialRelation]:
+        matches = [ref for ref in self._transform_graph.all_system_refs if ref.name == name]
+        satellites = [ref for ref in matches if ref is not self._intrinsic_ref]
+        if not satellites:
+            raise NoSuchCoordinateSystemError(name)
+        assert len(satellites) == 1, "names should be unique in the graph"
+        satellite = satellites[0]
+        source, target = (self._intrinsic_ref, satellite) if towards_system else (satellite, self._intrinsic_ref)
+        path = self._transform_graph.path_between(source, target)
+        if path is None:
+            raise CannotConvertToSpatialRelationError(
+                f"the transformation between this Multiscale and {name!r} cannot be inverted, so it can only be "
+                f"expressed as a relation {'from' if towards_system else 'to'} {name!r}"
+            )
+        assert path, "source and target are different systems, so there is at least one transform"
+        # could assert len(path) == 1 (anything else is invalid); "else" is technically unreachable here
+        transform = path[0] if len(path) == 1 else TransformSequence(tuple(path))
+        return transform_to_relation(transform, source.owner.axes, target.owner.axes)
 
     def _with_items(self, items: Iterable[Tuple[ScaleKey, Scale]]) -> "Multiscale":
         """Shared cloner for "with_" methods.

@@ -148,6 +148,39 @@ A relation that drops an axis loses information, so connections to the source's 
 Without `by`, `as_derived_from` requires both Multiscales to have identical axes.
 It also fills in axis properties you left blank (type, unit, ...) from `volume`.
 
+## Reading relations back
+
+Relations can be read back from a Multiscale's coordinate systems, in the direction in which they are needed:
+
+```python
+multiscale = multiscale.with_coordinate_system("stage", reached_by=relation)
+
+# multiscale --relation--> "stage"
+relation = multiscale.relation_to_coordinate_system("stage")
+```
+
+Coordinate systems are carried over by derivation (see above), so they can still be retrieved after processing.
+Say `source` has axes `"zyx"`, and a coordinate system named `"stage"`, reached by a `Translation`, and the result is a maximum projection of it:
+
+```python
+result = projection.as_derived_from(source, by=ProjectionTo("yx"))
+
+# "stage" --relation--> result
+relation = result.relation_from_coordinate_system("stage")
+
+# e.g. SpatialRelationSequence((ProjectionTo("yx"), Translation(y=250.0, x=250.0)))
+```
+
+For invertible connections like `Translation`, both directions work and return inverse relations.
+
+For non-invertible connections like axis drops, only the direction they were recorded in works. In the example, the projection dropped `z` from `source` to `result`, so there is no way from `result` back to `source` or `"stage"`: `result.relation_to_coordinate_system("stage")` raises `CannotConvertToSpatialRelationError`.
+
+* The result is a single relation, a list-like sequence of relations, or `None`, if the other space is the same space under another name.
+* It describes the same transformation as the one that was specified, but in canonical form: Relations may be merged or reordered (renamings come last), and values may differ by floating point rounding.
+* Units and other axis properties of the other coordinate system are not part of a relation. Use `coordinate_system_ome_zarr_axes(name)` for these.
+* `CannotConvertToSpatialRelationError` is also raised for connections that no relation expresses, such as displacement fields read from OME-Zarr metadata written by other tools. Rotations, shears and flips are expressed as `Affine`.
+* `NoSuchCoordinateSystemError` is raised for names that are not in `coordinate_systems` (including the Multiscale's own space).
+
 ## Spatial relation vs coordinate transformation
 
 A **spatial relation** answers the question: *If I have an image in space A, and I do `<operation>` to it, how is the resulting image's space B related to A?*

@@ -34,7 +34,7 @@ from clearscale._transforms._transform_types import (
     TranslationTransform,
     IDENTITY_TOLERANCE,
 )
-from clearscale._transforms._to_from_spatial_relation import relation_to_transform_canonic
+from clearscale._transforms._to_from_spatial_relation import relation_to_transform_canonic, transform_to_relation
 
 __all__ = ["FileRef", "OmeZarrAxes", "OmeZarrAxis"]
 """Transforms are generally not part of the public API.

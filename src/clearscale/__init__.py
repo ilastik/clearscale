@@ -7,7 +7,9 @@ from clearscale._spatial_relations import (
     ProjectionTo,
     AxisRearrangementTo,
     AxisRenaming,
+    SpatialRelationSequence,
 )
+from clearscale._errors import CannotConvertToSpatialRelationError, NoSuchCoordinateSystemError
 from clearscale._affines import Affine, Coefficient, Linear
 from clearscale._axis_values import Factor, PixelOffset, PixelSize, Shape, Translation, Unit
 from clearscale._collections import OmeZarrGroup, GroupKind, ChildRef
@@ -29,6 +31,9 @@ __all__ = [
     "ProjectionTo",
     "AxisRearrangementTo",
     "AxisRenaming",
+    "SpatialRelationSequence",
+    "CannotConvertToSpatialRelationError",
+    "NoSuchCoordinateSystemError",
     "BlueprintFactors",
     "BlueprintShapes",
     "DuplicatePolicy",
