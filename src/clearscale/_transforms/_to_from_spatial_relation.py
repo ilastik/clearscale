@@ -149,7 +149,9 @@ class _AxisLineageTrace:
         axes = tuple(self.axis_keys[lineage] for lineage in stage)
         if len(set(axes)) != len(axes):
             raise CannotConvertToSpatialRelationError(
-                f"ambiguous intermediate axes: the same name is used by multiple axes at stage {index}: {axes!r}"
+                f"ambiguous axes: the same name is used by multiple axes at stage {index}: {axes!r}. "
+                "(A renamed axis is called by its original name until the final renaming, so a name can't be reused for a "
+                "newly created axis while the original axis lives on under another name.)"
             )
         return axes
 
@@ -160,8 +162,9 @@ class _AxisLineageTrace:
         """
         Trace axis lineages through `leaves` and name them from `source_axes` and `target_axes`.
         Raises ValueError if the axes are not unique, or the chain does not fit them (ndim of `source_axes` or `target_axes`).
-        Raises CannotConvertToSpatialRelationError if the chain would have to relabel an axis (a lineage present at both
-        ends with differing names), or contains leaves that don't map axes one-to-one. Name collisions between dropped and inserted lineages are *not* an error
+        Raises CannotConvertToSpatialRelationError if the chain contains leaves that don't map axes one-to-one.
+        Axes present at both ends may have different names at the two ends: `names` calls them by their source name,
+        which makes `named_stage(-1)` the final stage's names *before* the final renaming. Name collisions between dropped and inserted lineages are *not* an error
         here; they are resolved on emission (a drop step followed by an insert step).
         """
 
@@ -204,13 +207,10 @@ class _AxisLineageTrace:
             stages.append(stage)
         if len(stage) != len(target):
             raise ValueError(f"transform produces {len(stage)} axes from {source!r}, but target axes are {target!r}")
+        # These are working IDs filled from source and target, before the final AxisRenaming
         id_to_key: Dict[int, AxisKey] = dict(enumerate(source))
         for lineage, axis in zip(stage, target):
-            if id_to_key.setdefault(lineage, axis) != axis:
-                raise CannotConvertToSpatialRelationError(
-                    f"axis {id_to_key[lineage]!r} would have to be relabeled {axis!r} "
-                    f"(source {source!r}, target {target!r}); relabeling is not expressible"
-                )
+            id_to_key.setdefault(lineage, axis)
         return cls(transforms=atomic_transforms, stages=tuple(stages), axis_keys=id_to_key)
 
 
@@ -297,16 +297,22 @@ def transform_to_relation(
 
     Axes are passed in explicitly: transforms only know positions, and may be unbound (or bound to systems whose
     axes need not be consulted). Axis correspondence is traced by position through the whole chain, and names are
-    taken only from the two ends. Returns None if the transform is an identity (and `source_axes == target_axes`).
+    taken only from the two ends. Axes that have different names at the two ends are renamed in a final
+    AxisRenaming step. Returns None if the transform is an identity (and `source_axes == target_axes`).
 
     Raises CannotConvertToSpatialRelationError if there is no faithful relation, which callers may expect and handle:
     transform types that don't map axes one-to-one (after canonicalization, and apart from the values of
     scales, rotations and affines, which are expressed as `Affine`), path-backed values, matrices that are not
-    invertible, axis relabeling (a corresponding axis changes its name; SpatialRelations can't express this),
-    or intermediate axes that cannot be named.
+    invertible, or intermediate axes that cannot be named (including: a name that is reused for a new axis while the
+    axis that used to have that name lives on under another one).
+    Known limitation: An Affine that mixes axes, together with relations that drop, insert or permute axes, is
+    collapsed by canonicalization into one matrix, which cannot always be separated into these parts again.
+    Chains that don't mix axes always convert back (apart from the naming ambiguity described above).
+
     Raises plain ValueError if `transform` doesn't fit the given axes (caller error).
     Anything else (AssertionError) is a bug in clearscale.
     """
+    target_axes = tuple(target_axes)
     canonical = TransformSequence((transform.unbound(),)).canonicalized()
     atomic_transforms = _flatten_atomic(canonical)
     for t in atomic_transforms:
@@ -325,4 +331,9 @@ def transform_to_relation(
             run_end += 1
         relations.extend(_structural_relations(trace, index, run_end))
         index = run_end
+    # All relations above used the source axis keys. Add a final renaming if target uses aliases
+    final_axes = trace.axis_keys_at(len(trace.transforms))
+    renames = {axis: target for axis, target in zip(final_axes, target_axes) if axis != target}
+    if renames:
+        relations.append(AxisRenaming(renames))
     return normalize_relations_param(relations)

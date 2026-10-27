@@ -73,11 +73,18 @@ def test_ambiguous_names_at_a_stage_raise():
         trace.axis_keys_at(2)
 
 
-def test_relabeling_raises():
-    with pytest.raises(CannotConvertToSpatialRelationError, match="relabeled"):
-        _AxisLineageTrace.trace((ScaleTransform((1.0, 1.0)),), "yx", "YX")
-    with pytest.raises(CannotConvertToSpatialRelationError, match="relabeled"):
-        _AxisLineageTrace.trace((), "yx", "xy")
+def test_axes_that_survive_use_their_source_name_throughout():
+    trace = _AxisLineageTrace.trace((ScaleTransform((1.0, 1.0)),), "yx", "YX")
+    assert trace.axis_keys == {0: "y", 1: "x"}
+    # Subsequent code in transform_to_relation is responsible for adding AxisRenaming from the source keys
+    # to their target alias.
+    assert trace.axis_keys_at(1) == ("y", "x"), "the final stage still uses source axis keys"
+    assert _AxisLineageTrace.trace((), "yx", "xy").axis_keys_at(0) == ("y", "x")
+
+
+def test_inserted_axes_use_their_target_name():
+    trace = _AxisLineageTrace.trace((ProjectAxisTransform(inserts=(0,)),), "yx", "cYX")
+    assert trace.axis_keys_at(1) == ("c", "y", "x")
 
 
 @pytest.mark.parametrize(

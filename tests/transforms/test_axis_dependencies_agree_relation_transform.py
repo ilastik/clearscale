@@ -7,7 +7,7 @@ from clearscale._spatial_relations import AxisRearrangementTo, SpatialRelationSe
 from clearscale._transforms import TransformSequence, relation_to_transform_canonic
 from clearscale._transforms._to_from_spatial_relation import _flatten_atomic
 
-from ._random_relations import random_relation_chain
+from ._random_relations import chain_mixes_axes, random_relation_chain
 
 
 def scaled(**factors: float) -> Affine:
@@ -46,16 +46,6 @@ def relation_dependencies_by_index(relation, source_axes) -> Tuple[Tuple[int, ..
 def test_handpicked_relations(relation, source):
     transform = relation_to_transform_canonic(relation, source)
     assert transform_dependencies(transform, len(source)) == relation_dependencies_by_index(relation, source)
-
-
-def chain_mixes_axes(relation: SpatialRelation, source_axes) -> bool:
-    relations = relation.relations if isinstance(relation, SpatialRelationSequence) else (relation,)
-    axes = tuple(source_axes)
-    for step in relations:
-        if any(len(deps) > 1 for deps in step._axis_dependencies(axes)):
-            return True
-        axes = step.target_axes(axes)
-    return False
 
 
 @pytest.mark.parametrize("seed", range(300))
