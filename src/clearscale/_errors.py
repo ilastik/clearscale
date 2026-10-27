@@ -38,7 +38,7 @@ class CannotConvertToSpatialRelationError(ValueError):
     """
     Raised by transform_to_relation when a Transform cannot be expressed as SpatialRelation(s), for reasons that are
     properties of the *metadata* and that callers may expect and handle: unsupported transform type, path-backed or
-    non-positive scale values, axis relabeling, intermediate axes that cannot be named.
+    non-positive scale values, intermediate axes that cannot be named.
     Transforms that don't fit the axes they are converted for raise plain ValueError instead (caller error), and
     violated internal invariants are assertions.
     """

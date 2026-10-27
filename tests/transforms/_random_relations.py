@@ -21,8 +21,9 @@ FRESH_POOL = "tczyxabdefghij"
 
 def random_relation_chain(seed: int, *, max_steps: int = 5) -> Tuple[Tuple[str, ...], SpatialRelation]:
     """Returns (source_axes, relation): A chain of 1-5 relations that are valid for each other.
-    Axes that were renamed away are never reused as names for inserted axes: This would make the same name stand for
-    two axes that are alive at the same time, which a chain of relations can express but is deliberately avoided here.
+    Axes that were renamed away are never reused as names for inserted axes, and only axes that descend from the
+    source axes are renamed: A transform_to_relation limitation (see its docs) is that an axis can't be given the
+    name that an axis of the source still carries at the same time, until the final renaming.
     Axes that were dropped may be re-inserted."""
     rng = random.Random(seed)
     source: Tuple[str, ...] = tuple(a for a in SOURCE_POOL if rng.random() < 0.7)
@@ -30,6 +31,7 @@ def random_relation_chain(seed: int, *, max_steps: int = 5) -> Tuple[Tuple[str, 
         source = ("y", "x")
     axes = source
     retired: set = set()
+    descends_from_source = {a: True for a in source}
     relations: List[SpatialRelation] = []
 
     def fresh_names(count: int) -> List[str]:
@@ -81,7 +83,10 @@ def random_relation_chain(seed: int, *, max_steps: int = 5) -> Tuple[Tuple[str, 
             rng.shuffle(retained)
             relation = AxisRearrangementTo(with_inserts(retained))
         else:
-            chosen = [a for a in axes if rng.random() < 0.5] or [axes[0]]
+            renamable = [a for a in axes if descends_from_source[a]]
+            if not renamable:
+                continue
+            chosen = [a for a in renamable if rng.random() < 0.5] or [renamable[0]]
             if len(chosen) > 1 and rng.random() < 0.5:
                 new_names = chosen[1:] + chosen[:1]  # Rotate the names among the axes: a simultaneous swap
             else:
@@ -90,8 +95,24 @@ def random_relation_chain(seed: int, *, max_steps: int = 5) -> Tuple[Tuple[str, 
                     continue
             relation = AxisRenaming(dict(zip(chosen, new_names)))
             retired.update(chosen)
+        dependencies = cast(Tuple[Tuple[str, ...], ...], relation._axis_dependencies(axes))
+        descends_from_source = {
+            target: len(deps) == 1 and descends_from_source[deps[0]]
+            for target, deps in zip(relation.target_axes(axes), dependencies)
+        }
         axes = cast(Tuple[str, ...], relation.target_axes(axes))
         relations.append(relation)
     if len(relations) == 1:
         return source, relations[0]
     return source, SpatialRelationSequence(tuple(relations))
+
+
+def chain_mixes_axes(relation: SpatialRelation, source_axes) -> bool:
+    """Whether any relation of the chain has output axes that depend on several input axes (an Affine, in practice)"""
+    relations = relation.relations if isinstance(relation, SpatialRelationSequence) else (relation,)
+    axes = tuple(source_axes)
+    for step in relations:
+        if any(len(deps) > 1 for deps in step._axis_dependencies(axes)):
+            return True
+        axes = step.target_axes(axes)
+    return False
