@@ -31,6 +31,7 @@ from clearscale._axis_values import (
 from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscaleError
 from clearscale._services.matrices import AxisIndices
 from clearscale._services.units import is_same_unit
+from clearscale._spatial_relations import AxisKeyDependencies
 
 RelativePath = str  # 0.6: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]
@@ -247,6 +248,26 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
         inserts = self.__class__(inserts_items).with_types_inferred()
         new_axes = self.__class__([(a, self[a] if a in self else inserts[a]) for a in axes])
         return new_axes
+
+    def with_axes_carried_over(self, target_axes: OrderedAxes, dependencies: AxisKeyDependencies) -> "OmeZarrAxes":
+        """Build axes for `target_axes` from `self`, sourcing properties according to `dependencies`
+        (see SpatialRelation._axis_dependencies).
+        Any target axes without dependencies is an insert (-> blank); with 1 dependency is default carryover;
+        with more is result of mixing (-> carry over only properties that agree between all sources)."""
+        target_axes = tuple(target_axes)
+        assert len(dependencies) == len(target_axes), f"Received {dependencies!r} deps for {target_axes!r}."
+
+        def carry_forward(target: AxisKey, sources: Tuple[AxisKey, ...]) -> OmeZarrAxis:
+            if not sources:
+                return self._default(target)
+            source_props = [self[d] for d in sources]
+            agreed = {
+                field: (values.pop() if len(values := {getattr(src, field) for src in source_props}) == 1 else None)
+                for field in ("discrete", "type", "unit", "long_name")
+            }
+            return OmeZarrAxis(name=str(target), **agreed)
+
+        return self.__class__((axis, carry_forward(axis, deps)) for axis, deps in zip(target_axes, dependencies))
 
     def with_unit_merged(self, unit: Unit) -> "OmeZarrAxes":
         """Override any .unit property on self.values with provided (only for axes where provided has non-empty string)"""
