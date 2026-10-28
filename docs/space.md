@@ -430,6 +430,23 @@ If you need a physical `Affine` for a coordinate system that has no `Scale` (i.e
 grid = Scale(shape=Shape.all_singletons("yx"), pixel_size=PixelSize(y=0.5, x=0.5))
 ```
 
+The opposite direction, from an `Affine` to the `matrix` and `offset` that `affine_transform` takes, is `to_linear_and_offset`.
+Pass the same `source` and `target`, and use the result directly.
+You choose the output grid: its pixel size, and the region it covers (`translation`).
+Its shape is what you pass to the resampling function, not to the placeholder `Scale`:
+
+```python
+# For example, a relation that deskews an oblique acquisition
+affine = multiscale.relation_to_coordinate_system("deskewed")
+output_grid = Scale(shape=Shape.all_singletons("zyx"), pixel_size=input_scale.pixel_size, translation=output_origin)
+matrix, offset = affine.to_linear_and_offset(source=input_scale, target=output_grid)
+deskewed = scipy.ndimage.affine_transform(data, matrix, offset=offset, output_shape=output_shape)
+```
+
+The result is plain nested tuples in the order of `affine.axes`; your array must have its axes in the same order.
+`Affine.from_linear_and_offset(*affine.to_linear_and_offset(source=a, target=b), affine.axes, source=a, target=b)` gives the same `Affine` back.
+Without `source` and `target`, `to_linear_and_offset` returns the physical values as they are.
+
 #### Matrices from other sources
 
 Without `source` and `target`, `from_array` and `from_linear_and_offset` take the numbers as they are.

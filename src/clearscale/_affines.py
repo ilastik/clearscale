@@ -21,7 +21,13 @@ from clearscale._axis_values import (
 from clearscale._services.units import unit_conversion_factor
 from clearscale._spatial_relations import AxisKeyDependencies, SpatialRelation
 from clearscale.types import FactorLike, HasPixelGrid, AxisKeyT
-from clearscale._services.matrices import matrix_invert, matrix_vector_multiply, DEFAULT_SINGULARITY_TOLERANCE
+from clearscale._services.matrices import (
+    FloatMatrix,
+    FloatVector,
+    matrix_invert,
+    matrix_vector_multiply,
+    DEFAULT_SINGULARITY_TOLERANCE,
+)
 
 
 class Coefficient(_AxisFloats):
@@ -571,6 +577,62 @@ class Affine(SpatialRelation):
     def to_lists_homogenous(self) -> List[List[float]]:
         return self.to_lists() + [[*(0.0 for _ in self.linear), 1.0]]
 
+    def to_linear_and_offset(
+        self, *, source: Optional[HasPixelGrid] = None, target: Optional[HasPixelGrid] = None
+    ) -> Tuple[FloatMatrix, FloatVector]:
+        """
+        Split into an N x N linear matrix and a length N offset, in the order of `self.axes`.
+        This is the layout `scipy.ndimage.affine_transform(image, matrix, offset)` takes, and the inverse of
+        `from_linear_and_offset`:
+        ```
+        Affine.from_linear_and_offset(
+          *affine.to_linear_and_offset(source=a, target=b),
+          affine.axes,
+          source=a,
+          target=b
+        ) == affine
+        ```
+
+        By default the values are returned as they are (physical units, Affine convention).
+
+        Passing `source` and `target` (both or neither) converts them to pixel index space:
+        `index_source = linear @ index_target + offset`, where index `i` refers to the pixel *center*.
+        `source` is the image that is sampled (`affine_transform`'s input image, the "old" space of this Affine), and
+        `target` is the image that is produced (its output, the "new" space). Both must have exactly `self.axes`, in
+        this order, and describe their pixel grid like a `Scale`: Physical coordinate of index `i` is
+        `i * pixel_size + translation`. With these, for each row `r` and column `c`:
+        ```
+        linear[r][c] = source.pixel_size[r]^-1 * physical_linear[r][c] * target.pixel_size[c]
+        offset[r] = (physical_linear[r] @ target.translation + physical_translation[r] - source.translation[r])
+                    / source.pixel_size[r]
+        ```
+        Each grid's pixel size is in its own unit, so an Affine that converts between the units gives the matrix you
+        would expect: A factor 1000 from a 15 nm `source` to a 0.015 um `target` is the identity in index space.
+        To get the arguments for an output that has no `Scale` yet, describe the grid you want to sample on with a
+        placeholder `Scale(shape=Shape.all_singletons(axes), pixel_size=..., translation=...)`. The shape is not used.
+        """
+        physical_linear = self.linear.to_tuples()
+        physical_translation = self.translation.values_tuple()
+        if source is None and target is None:
+            return physical_linear, physical_translation
+        if source is None or target is None:
+            raise ValueError("`source` and `target` must be given together. Pass both to convert to index space.")
+        self._require_grids_with_axes(self.axes, source, target)
+        source_size = source.pixel_size.values_tuple()
+        target_size = target.pixel_size.values_tuple()
+        linear = tuple(
+            tuple(coefficient * target_size[col] / source_size[row] for col, coefficient in enumerate(coefficients))
+            for row, coefficients in enumerate(physical_linear)
+        )
+        target_origin = target.translation.values_tuple()
+        source_origin = source.translation.values_tuple()
+        offset = tuple(
+            (sum(c * o for c, o in zip(coefficients, target_origin)) + translation - source_origin[row])
+            / source_size[row]
+            for row, (coefficients, translation) in enumerate(zip(physical_linear, physical_translation))
+        )
+        return linear, offset
+
     def is_identity(self) -> bool:
         return self.linear.is_identity() and self.translation.is_identity()
 
@@ -589,14 +651,7 @@ class Affine(SpatialRelation):
         if source is None or target is None:
             raise ValueError("`source` and `target` must be given together. Pass both to convert from index space.")
         axes = index_affine.axes
-        for name, grid in (("source", source), ("target", target)):
-            for attribute in ("pixel_size", "translation"):
-                grid_axes = tuple(getattr(grid, attribute).keys())
-                if grid_axes != axes:
-                    raise ValueError(
-                        f"`{name}` must have exactly the axes {axes!r}, in this order. "
-                        f"Its {attribute} has axes {grid_axes!r}."
-                    )
+        cls._require_grids_with_axes(axes, source, target)
         physical_rows = [
             [
                 source.pixel_size[row_axis] * coefficient / target.pixel_size[col_axis]
@@ -613,3 +668,14 @@ class Affine(SpatialRelation):
             scaled_index_shift + source.translation - physical_linear.apply_to_translation(target.translation)
         )
         return cls(linear=physical_linear, translation=physical_translation)
+
+    @staticmethod
+    def _require_grids_with_axes(axes: Tuple[AxisKey, ...], source: HasPixelGrid, target: HasPixelGrid) -> None:
+        for name, grid in (("source", source), ("target", target)):
+            for attribute in ("pixel_size", "translation"):
+                grid_axes = tuple(getattr(grid, attribute).keys())
+                if grid_axes != axes:
+                    raise ValueError(
+                        f"`{name}` must have exactly the axes {axes!r}, in this order. "
+                        f"Its {attribute} has axes {grid_axes!r}."
+                    )

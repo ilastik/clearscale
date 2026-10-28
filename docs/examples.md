@@ -170,4 +170,4 @@ Choose another `translating` function (or `pixel_sizing`) and the arguments chan
 `affine_transform` interpolates between neighboring input samples, but it does not low-pass filter first, so strong downscaling will alias.
 You would most likely want to smooth the data before you scale it, e.g. using `ndimage.gaussian_filter`.
 
-For the other direction, i.e. turning a matrix and offset that you already have into an `Affine` between two Scales, see the section on [Matrices in pixel index space](space.md#matrices-in-pixel-index-space).
+To turn a matrix and offset that you already have into an `Affine` between two Scales, and vice versa, see the section on [Matrices in pixel index space](space.md#matrices-in-pixel-index-space).

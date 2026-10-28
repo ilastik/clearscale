@@ -1072,3 +1072,98 @@ class TestFromUnitConversion:
 
         scale = result.to_ome_zarr(version="0.6")["coordinateTransformations"][0]["scale"]
         assert scale == pytest.approx([0.001, 0.001]), "coordinate at input 1nm = coordinate at output 0.001um"
+
+
+class TestToLinearAndOffset:
+    @staticmethod
+    def _pixel_grid(axes, pixel_size, translation) -> Scale:
+        # The shape of a grid is irrelevant for converting matrices
+        return Scale(
+            Shape.all_singletons(axes),
+            PixelSize(zip(axes, pixel_size)),
+            translation=Translation(zip(axes, translation)),
+        )
+
+    @staticmethod
+    def _pulled_index_by_hand(affine: Affine, source, target, target_index):
+        """What index of `source` a pixel of `target` samples, going through physical coordinates step by step"""
+        axes = affine.axes
+        target_physical = [target.pixel_size[a] * i + target.translation[a] for a, i in zip(axes, target_index)]
+        rows, translation = affine.linear.to_tuples(), affine.translation.values_tuple()
+        source_physical = [sum(c * p for c, p in zip(row, target_physical)) + t for row, t in zip(rows, translation)]
+        return [(p - source.translation[a]) / source.pixel_size[a] for a, p in zip(axes, source_physical)]
+
+    def test_affine_to_linear_and_offset_without_grids_returns_the_physical_values(self):
+        affine = Affine.from_array(((1, 2, 3), (4, 5, 6)), "yx")
+        assert affine.to_linear_and_offset() == (((1.0, 2.0), (4.0, 5.0)), (3.0, 6.0))
+
+    @pytest.mark.parametrize(
+        "rows",
+        [
+            ((2, 0, 1), (0, 3, -4)),  # diagonal scaling
+            ((1, 0.5, 2), (0, 1, 3)),  # shear
+            ((0, 1, 0), (1, 0, 5)),  # swaps the values of the axes
+            ((0.8, -0.6, 7), (0.6, 0.8, -2)),  # rotation
+        ],
+    )
+    def test_affine_to_linear_and_offset_in_index_space_agrees_with_going_through_physical_space(self, rows):
+        affine = Affine.from_array(rows, "yx")
+        source = self._pixel_grid("yx", (0.5, 0.25), (10.0, -3.0))
+        target = self._pixel_grid("yx", (2.0, 4.0), (1.0, 8.0))
+        matrix, offset = affine.to_linear_and_offset(source=source, target=target)
+        for target_index in ((0, 0), (1, 0), (0, 1), (5, 7), (-3, 2.5)):
+            by_formula = [sum(m * i for m, i in zip(row, target_index)) + o for row, o in zip(matrix, offset)]
+            assert by_formula == pytest.approx(self._pulled_index_by_hand(affine, source, target, target_index))
+
+    def test_affine_to_linear_and_offset_in_index_space_takes_the_units_of_the_grids_into_account(self):
+        # x[nm] = 1000 * x[um] converts between the units. A 15 nm grid and a 0.015 um grid have the same pixels,
+        # so sampling each target pixel at "the same pixel" of the source is the identity in index space
+        nanometers = self._pixel_grid("x", (15.0,), (0.0,))
+        micrometers = self._pixel_grid("x", (0.015,), (0.0,))
+        unit_conversion = Affine.from_array(((1000.0, 0.0),), "x")
+        matrix, offset = unit_conversion.to_linear_and_offset(source=nanometers, target=micrometers)
+        assert _flat(matrix) + list(offset) == pytest.approx([1.0, 0.0])
+
+    @pytest.mark.parametrize("seed", range(50))
+    def test_affine_to_linear_and_offset_is_the_inverse_of_from_linear_and_offset(self, seed):
+        import random
+
+        rng = random.Random(seed)
+        axes = "zyx"[: rng.randint(1, 3)]
+        n = len(axes)
+        affine = Affine.from_array(
+            [[rng.uniform(-2, 2) for _ in range(n)] + [rng.uniform(-9, 9)] for _ in range(n)], axes
+        )
+        source = self._pixel_grid(axes, [rng.uniform(0.1, 3) for _ in axes], [rng.uniform(-5, 5) for _ in axes])
+        target = self._pixel_grid(axes, [rng.uniform(0.1, 3) for _ in axes], [rng.uniform(-5, 5) for _ in axes])
+        matrix, offset = affine.to_linear_and_offset(source=source, target=target)
+        rebuilt = Affine.from_linear_and_offset(matrix, offset, axes, source=source, target=target)
+        assert _flat(rebuilt.to_tuples()) == pytest.approx(_flat(affine.to_tuples()))
+
+    def test_affine_to_linear_and_offset_accepts_anything_that_has_a_pixel_pixel_grid(self):
+        @dataclass
+        class Grid:
+            pixel_size: PixelSize
+            translation: Translation
+
+        grid = Grid(PixelSize(y=2.0, x=2.0), Translation(y=0.0, x=0.0))
+        assert Affine.identity("yx").to_linear_and_offset(source=grid, target=grid) == (
+            ((1.0, 0.0), (0.0, 1.0)),
+            (0.0, 0.0),
+        )
+
+    def test_affine_to_linear_and_offset_requires_source_and_target_together(self):
+        grid = self._pixel_grid("yx", (1.0, 1.0), (0.0, 0.0))
+        with pytest.raises(ValueError, match="must be given together"):
+            Affine.identity("yx").to_linear_and_offset(source=grid)
+        with pytest.raises(ValueError, match="must be given together"):
+            Affine.identity("yx").to_linear_and_offset(target=grid)
+
+    def test_affine_to_linear_and_offset_requires_grids_with_exactly_the_axes(self):
+        grid = self._pixel_grid("yx", (1.0, 1.0), (0.0, 0.0))
+        with pytest.raises(ValueError, match="`target` must have exactly the axes"):
+            Affine.identity("yx").to_linear_and_offset(
+                source=grid, target=self._pixel_grid("xy", (1.0, 1.0), (0.0, 0.0))
+            )
+        with pytest.raises(ValueError, match="`source` must have exactly the axes"):
+            Affine.identity("yx").to_linear_and_offset(source=self._pixel_grid("y", (1.0,), (0.0,)), target=grid)
