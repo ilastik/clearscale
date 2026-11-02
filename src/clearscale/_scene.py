@@ -222,6 +222,49 @@ class Scene:
         return cls(_internal_graph=TransformGraph(transforms, system_refs=(shared,)), _multiscale_paths={})
 
     @classmethod
+    def from_multiscale_pair(
+        cls,
+        *,
+        a: MultiscaleSystemKey,
+        b: MultiscaleSystemKey,
+        a_to_b: RelationsParam,
+    ) -> "Scene":
+        """
+        Relate two Multiscales to each other, e.g. an image to the atlas it was registered to.
+
+        Use `a_to_b` for the relation that specifies how to reach b from a (a --a_to_b--> b), same as:
+          `a.with_coordinate_system("b", reached_by=a_to_b)`
+        or
+          `b.as_derived_from(a, by=a_to_b)`.
+        Spatial relations say what you do with `a` to obtain `b`, e.g. `Translation(p)` for "cropped with its
+        origin at p", or `ProjectionTo(axes)` for "dropped or added axes". `None` means the same space.
+
+        Applying `a_to_b` to the axes of `a` must produce the axes of `b`.
+        `a` and `b` can also be one of the other coordinate systems of a Multiscale: `(multiscale, name)`.
+        """
+        a_ref = cls._multiscale_key_to_ref(a)
+        b_ref = cls._multiscale_key_to_ref(b)
+        if a_ref.owner is b_ref.owner:
+            raise ValueError(
+                "`a` and `b` are the same Multiscale. Spaces of a single Multiscale are related by "
+                "`Multiscale.with_coordinate_system`, a Scene relates different Multiscales."
+            )
+        relation = normalize_relations_param(a_to_b)
+        try:
+            reached_axes = relation.target_axes(a_ref.axes) if relation else a_ref.axes
+        except ValueError as e:
+            raise ValueError(f"`a_to_b` cannot be applied to the axes of `a` {a_ref.axes}: {e}") from e
+        if reached_axes != b_ref.axes:
+            raise ValueError(
+                f"Applying `a_to_b` to the axes of `a` {a_ref.axes} produces {reached_axes}, "
+                f"but `b` has axes {b_ref.axes}."
+            )
+        transform = (relation_to_transform_canonic(relation, a_ref.axes) if relation else IdentityTransform()).bound(
+            source=a_ref, target=b_ref
+        )
+        return cls(_internal_graph=TransformGraph([transform]), _multiscale_paths={})
+
+    @classmethod
     def _from_graph_edges(
         cls,
         source_transform_targets: Iterable[Tuple[Node, Transform, Node]],

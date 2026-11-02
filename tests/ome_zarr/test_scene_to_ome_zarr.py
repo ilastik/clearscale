@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Multiscale, Scale, Scene, Shape, Translation
+from clearscale import Affine, Factor, Multiscale, Scale, Scene, Shape, Translation
 from clearscale._transforms import CoordinateSystem, ScaleTransform, TransformGraph, TranslationTransform
 
 from tests.ome_zarr.scene_examples import scene_stitching
@@ -68,6 +68,27 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         assert read_back.to_ome_zarr(version="0.6") == result
         chain = read_back._transforms_between(tile_a, tile_b)
         assert chain is not None and len(chain) == 2
+
+    def test_writes_and_reads_back_multiscale_pair(self):
+        raw = _multiscale(y=4, x=4)
+        atlas = _multiscale(y=2, x=2)
+        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=Affine.from_factor(Factor(y=2, x=2)))
+        paths = {"raw.zarr": raw, "atlas.zarr": atlas}
+
+        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=paths)
+
+        assert "coordinateSystems" not in result, "no coordinate systems of its own"
+        assert result["coordinateTransformations"] == [
+            {
+                "type": "scale",
+                "scale": [0.5, 0.5],
+                "input": {"name": raw._intrinsic_ref.name, "path": "raw.zarr"},
+                "output": {"name": atlas._intrinsic_ref.name, "path": "atlas.zarr"},
+            }
+        ]
+        read_back = Scene.from_ome_zarr(result).with_resolved(paths)
+        assert read_back == scene
+        assert read_back.to_ome_zarr(version="0.6") == result
 
     def test_writes_explicit_system_refs_in_declared_order(self):
         atlas = CoordinateSystem.fromkeys("yx")._as_ref("atlas")
