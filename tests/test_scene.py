@@ -160,6 +160,21 @@ def test_transforms_between_with_children_through_axis_changing_child_system():
     assert full_edges == (scene_transform, ported_projection)
 
 
+@pytest.mark.parametrize(
+    "key",
+    [
+        (1, "name"),
+        ("not a multiscale", "name"),
+        ((_multiscale(y=2, x=3), 5), "name"),  # non-string system name in (ms, name) tuple
+    ],
+)
+def test_transforms_between_rejects_malformed_multiscale_system_key(key):
+    scene = Scene._from_graph_edges([])
+
+    with pytest.raises(TypeError, match=r"must be tuple\(multiscale, system_name\)"):
+        scene._transforms_between(key, "world")  # type: ignore[arg-type]
+
+
 class TestMultiscalesProperty:
     def test_lists_multiscales_in_order_of_appearance(self):
         tiles = [_multiscale(y=2, x=2), _multiscale(y=3, x=3), _multiscale(y=4, x=4)]

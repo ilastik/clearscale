@@ -51,6 +51,7 @@ from clearscale._spatial_relations import (
     SpatialRelation,
     SpatialRelationSequence,
     normalize_relations_param,
+    RelationsParam,
 )
 from clearscale._transforms import (
     CoordinateSystemName,
@@ -114,6 +115,67 @@ def _normalize_ome_zarr_axes_param(ome_zarr_axes: Optional[OmeZarrAxesParam], ke
         return ome_zarr_axes.with_axes(keys)
     else:
         return OmeZarrAxes(ome_zarr_axes).with_axes(keys)
+
+
+def _reconcile_axis_prop_params(
+    target_axes: Tuple[AxisKey, ...],
+    dependencies: AxisKeyDependencies,
+    source_ome_axes: OmeZarrAxes,
+    provided_ome_axes: Optional[OmeZarrAxesParam],
+    provided_unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]],
+) -> OmeZarrAxes:
+    """
+    Three-way merge/validation of axis properties between
+    - carryover from source_ome_axes into the target_axes keys according to `dependencies`,
+    - provided_ome_axes and
+    - provided_unit
+    as required by any method that creates new coordinate systems and hence accepts the properties defining it.
+    provided_ome_axes and provided_unit must match for axes where both are non-blank.
+    Between provided_ome_axes and carryover from source_ome_axes:
+    Any provided fields override carryover. In "infer" mode, infer axis types for inserted axes only.
+    """
+    unit = Unit.empty(target_axes) if provided_unit is None else Unit(provided_unit)
+    parsed_ome_axes = _normalize_ome_zarr_axes_param(provided_ome_axes, target_axes)
+
+    conflicts = parsed_ome_axes.conflicts_with_unit(unit)
+    if conflicts:
+        raise ValueError(
+            f"Conflicting unit between `unit` and `ome_zarr_axes`: "
+            f"{ {a: f'{slf!r} vs {oth!r}' for a, (slf, oth) in conflicts.items()} }. Only specify unit once."
+        )
+
+    carried_ome_axes = source_ome_axes.with_axes_carried_over(target_axes, dependencies)
+    if provided_ome_axes == "infer":
+        result = carried_ome_axes
+        inserted_axes = {axis for axis, deps in zip(target_axes, dependencies) if not deps}
+        if inserted_axes:
+            inserted_ome_axes = parsed_ome_axes.without_axes_except(inserted_axes)
+            result = result.with_blanks_filled_from(inserted_ome_axes)
+    else:
+        result = parsed_ome_axes.with_axes(target_axes).with_blanks_filled_from(carried_ome_axes)
+
+    return result.with_unit_merged(unit)
+
+
+def _merge_ome_zarr_axes(axes_list: Sequence[OmeZarrAxes], *, sources: str) -> OmeZarrAxes:
+    axes = list(axes_list[0].keys())
+    merged: Dict[AxisKey, Dict[str, Any]] = {a: {} for a in axes}
+    for field_name in ("unit", "type", "discrete", "long_name"):
+        for a in axes:
+            values = list(
+                dict.fromkeys(v for ome_axes in axes_list if (v := getattr(ome_axes[a], field_name)) not in (None, ""))
+            )
+            if field_name == "unit":
+                # Normalise different spellings so "nm" and "nanometer" merge fine.
+                # First spelling wins.
+                values = [v for i, v in enumerate(values) if not any(is_same_unit(v, w) for w in values[:i])]
+            if len(values) > 1:
+                raise ValueError(
+                    f"Conflicting {field_name!r} for axis {a!r} across {sources}: {set(values)!r}. "
+                    "Only the first Scale providing a value gets to define it; all others must agree or be blank."
+                )
+            merged[a][field_name] = next(iter(values), None)
+    return OmeZarrAxes([(a, OmeZarrAxis(name=a, **merged[a])) for a in axes])
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -1467,7 +1529,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             # No internals supplied - "From scratch" construction with new graph
             if _transform_graph:
                 raise AssertionError("Must specify _intrinsic_ref when _transform_graph is given.")
-            canonical_axes = self._merge_ome_zarr_axes(list(self._mapping.values()))
+            canonical_axes = _merge_ome_zarr_axes(
+                [scale.ome_zarr_axes for scale in self._mapping.values()], sources="this Multiscale's Scales"
+            )
             canonical_unit = Unit([(a, ax.unit or "") for a, ax in canonical_axes.items()])
             # Dedup: every Scale shares the same canonical Unit/OmeZarrAxes instances.
             self._mapping = OrderedDict(
@@ -1833,42 +1897,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         self,
         name: str,
         *,
-        reached_by: Union[SpatialRelation, Sequence[SpatialRelation], None] = None,
+        reached_by: RelationsParam = None,
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         ome_zarr_axes: Optional[OmeZarrAxesParam] = "infer",
     ) -> "Multiscale":
         """Add a coordinate system to this Multiscale's spatial context.
 
         The returned Multiscale is spatially identical with `self`, but additionally knows the new coordinate system."""
-
-        def _reconcile_axis_prop_params(
-            target_axes: Tuple[AxisKey, ...],
-            dependencies: AxisKeyDependencies,
-            source_ome_axes: OmeZarrAxes,
-            provided_ome_axes: Optional[OmeZarrAxesParam],
-            unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]],
-        ) -> OmeZarrAxes:
-            unit = Unit.empty(target_axes) if unit is None else Unit(unit)
-            parsed_ome_axes = _normalize_ome_zarr_axes_param(provided_ome_axes, target_axes)
-
-            conflicts = parsed_ome_axes.conflicts_with_unit(unit)
-            if conflicts:
-                raise ValueError(
-                    f"Conflicting unit between `unit` and `ome_zarr_axes`: "
-                    f"{ {a: f'{slf!r} vs {oth!r}' for a, (slf, oth) in conflicts.items()} }. Only specify unit once."
-                )
-
-            carried_ome_axes = source_ome_axes.with_axes_carried_over(target_axes, dependencies)
-            if provided_ome_axes == "infer":
-                result = carried_ome_axes
-                inserted_axes = {axis for axis, deps in zip(target_axes, dependencies) if not deps}
-                if inserted_axes:
-                    inserted_ome_axes = parsed_ome_axes.without_axes_except(inserted_axes)
-                    result = result.with_blanks_filled_from(inserted_ome_axes)
-            else:
-                result = parsed_ome_axes.with_axes(target_axes).with_blanks_filled_from(carried_ome_axes)
-
-            return result.with_unit_merged(unit)
 
         if name == self._intrinsic_ref.name or name in self.coordinate_systems:
             raise ValueError(f"Coordinate system name {name!r} already exists on this Multiscale.")
@@ -1909,9 +1944,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
         )
 
-    def as_derived_from(
-        self, other: "Multiscale", *, by: Union[SpatialRelation, Sequence[SpatialRelation], None] = None
-    ) -> "Multiscale":
+    def as_derived_from(self, other: "Multiscale", *, by: RelationsParam = None) -> "Multiscale":
         """
         Transfer `self` into the spatial context of `other`, carrying over axis properties, coordinate systems and
         serialization convention.
@@ -2250,27 +2283,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         self._intrinsic_ref.name == self._as_ref_to_intrinsic().name
         """
         return self._as_ref(self._intrinsic_ref.name)
-
-    @staticmethod
-    def _merge_ome_zarr_axes(scales: Sequence["Scale"]) -> OmeZarrAxes:
-        axes = list(scales[0].ome_zarr_axes.keys())
-        merged: Dict[AxisKey, Dict[str, Any]] = {a: {} for a in axes}
-        for field_name in ("unit", "type", "discrete", "long_name"):
-            for a in axes:
-                values = list(
-                    dict.fromkeys(v for s in scales if (v := getattr(s.ome_zarr_axes[a], field_name)) not in (None, ""))
-                )
-                if field_name == "unit":
-                    # Normalise different spellings so "nm" and "nanometer" merge fine.
-                    # First spelling wins.
-                    values = [v for i, v in enumerate(values) if not any(is_same_unit(v, w) for w in values[:i])]
-                if len(values) > 1:
-                    raise ValueError(
-                        f"Conflicting {field_name!r} for axis {a!r} across this Multiscale's Scales: {set(values)!r}. "
-                        "Only the first Scale providing a value gets to define it; all others must agree or be blank."
-                    )
-                merged[a][field_name] = next(iter(values), None)
-        return OmeZarrAxes([(a, OmeZarrAxis(name=a, **merged[a])) for a in axes])
 
     def _relation_with_coordinate_system(self, name: str, *, towards_system: bool) -> Optional[SpatialRelation]:
         matches = [ref for ref in self._transform_graph.all_system_refs if ref.name == name]
