@@ -278,3 +278,20 @@ class TestRefAxesVsOwnerAxes:
             ValueError, match="ScaleTransform expects 3 source axes, but its source coordinate system has 2"
         ):
             TransformSequence((ScaleTransform((2.0, 2.0, 2.0)),)).bound(source=preview_2d, target=world_3d)
+
+
+def test_structural_signature_distinguishes_number_of_equal_edges():
+    world = CoordinateSystem.fromkeys("yx")._as_ref("world")
+    multiscales = [Multiscale({"s0": Scale(Shape(y=2, x=2))}) for _ in range(2)]
+
+    def graph(*members: Multiscale) -> TransformGraph:
+        return TransformGraph(
+            [IdentityTransform().bound(source=ms._as_ref_to_intrinsic(), target=world) for ms in members]
+        )
+
+    def signature(g: TransformGraph):
+        rename = {ms._as_ref_to_intrinsic(): "_self" for ms in multiscales}
+        return g.structural_signature(rename=rename)
+
+    assert signature(graph(multiscales[0])) != signature(graph(*multiscales)), "one node != two (equal) nodes"
+    assert signature(graph(multiscales[0], multiscales[1])) == signature(graph(multiscales[1], multiscales[0]))
