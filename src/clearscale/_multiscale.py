@@ -2225,6 +2225,12 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             result["datasets"].append(dataset)
         return result
 
+    def _axes_of(self, name: CoordinateSystemName) -> Tuple[AxisKey, ...]:
+        for ref in self._transform_graph.all_system_refs:
+            if ref.name == name:
+                return ref.owner.axes
+        raise NoSuchCoordinateSystemError(name)
+
     def _as_ref(self, name: CoordinateSystemName) -> NodeRef["Multiscale"]:
         """For Multiscale, making a ref means selecting one of their coordinate systems by name."""
         if name not in (ref.name for ref in self._transform_graph.all_system_refs):
@@ -2236,7 +2242,12 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         The intrinsic ref is a ref that gives the intrinsic CoordinateSystem a name.
           It's what we need inside the Multiscale's own graph and what we tie additional coordinate_systems to.
         This method produces a ref that selects the intrinsic ref inside this Multiscale.
-          It's what a Scene uses to connect different Multiscales.
+          It's what a Scene uses (along with ._as_ref) to connect different Multiscales.
+
+        self._intrinsic_ref is a NodeRef[CoordinateSystem]
+        self._as_ref_to_intrinsic() is a NodeRef[Multiscale]
+          with
+        self._intrinsic_ref.name == self._as_ref_to_intrinsic().name
         """
         return self._as_ref(self._intrinsic_ref.name)
 

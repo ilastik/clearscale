@@ -336,6 +336,12 @@ class TransformGraphNode(ABC):
     def axes(self) -> Tuple[AxisKey, ...]: ...
 
     @abstractmethod
+    def _axes_of(self, name: CoordinateSystemName) -> Tuple[AxisKey, ...]:
+        """Axes of the coordinate system this node exposes under `name`.
+        Not necessarily `self.axes`: a Multiscale exposes several systems, only one of which is intrinsic."""
+        ...
+
+    @abstractmethod
     def _as_ref(self, name: CoordinateSystemName) -> "ResolvedRef":
         """_as_ref is considered package-private, not class-private.
         Not a problem on CoordinateSystem (itself not part of the public API),
@@ -422,8 +428,15 @@ class NodeRef(Generic[TransformGraphNodeT]):
     def __hash__(self):
         return hash((type(self), self.name, id(self.owner)))
 
+    @property
+    def axes(self) -> Tuple[AxisKey, ...]:
+        """Axes of the coordinate system this ref points at.
+        Trivial for NodeRef[CoordinateSystem]: `self.axes == self.owner.axes`.
+        For NodeRef[Multiscale]: the two can differ when `self.name != self.owner._intrinsic_ref.name`."""
+        return self.owner._axes_of(self.name)
+
     def __repr__(self):
-        return f"NodeRef(name='{self.name}', owner={type(self.owner).__name__}<id={id(self.owner)}, axes={self.owner.axes})>"
+        return f"NodeRef(name='{self.name}', owner={type(self.owner).__name__}<id={id(self.owner)}, axes={self.axes})>"
 
     def to_ome_zarr(self, *, version: str, path: Optional[str] = None) -> Dict[str, Any]:
         if path and isinstance(path, str):
@@ -505,6 +518,9 @@ class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
     @property
     def axes(self) -> Tuple[AxisKey, ...]:
         return tuple(self.keys())
+
+    def _axes_of(self, name: CoordinateSystemName) -> Tuple[AxisKey, ...]:
+        return self.axes
 
     def _as_ref(self, name: CoordinateSystemName) -> NodeRef["CoordinateSystem"]:
         """For CoordinateSystem, making a ref means giving the coordinate system a name."""
@@ -845,8 +861,8 @@ class Transform(ABC):
         return name
 
     def _validate_bound_axes(self) -> None:
-        source_axes = self.source.owner.axes if isinstance(self.source, NodeRef) else None
-        target_axes = self.target.owner.axes if isinstance(self.target, NodeRef) else None
+        source_axes = self.source.axes if isinstance(self.source, NodeRef) else None
+        target_axes = self.target.axes if isinstance(self.target, NodeRef) else None
         self._validate_ndims_compatible_with_payload(
             len(source_axes) if source_axes is not None else None,
             len(target_axes) if target_axes is not None else None,
@@ -1072,8 +1088,8 @@ class TransformSequence(Transform):
         Transform.__post_init__(self)
         # Now that endpoint-independent validation has passed (relative ndim of the children is valid),
         # check again if concrete (absolute) endpoint ndim are known.
-        source_ndim = len(self.source.owner.axes) if isinstance(self.source, NodeRef) else None
-        target_ndim = len(self.target.owner.axes) if isinstance(self.target, NodeRef) else None
+        source_ndim = len(self.source.axes) if isinstance(self.source, NodeRef) else None
+        target_ndim = len(self.target.axes) if isinstance(self.target, NodeRef) else None
         if source_ndim is not None or target_ndim is not None:
             self._validate_child_ndim_chain(source_ndim, target_ndim)
 
