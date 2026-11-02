@@ -19,6 +19,8 @@ from clearscale._transforms import (
     IdentityTransform,
     OmeZarrAxes,
     relation_to_transform_canonic,
+    transform_to_relation,
+    TransformSequence,
     RelativePath,
     CoordinateSystem,
     CoordinateSystemName,
@@ -35,9 +37,10 @@ MultiscalesByPath = Mapping[RelativePath, Multiscale]
 MultiscaleSystemKey = Union[Multiscale, Tuple[Multiscale, CoordinateSystemName]]
 """Selects one of a Multiscale's coordinate systems: A plain Multiscale selects its own (intrinsic) space,
 `(multiscale, name)` selects one of the other coordinate systems it knows."""
-UserFacingCoordinateSystemKey = Union[
-    CoordinateSystemName,
-    MultiscaleSystemKey,
+ResolvedSystemKey = Union[CoordinateSystemName, MultiscaleSystemKey]
+"""Selects a coordinate system whose axes are known: One of the Scene's own (by name), or one of a Multiscale."""
+_AnyCoordinateSystemKey = Union[
+    ResolvedSystemKey,
     Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]],
 ]
 Node = Union[Multiscale, NodeRef]
@@ -343,8 +346,57 @@ class Scene:
             all_paths.update(cleaned)
         return self._internal_graph.to_ome_zarr(version=version, nodes_by_path=all_paths)
 
+    def relation_from(
+        self,
+        source: ResolvedSystemKey,
+        *,
+        to: ResolvedSystemKey,
+    ) -> Optional[SpatialRelation]:
+        """
+        Return the spatial relation that leads from the space `source` to the space `to`: `source --R--> to`.
+        As for all relations, R says what you do with an image in `source`'s space to obtain `to`'s space.
+        This is the same reading as for the relations the constructors accept:
+        `Scene.from_multiscale_pair(a=a, b=b, a_to_b=R).relation_from(a, to=b)` returns `R`, in canonical form
+        (e.g. a chain of two Translations comes out as one Translation).
+
+        `source` and `to` select spaces as follows:
+        - a name selects one of the Scene's coordinate systems
+        - a Multiscale selects the space of its own data, and `(multiscale, name)` selects one of its other
+          coordinate systems
+
+        Returns None if the two spaces are the same.
+        Raises ValueError if either space can't be found or isn't resolved yet (see `with_resolved`: the axes of
+        spaces of unresolved Multiscales are unknown), or if there is no way to get from `source` to `to`
+        (e.g. spaces reached by dropping axes can't be traced backwards).
+        Raises CannotConvertToSpatialRelationError if the connection between them cannot be expressed as spatial
+        relations, which can happen for Scenes read from OME-Zarr that contain e.g. displacement fields.
+        """
+        # include_children: Could add optional kwarg if anyone specifically needs to exclude transforms between child
+        # multiscales and the additional coordinate systems they define internally. For now kept out of the API.
+        include_children: bool = True
+        refs = []
+        for key in (source, to):
+            ref = self._get_ref_for_key(key, include_children)
+            if ref is None:
+                raise ValueError(f"This Scene has no coordinate system matching {key!r}.")
+            if not isinstance(ref, NodeRef):
+                raise ValueError(
+                    f"The axes of {key!r} are unknown because it is not resolved yet. "
+                    "Use `with_resolved` to provide its Multiscale."
+                )
+            refs.append(ref)
+        source_ref, target_ref = refs
+        graph = self._full_graph if include_children else self._internal_graph
+        path = graph.path_between(source_ref, target_ref)
+        if path is None:
+            raise ValueError(f"{source!r} cannot be related to {to!r}: There is no (invertible) path between them.")
+        if not path:
+            return None
+        transform = path[0] if len(path) == 1 else TransformSequence(tuple(path))
+        return transform_to_relation(transform, source_ref.axes, target_ref.axes)
+
     def _transforms_between(
-        self, source: UserFacingCoordinateSystemKey, target: UserFacingCoordinateSystemKey, include_children=False
+        self, source: _AnyCoordinateSystemKey, target: _AnyCoordinateSystemKey, include_children=False
     ) -> Optional[List[Transform]]:
         source_ref = self._get_ref_for_key(source, include_children)
         target_ref = self._get_ref_for_key(target, include_children)
@@ -354,7 +406,7 @@ class Scene:
             return self._full_graph.path_between(source_ref, target_ref)
         return self._internal_graph.path_between(source_ref, target_ref)
 
-    def _get_ref_for_key(self, key: UserFacingCoordinateSystemKey, include_children: bool) -> Optional[AnyRef]:
+    def _get_ref_for_key(self, key: _AnyCoordinateSystemKey, include_children: bool) -> Optional[AnyRef]:
         if isinstance(key, dict):  # Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]]
             if key["path"] in self._multiscale_paths:
                 return self._multiscale_paths[key["path"]]._as_ref(key["name"])
