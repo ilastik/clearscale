@@ -97,7 +97,11 @@ Things to know:
 ## Deriving a new Multiscale
 
 The usual image-processing flow is: load a Multiscale, pick one of its scales, process the data, and write the result.
-"Deriving" in clearscale means to record this provenance of where the output data came from.
+
+"Deriving" in clearscale saves you the manual labor of carrying over properties from the source metadata to the output metadata.
+
+You might write only a single data array whose shape, pixel size, axis units and so on correspond exactly to the Scale whose data was processed.
+In this simple case, use `.derive`:
 
 ```python
 source = OmeZarrGroup.from_group(zarr_group).multiscales[0]   # has coordinate systems, e.g. "stage"
@@ -107,16 +111,20 @@ result = source.derive("s1")
 
 `derive` creates a new Multiscale from one scale of `source` (here `"s1"`), optionally expanded by a scaling `blueprint`, exactly like `Multiscale.from_single`.
 
-What makes it different from `from_single` is that the result stays in the spatial context of `source`:
-
+What makes it different from `from_single` is that the result inherits the spatial context of `source`.
 All the source's coordinate systems (`"stage"` and so on) are available on the result too, with their connections preserved.
 
 When writing OME-Zarr 0.6, this is stored in the output metadata.
 
-### Deriving by a spatial relation
-`derive` is a convenience shortcut for simple cases.
+> [!NOTE]
+> "Deriving" does *not* establish a connection between the source Multiscale and the derived Multiscale.
+> Multiscale-Multiscale relations are only possible in a [Scene](scene.md).
 
-If something else changed between the source and the result — maybe you cropped the data, projected it along one axis, or otherwise transformed it — build the result yourself and connect it to the source using `as_derived_from`:
+### Deriving by a spatial relation
+`derive` is a convenience shortcut for simple cases where the properties of the extracted Scale do not change.
+
+If something else changed between the source and the result — maybe you cropped the data, projected it along one axis, or otherwise transformed it — build the result yourself to accurately describe the result.
+Then use `as_derived_from` to inherit the unchanged properties, including any coordinate systems the parent might define:
 
 ```python
 from clearscale import Multiscale, PixelSize, ProjectionTo, Scale, Shape
@@ -537,5 +545,6 @@ Each relation sees the axes that the previous one produced. Here, `ProjectionTo`
 
 ## Beyond a single Multiscale
 
-Everything above describes the surroundings of *one* Multiscale. To relate several Multiscales to each other (stitching tiles into a mosaic, registering images to a common reference), clearscale has `Scene`, which uses the same concepts.
-`Scene` is still in development, its API will change, so please let us know if you need/want it for your work.
+Everything above describes the surroundings of *one* Multiscale.
+To relate several Multiscales to each other (stitching tiles into a mosaic, registering images to a common reference, recording provenance of derived data), see [Scenes](scene.md).
+It uses the same concepts.
