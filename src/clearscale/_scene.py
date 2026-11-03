@@ -69,6 +69,7 @@ class Scene:
                 f"Received: {self._multiscale_paths!r}"
             )
         paths = dict(self._multiscale_paths)
+        self._require_max_one_path_per_multiscale_and_no_unrelated_paths(paths)
         object.__setattr__(self, "_multiscale_paths", paths)
 
     def __eq__(self, other):
@@ -469,3 +470,29 @@ class Scene:
             if isinstance(new_ref, NodeRef) and isinstance(new_ref.owner, Multiscale) and new_ref.owner is multiscale:
                 resolved_paths[old_ref.file.path] = multiscale
         return resolved_paths
+
+    def _require_max_one_path_per_multiscale_and_no_unrelated_paths(
+        self, paths: Mapping[RelativePath, Multiscale]
+    ) -> None:
+        owners = {id(ms): ms for ms in self.multiscales}
+        path_by_instance: Dict[int, RelativePath] = {}
+        for path, multiscale in paths.items():
+            if not isinstance(path, str) or not path:
+                raise ValueError(f"Multiscale paths must be non-empty strings. Received: {path!r}")
+            if not isinstance(multiscale, Multiscale):
+                raise TypeError(f"Path {path!r} must map to a Multiscale. Received: {multiscale!r}")
+            if id(multiscale) not in owners:
+                raise ValueError(
+                    f"The Multiscale given for path {path !r} is not part of this Scene's graph. "
+                    "A Scene cannot hold Multiscales that none of its transforms connect. "
+                    "Paths must be given for the specific Multiscale instances passed on construction, "
+                    "not e.g. equal instances created by `Multiscale.copy()`."
+                )
+            if id(multiscale) in path_by_instance:
+                raise ValueError(
+                    "Each Multiscale instance can only be stored at one path. "
+                    "Received two paths for one instance: "
+                    f"{path_by_instance[id(multiscale)]!r} and {path!r}. "
+                    "Use `.copy()` if the second path is another Multiscale with the same exact metadata."
+                )
+            path_by_instance[id(multiscale)] = path

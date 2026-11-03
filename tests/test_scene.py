@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from clearscale import (
@@ -188,6 +190,85 @@ def test_transforms_between_rejects_malformed_multiscale_system_key(key):
 
     with pytest.raises(TypeError, match=r"must be tuple\(multiscale, system_name\)"):
         scene._transforms_between(key, "world")  # type: ignore[arg-type]
+
+
+class TestPathValidation:
+    @staticmethod
+    def _two_tile_scene():
+        tile_0 = _multiscale(y=2, x=3)
+        tile_1 = _multiscale(y=2, x=3)
+        scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
+        return scene, tile_0, tile_1
+
+    def test_accepts_paths_for_graph_multiscales(self):
+        scene, tile_0, tile_1 = self._two_tile_scene()
+
+        with_paths = replace(scene, _multiscale_paths={"tile_0": tile_0, "tile_1": tile_1})
+
+        assert with_paths._multiscale_paths == {"tile_0": tile_0, "tile_1": tile_1}
+
+    def test_accepts_paths_for_only_some_graph_multiscales(self):
+        scene, tile_0, _tile_1 = self._two_tile_scene()
+
+        with_paths = replace(scene, _multiscale_paths={"tile_0": tile_0})
+
+        assert with_paths._multiscale_paths == {"tile_0": tile_0}
+
+    def test_rejects_path_for_multiscale_outside_graph(self):
+        scene, _tile_0, _tile_1 = self._two_tile_scene()
+        stray = _multiscale(y=5, x=7)
+
+        with pytest.raises(ValueError, match="'stray' is not part of this Scene's graph"):
+            replace(scene, _multiscale_paths={"stray": stray})
+
+    def test_rejects_path_for_equal_but_not_identical_multiscale(self):
+        scene, tile_0, _tile_1 = self._two_tile_scene()
+        assert tile_0.copy() == tile_0
+
+        expected_message = "Paths must be given for the specific Multiscale instances passed on construction, not e.g. equal instances created by `Multiscale.copy"
+        with pytest.raises(ValueError, match=expected_message):
+            replace(scene, _multiscale_paths={"tile_0": tile_0.copy()})
+
+    def test_rejects_same_instance_at_two_paths(self):
+        scene, tile_0, _tile_1 = self._two_tile_scene()
+
+        with pytest.raises(ValueError, match="Received two paths for one instance: 'a' and 'b'"):
+            replace(scene, _multiscale_paths={"a": tile_0, "b": tile_0})
+
+    @pytest.mark.parametrize("path", ["", None, 3])
+    def test_rejects_non_string_or_empty_paths(self, path):
+        scene, tile_0, _tile_1 = self._two_tile_scene()
+
+        with pytest.raises(ValueError, match="non-empty strings"):
+            replace(scene, _multiscale_paths={path: tile_0})
+
+    def test_rejects_non_multiscale_path_values(self):
+        scene, _tile_0, _tile_1 = self._two_tile_scene()
+
+        with pytest.raises(TypeError, match="must map to a Multiscale"):
+            replace(scene, _multiscale_paths={"tile_0": "not a multiscale"})  # type: ignore[arg-type]
+
+    def test_with_resolved_rejects_same_multiscale_for_two_paths(self):
+        ms = _multiscale(y=2, x=3)
+        object.__setattr__(ms._intrinsic_ref, "name", "physical")
+        world = {"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}
+        scene = Scene.from_ome_zarr(
+            {
+                "coordinateSystems": [world],
+                "coordinateTransformations": [
+                    {
+                        "type": "translation",
+                        "input": {"path": path, "name": "physical"},
+                        "output": {"name": "world"},
+                        "translation": [0, 0],
+                    }
+                    for path in ("tile_0", "tile_1")
+                ],
+            }
+        )
+
+        with pytest.raises(ValueError, match="Received two paths for one instance: 'tile_0' and 'tile_1'"):
+            scene.with_resolved({"tile_0": ms, "tile_1": ms})
 
 
 class TestMultiscalesProperty:
