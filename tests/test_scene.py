@@ -1,5 +1,3 @@
-from dataclasses import replace
-
 import pytest
 
 from clearscale import (
@@ -192,7 +190,7 @@ def test_transforms_between_rejects_malformed_multiscale_system_key(key):
         scene._transforms_between(key, "world")  # type: ignore[arg-type]
 
 
-class TestPathValidation:
+class TestMultiscalePaths:
     @staticmethod
     def _two_tile_scene():
         tile_0 = _multiscale(y=2, x=3)
@@ -200,26 +198,39 @@ class TestPathValidation:
         scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
         return scene, tile_0, tile_1
 
-    def test_accepts_paths_for_graph_multiscales(self):
+    def test_paths_can_be_added_and_retrieved(self):
         scene, tile_0, tile_1 = self._two_tile_scene()
 
-        with_paths = replace(scene, _multiscale_paths={"tile_0": tile_0, "tile_1": tile_1})
+        assert scene.multiscale_paths == {}, "empty by default"
+        assert scene.with_multiscale_paths({}) is scene, "passing nothing returns self"
 
-        assert with_paths._multiscale_paths == {"tile_0": tile_0, "tile_1": tile_1}
+        with_paths = scene.with_multiscale_paths({"tile_0": tile_0, "tile_1": tile_1})
 
-    def test_accepts_paths_for_only_some_graph_multiscales(self):
+        assert with_paths is not scene, "should not modify original instance"
+        assert with_paths.multiscale_paths == {"tile_0": tile_0, "tile_1": tile_1}
+
+    def test_multiscale_paths_is_read_only(self):
+        scene, tile_0, _tile_1 = self._two_tile_scene()
+        with_paths = scene.with_multiscale_paths({"tile_0": tile_0})
+
+        with pytest.raises(TypeError):
+            with_paths.multiscale_paths["other"] = tile_0  # type: ignore[index]
+
+        assert with_paths.multiscale_paths == {"tile_0": tile_0}
+
+    def test_accepts_paths_for_only_some_multiscales(self):
         scene, tile_0, _tile_1 = self._two_tile_scene()
 
-        with_paths = replace(scene, _multiscale_paths={"tile_0": tile_0})
+        with_paths = scene.with_multiscale_paths({"tile_0": tile_0})
 
-        assert with_paths._multiscale_paths == {"tile_0": tile_0}
+        assert with_paths.multiscale_paths == {"tile_0": tile_0}
 
     def test_rejects_path_for_multiscale_outside_graph(self):
         scene, _tile_0, _tile_1 = self._two_tile_scene()
         stray = _multiscale(y=5, x=7)
 
         with pytest.raises(ValueError, match="'stray' is not part of this Scene's graph"):
-            replace(scene, _multiscale_paths={"stray": stray})
+            scene.with_multiscale_paths({"stray": stray})
 
     def test_rejects_path_for_equal_but_not_identical_multiscale(self):
         scene, tile_0, _tile_1 = self._two_tile_scene()
@@ -227,26 +238,26 @@ class TestPathValidation:
 
         expected_message = "Paths must be given for the specific Multiscale instances passed on construction, not e.g. equal instances created by `Multiscale.copy"
         with pytest.raises(ValueError, match=expected_message):
-            replace(scene, _multiscale_paths={"tile_0": tile_0.copy()})
+            scene.with_multiscale_paths({"tile_0": tile_0.copy()})
 
     def test_rejects_same_instance_at_two_paths(self):
         scene, tile_0, _tile_1 = self._two_tile_scene()
 
         with pytest.raises(ValueError, match="Received two paths for one instance: 'a' and 'b'"):
-            replace(scene, _multiscale_paths={"a": tile_0, "b": tile_0})
+            scene.with_multiscale_paths({"a": tile_0, "b": tile_0})
 
     @pytest.mark.parametrize("path", ["", None, 3])
     def test_rejects_non_string_or_empty_paths(self, path):
         scene, tile_0, _tile_1 = self._two_tile_scene()
 
         with pytest.raises(ValueError, match="non-empty strings"):
-            replace(scene, _multiscale_paths={path: tile_0})
+            scene.with_multiscale_paths({path: tile_0})
 
     def test_rejects_non_multiscale_path_values(self):
         scene, _tile_0, _tile_1 = self._two_tile_scene()
 
         with pytest.raises(TypeError, match="must map to a Multiscale"):
-            replace(scene, _multiscale_paths={"tile_0": "not a multiscale"})  # type: ignore[arg-type]
+            scene.with_multiscale_paths({"tile_0": "not a multiscale"})  # type: ignore[arg-type]
 
     def test_with_resolved_rejects_same_multiscale_for_two_paths(self):
         ms = _multiscale(y=2, x=3)
@@ -269,6 +280,81 @@ class TestPathValidation:
 
         with pytest.raises(ValueError, match="Received two paths for one instance: 'tile_0' and 'tile_1'"):
             scene.with_resolved({"tile_0": ms, "tile_1": ms})
+
+    def test_with_multiscale_paths_keeps_paths_not_mentioned(self):
+        scene, tile_0, tile_1 = self._two_tile_scene()
+        scene = scene.with_multiscale_paths({"tile_0": tile_0})
+        scene = scene.with_multiscale_paths({"tile_1": tile_1})
+
+        assert scene.multiscale_paths == {"tile_0": tile_0, "tile_1": tile_1}
+
+    def test_with_multiscale_paths_overwrites_existing_path_of_same_instance(self):
+        scene, tile_0, tile_1 = self._two_tile_scene()
+        scene = scene.with_multiscale_paths({"old": tile_0, "tile_1": tile_1})
+
+        scene = scene.with_multiscale_paths({"new": tile_0})
+
+        assert scene.multiscale_paths == {"tile_1": tile_1, "new": tile_0}, "the old key must not linger"
+
+    def test_with_multiscale_paths_allows_swapping_paths(self):
+        scene, tile_0, tile_1 = self._two_tile_scene()
+        scene = scene.with_multiscale_paths({"a": tile_0, "b": tile_1})
+        swapped = scene.with_multiscale_paths({"a": tile_1, "b": tile_0})
+
+        assert swapped.multiscale_paths == {"a": tile_1, "b": tile_0}
+
+    def test_with_multiscale_paths_allows_moving_into_path_vacated_in_same_call(self):
+        scene, tile_0, tile_1 = self._two_tile_scene()
+        scene = scene.with_multiscale_paths({"a": tile_0, "b": tile_1})
+        moved = scene.with_multiscale_paths({"c": tile_0, "a": tile_1})
+
+        assert moved.multiscale_paths == {"c": tile_0, "a": tile_1}
+
+    def test_with_multiscale_paths_requires_mapping(self):
+        scene, tile_0, _tile_1 = self._two_tile_scene()
+
+        with pytest.raises(TypeError, match="must be a mapping"):
+            scene.with_multiscale_paths([("tile_0", tile_0)])  # type: ignore[arg-type]
+
+    def test_with_multiscale_paths_rejects_path_of_different_instance(self):
+        scene, tile_0, tile_1 = self._two_tile_scene()
+        scene = scene.with_multiscale_paths({"tile_0": tile_0})
+
+        with pytest.raises(ValueError, match="Path 'tile_0' is already used by another Multiscale"):
+            scene.with_multiscale_paths({"tile_0": tile_1})
+
+        assert scene.multiscale_paths == {"tile_0": tile_0}
+
+    def test_with_multiscale_paths_reports_copy_as_copy_even_if_instance_has_this_path(self):
+        scene, tile_0, _tile_1 = self._two_tile_scene()
+        scene = scene.with_multiscale_paths({"tile_0": tile_0})
+
+        with pytest.raises(ValueError, match="not part of this Scene's graph"):
+            scene.with_multiscale_paths({"tile_0": tile_0.copy()})
+
+    def test_with_multiscale_paths_overrides_paths_recorded_by_with_resolved(self):
+        ms = _multiscale(y=2, x=3)
+        object.__setattr__(ms._intrinsic_ref, "name", "physical")
+        scene = Scene.from_ome_zarr(
+            {
+                "coordinateSystems": [{"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}],
+                "coordinateTransformations": [
+                    {
+                        "type": "translation",
+                        "input": {"path": "tile_0", "name": "physical"},
+                        "output": {"name": "world"},
+                        "translation": [0, 0],
+                    }
+                ],
+            }
+        )
+        resolved = scene.with_resolved({"tile_0": ms})
+        assert resolved.multiscale_paths == {"tile_0": ms}
+
+        moved = resolved.with_multiscale_paths({"renamed": ms})
+
+        assert moved.multiscale_paths == {"renamed": ms}
+        assert moved.is_fully_resolved
 
 
 class TestMultiscalesProperty:
@@ -307,8 +393,8 @@ class TestMultiscalesProperty:
     def test_excludes_unresolved_multiscales(self):
         tile = _multiscale(y=2, x=2)
         stage = CoordinateSystem.fromkeys("yx")._as_ref("stage")
-        original = Scene._from_graph_edges([(tile, IdentityTransform(), stage)])
-        read_back = Scene.from_ome_zarr(original.to_ome_zarr(version="0.6", multiscales_by_path={"tile": tile}))
+        original = Scene._from_graph_edges([(tile, IdentityTransform(), stage)]).with_multiscale_paths({"tile": tile})
+        read_back = Scene.from_ome_zarr(original.to_ome_zarr(version="0.6"))
 
         assert read_back.multiscales == ()
         assert read_back.with_resolved({"tile": tile}).multiscales == (tile,)
@@ -562,10 +648,10 @@ class TestSceneEquality:
 
     def test_survives_ome_zarr_round_trip(self):
         tiles = [_multiscale(unit=Unit(y="micrometer", x="micrometer"), y=2, x=2), _multiscale(y=2, x=2)]
-        scene = self._stitched(*tiles)
         paths = {"a.zarr": tiles[0], "b.zarr": tiles[1]}
+        scene = self._stitched(*tiles).with_multiscale_paths(paths)
 
-        read_back = Scene.from_ome_zarr(scene.to_ome_zarr(version="0.6", multiscales_by_path=paths))
+        read_back = Scene.from_ome_zarr(scene.to_ome_zarr(version="0.6"))
 
         assert read_back != scene, "unresolved: refs are placeholders for the Multiscales"
         assert read_back.with_resolved(paths) == scene
@@ -768,7 +854,8 @@ class TestRelationBetween:
             coordinate_system="stage", connections=[(tiles[0], None), (tiles[1], Translation(y=0.0, x=-4.0))]
         )
         paths = {"a.zarr": tiles[0], "b.zarr": tiles[1]}
-        unresolved = Scene.from_ome_zarr(scene.to_ome_zarr(version="0.6", multiscales_by_path=paths))
+        scene = scene.with_multiscale_paths(paths)
+        unresolved = Scene.from_ome_zarr(scene.to_ome_zarr(version="0.6"))
         name_of_unresolved_multiscale = tiles[1]._intrinsic_ref.name
 
         with pytest.raises(ValueError, match="not resolved yet"):

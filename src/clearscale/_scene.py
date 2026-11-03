@@ -1,4 +1,5 @@
 import functools
+from types import MappingProxyType
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, replace
 from typing import Any, Dict, Iterable, Mapping, NamedTuple, Union, Tuple, Literal
@@ -60,7 +61,7 @@ class Scene:
 
     _internal_graph: TransformGraph
     _multiscale_paths: MultiscalesByPath
-    """Helper property to round-trip paths: Scene.from_ome_zarr().with_resolved().to_ome_zarr()."""
+    """The storage path of every resolved Multiscale in the Scene."""
 
     def __post_init__(self):
         if not isinstance(self._multiscale_paths, MappingABC):
@@ -95,6 +96,12 @@ class Scene:
     @property
     def is_fully_resolved(self) -> bool:
         return len(self._internal_graph.unresolved_transforms) == 0
+
+    @property
+    def multiscale_paths(self) -> Mapping[RelativePath, Multiscale]:
+        """The paths of this Scene's resolved Multiscales, relative to the OmeZarrGroup that stores the Scene.
+        Multiscales that have no path yet cannot be written (see `with_multiscale_paths`)."""
+        return MappingProxyType(self._multiscale_paths)
 
     @functools.cached_property
     def unresolved_paths(self) -> List[RelativePath]:
@@ -333,6 +340,34 @@ class Scene:
         paths.update(resolved_paths)
         graph = replace(self._internal_graph, transforms=tuple(transforms))
         return replace(self, _internal_graph=graph, _multiscale_paths=paths)
+
+    def with_multiscale_paths(self, multiscale_paths: MultiscalesByPath) -> "Scene":
+        """
+        Record the paths at which this Scene's Multiscales are stored, relative to the group that stores the Scene.
+
+        Every Multiscale must be the specific instance that this Scene's transforms connect (not an equal copy).
+        Overrides already stored paths if a new path is provided for an instance that already has one.
+        Instances with no new path provided keep their existing path.
+        Two instances cannot have the same path (but e.g. paths can be swapped within one call).
+        """
+        if not isinstance(multiscale_paths, MappingABC):
+            raise TypeError(
+                f"multiscale_paths must be a mapping like {{path: Multiscale}}. Received: {multiscale_paths!r}"
+            )
+        new_paths = dict(multiscale_paths)
+        if not new_paths:
+            return self
+        # Validate first: Mistakes such as passing a copy should be reported as such, and not as a path clash.
+        self._require_max_one_path_per_multiscale_and_no_unrelated_paths(new_paths)
+        moved = {id(multiscale) for multiscale in new_paths.values()}
+        kept = {path: ms for path, ms in self._multiscale_paths.items() if id(ms) not in moved}
+        for path in new_paths:
+            if path in kept:
+                raise ValueError(
+                    f"Path {path!r} is already used by another Multiscale. "
+                    "To reuse paths, also give that Multiscale a new path in the same call."
+                )
+        return replace(self, _multiscale_paths={**kept, **new_paths})
 
     def to_ome_zarr(self, *, version: str, multiscales_by_path: Optional[MultiscalesByPath] = None) -> Dict:
         if version != "0.6":

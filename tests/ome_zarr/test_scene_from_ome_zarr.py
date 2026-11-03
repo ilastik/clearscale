@@ -84,7 +84,7 @@ def test_with_resolved_remembers_only_paths_that_resolved_transform_endpoints():
 
     resolved = scene.with_resolved({"tile_0": used, "unused": unused})
 
-    assert resolved._multiscale_paths == {"tile_0": used}
+    assert resolved.multiscale_paths == {"tile_0": used}
 
 
 def test_with_resolved_does_not_resolve_by_name():

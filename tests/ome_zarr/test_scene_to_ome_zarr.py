@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Affine, Factor, Multiscale, Scale, Scene, Shape, Translation
+from clearscale import Affine, Factor, Multiscale, Scale, Scene, Shape, Translation, OmeZarrGroup
 from clearscale._transforms import CoordinateSystem, ScaleTransform, TransformGraph, TranslationTransform
 
 from tests.ome_zarr.scene_examples import scene_stitching
@@ -74,8 +74,9 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         atlas = _multiscale(y=2, x=2)
         scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=Affine.from_factor(Factor(y=2, x=2)))
         paths = {"raw.zarr": raw, "atlas.zarr": atlas}
+        scene = scene.with_multiscale_paths(paths)
 
-        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=paths)
+        result = scene.to_ome_zarr(version="0.6")
 
         assert "coordinateSystems" not in result, "no coordinate systems of its own"
         assert result["coordinateTransformations"] == [
@@ -89,6 +90,26 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         read_back = Scene.from_ome_zarr(result).with_resolved(paths)
         assert read_back == scene
         assert read_back.to_ome_zarr(version="0.6") == result
+
+    def test_writes_and_reads_back_through_ome_zarr_group(self):
+        tile_0 = _multiscale(y=2, x=3)
+        tile_1 = _multiscale(y=2, x=3)
+        scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
+        scene = scene.with_multiscale_paths({"tile_0": tile_0, "tile_1": tile_1})
+
+        attrs = OmeZarrGroup.from_single(scene).to_attrs(version="0.6")
+
+        (transform,) = attrs["ome"]["scene"]["coordinateTransformations"]
+        assert transform["input"]["path"] == "tile_0"
+        assert transform["output"]["path"] == "tile_1"
+
+        read = OmeZarrGroup.from_attrs(attrs, shape_source="singletons").scenes[0]
+
+        assert read.unresolved_paths == ["tile_0", "tile_1"]
+        assert read.with_resolved({"tile_0": tile_0, "tile_1": tile_1}).multiscale_paths == {
+            "tile_0": tile_0,
+            "tile_1": tile_1,
+        }
 
     def test_writes_explicit_system_refs_in_declared_order(self):
         atlas = CoordinateSystem.fromkeys("yx")._as_ref("atlas")
