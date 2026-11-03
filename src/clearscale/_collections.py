@@ -168,7 +168,9 @@ class OmeZarrGroup:
         if isinstance(obj, Multiscale):
             return cls(multiscales=(obj,))
         if isinstance(obj, Scene):
-            return cls(scenes=(obj,))
+            # Like when reading, children are all the paths the scene points to (resolved or not), deduplicated
+            paths = dict.fromkeys([*obj.multiscale_paths, *obj.unresolved_paths])
+            return cls(scenes=(obj,), children=tuple(ChildRef.from_string(path, "multiscale") for path in paths))
         raise TypeError(f"Must be called with a Multiscale or Scene, not {obj!r}")
 
     @classmethod
