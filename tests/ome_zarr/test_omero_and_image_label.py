@@ -79,15 +79,14 @@ def test_omero_requires_channels():
 def test_omero_from_ome_zarr_drops_the_whole_object_on_one_bad_channel():
     """Silently dropping just the bad channel would misalign every later channel's index against the
     data, since channels has no other way to identify which image channel it belongs to."""
-    with pytest.warns(UserWarning, match="Invalid entry in 'omero.channels'"):
-        omero = Omero.from_ome_zarr(
-            {
-                "channels": [
-                    {"color": "FF0000", "window": {"start": 0, "end": 1, "min": 0, "max": 1}},
-                    {"color": "not-a-color"},
-                ]
-            }
-        )
+    omero = Omero.from_ome_zarr(
+        {
+            "channels": [
+                {"color": "FF0000", "window": {"start": 0, "end": 1, "min": 0, "max": 1}},
+                {"color": "not-a-color"},
+            ]
+        }
+    )
     assert omero is None
 
 
@@ -237,10 +236,9 @@ def test_image_label_extra_color_keys_round_trip_via_properties_prefix():
     assert "properties" not in d  # the whole entry folded back into 'colors', nothing left for 'properties'
 
 
-def test_image_label_invalid_rgba_is_dropped_with_warning_rest_of_entry_kept():
+def test_image_label_invalid_rgba_is_dropped_rest_of_entry_kept():
     json = {"colors": [{"label-value": 1, "rgba": "not-a-color", "hexColor": "#fff"}]}
-    with pytest.warns(UserWarning, match="Invalid image-label color"):
-        label = ImageLabel.from_ome_zarr(json)
+    label = ImageLabel.from_ome_zarr(json)
     assert label is not None
     assert label.labels[1].color is None
     assert label.labels[1].properties == {"@color:hexColor": "#fff"}
@@ -292,15 +290,14 @@ def test_from_attrs_shares_omero_but_copies_image_label_across_multiscales():
     assert "touched" not in ms1.ome.image_label.labels[1].properties
 
 
-def test_to_attrs_warns_and_omits_omero_on_conflict_across_multiscales():
+def test_to_attrs_omits_omero_on_conflict_across_multiscales():
     ms1 = _multiscale(Shape(c=1, y=4, x=4))
     ms2 = _multiscale(Shape(c=1, y=2, x=2))
     ms1.ome.omero = Omero([_channel("FF0000")])
     ms2.ome.omero = Omero([_channel("00FF00")])
     group = OmeZarrGroup(multiscales=(ms1, ms2))
 
-    with pytest.warns(UserWarning, match="conflicting `.ome.omero`"):
-        attrs = group.to_attrs(version="0.6", override_multi_multiscales=True)
+    attrs = group.to_attrs(version="0.6", override_multi_multiscales=True)
     assert "omero" not in attrs["ome"]
 
 

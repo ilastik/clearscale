@@ -19,8 +19,6 @@ from tests.ome_zarr.multiscale_examples import (
     maximal_multiscale_examples_params,
 )
 
-IGNORE_INVALID = "ignore:.*invalid"
-
 
 def test_all_versions_covered():
     example_params = minimal_multiscale_examples_params()
@@ -38,8 +36,6 @@ def test_requires_shape_source_param():
 
 
 @pytest.mark.parametrize("example", minimal_multiscale_examples_params())
-# The 0.1, 0.2 and 0.3 examples don't specify their version, making their validity ambiguous - prod code warns
-@pytest.mark.filterwarnings(IGNORE_INVALID)
 def test_from_ome_zarr_parses_minimal_multiscale_examples(example: MultiscaleMetadataExample):
     multiscale = Multiscale.from_ome_zarr(example.metadata, shape_source=make_all_singleton_shapes(example.ndim))
 
@@ -258,7 +254,6 @@ def _0_4_metadata_without_axes():
         ),
     ],
 )
-@pytest.mark.filterwarnings(IGNORE_INVALID)
 def test_from_ome_zarr_raises_when_axes_or_paths_invalid_version_0_4(metadata):
     with pytest.raises(ValueError):
         _ = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
@@ -339,7 +334,6 @@ def _0_4_metadata_with_s0_transforms(transformations):
         ),
     ],
 )
-@pytest.mark.filterwarnings(IGNORE_INVALID)
 def test_from_ome_zarr_ignores_invalid_transforms_metadata_version_0_4(metadata):
     read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
     expected = Multiscale({"s0": Scale(shape=Shape(y=1, x=2), pixel_size=PixelSize(y=1.0, x=1.0))})
@@ -591,7 +585,6 @@ def _0_6_metadata_with_axes(axes):
         ),
     ],
 )
-@pytest.mark.filterwarnings(IGNORE_INVALID)
 def test_from_ome_zarr_raises_when_axes_or_paths_invalid_version_0_6(metadata):
     with pytest.raises(ValueError):
         _ = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
@@ -789,7 +782,6 @@ def test_from_ome_zarr_parses_valid_label_transform():
         ),
     ],
 )
-@pytest.mark.filterwarnings(IGNORE_INVALID)
 def test_from_ome_zarr_ignores_invalid_transforms_metadata_version_0_6(metadata):
     # Note regarding cases with multiscale-transforms / label-transforms: Only cases where these transforms are
     # *invalid* end up eq to the expected plain Multiscale in this test.

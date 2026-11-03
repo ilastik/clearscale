@@ -4,7 +4,7 @@ import copy
 import math
 import numbers
 import re
-import warnings
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import (
@@ -38,6 +38,7 @@ from clearscale._transforms import (
 )
 from clearscale.types import ShapeValue, ShapeSource
 
+logger = logging.getLogger(__name__)
 SUPPORTED_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
 SUPPORTED_VERSIONS_WRITE = ("0.4", "0.5", "0.6")
 
@@ -288,13 +289,13 @@ class Omero:
             return None
         raw_channels = omero_dict.get("channels")
         if not isinstance(raw_channels, list) or not raw_channels:
-            warnings.warn(f"Invalid or missing 'omero.channels'; ignoring omero metadata. Received: {omero_dict!r}")
+            logger.debug(f"Invalid or missing 'omero.channels'; ignoring omero metadata. Received: {omero_dict!r}")
             return None
         channels = []
         for raw_channel in raw_channels:
             channel = OmeroChannel.from_ome_zarr(raw_channel)
             if channel is None:
-                warnings.warn(f"Invalid entry in 'omero.channels'; ignoring omero metadata. Received: {raw_channel!r}")
+                logger.debug(f"Invalid entry in 'omero.channels'; ignoring omero metadata. Received: {raw_channel!r}")
                 return None
             channels.append(channel)
         extra = {k: v for k, v in omero_dict.items() if k != "channels"}
@@ -432,7 +433,7 @@ class ImageLabel:
                     try:
                         entry.color = value
                     except ValueError:
-                        warnings.warn(f"Invalid image-label color for label {label_value}, ignoring: {value!r}")
+                        logger.debug(f"Invalid image-label color for label {label_value}, ignoring: {value!r}")
                 else:
                     entry.properties[f"{cls._COLOR_PREFIX}{key}"] = value
 
@@ -706,7 +707,7 @@ def require_dataset_paths(raw: Mapping[str, Any]):
     """Light top-level checks. coordinateTransformations are validated later."""
     version = raw.get("version")
     if version and version not in SUPPORTED_VERSIONS_READ:
-        warnings.warn(f"Attempting to parse unknown OME-Zarr version '{version}'. This might break...")
+        logger.debug(f"Attempting to parse unknown OME-Zarr version '{version}'. This might break...")
 
     if "datasets" not in raw or not raw["datasets"] or not isinstance(raw["datasets"], list):
         raise ValueError(f"Invalid OME-Zarr metadata: no datasets in: {raw!r}")
@@ -727,7 +728,7 @@ def require_dataset_paths(raw: Mapping[str, Any]):
         )
         for d in raw["datasets"]
     ):
-        warnings.warn(
+        logger.debug(
             f"Invalid OME-Zarr metadata: dataset(s) with no transformations. "
             f"Will infer pixel size as relative scaling factors. Received: {raw}"
         )
@@ -781,7 +782,7 @@ def extract_multiscale_graph(
                 raise ValueError()
         except (KeyError, ValueError, TypeError):
             raise e
-        warnings.warn(
+        logger.debug(
             "Invalid coordinateTransformations and/or coordinateSystems metadata. Proceeding without. "
             f"Error: {str(e)}"
             f"Received: {multiscale}"
@@ -861,7 +862,7 @@ def multiscale_graph_from_legacy(
     except ValueError:
         global_transforms = None
     if multiscale_tf_list and global_transforms is None:
-        warnings.warn(f"Pixel size metadata at multiscale-level was invalid. Received: {multiscale_tf_list!r}")
+        logger.debug(f"Pixel size metadata at multiscale-level was invalid. Received: {multiscale_tf_list!r}")
 
     intrinsic_system = CoordinateSystem.from_ome_zarr(multiscale)
     intrinsic_system_ref = intrinsic_system._as_ref(name)
@@ -888,7 +889,7 @@ def multiscale_graph_from_legacy(
             graph = TransformGraph([bound_transform])
         except ValueError:
             # E.g. mismatching number of axes between transforms and coordinate system
-            warnings.warn(f"Invalid OME-Zarr metadata: Ignoring multiscale transforms: {multiscale_tf_list!r}.")
+            logger.debug(f"Invalid OME-Zarr metadata: Ignoring multiscale transforms: {multiscale_tf_list!r}.")
     return graph, intrinsic_system_ref, None
 
 
@@ -912,7 +913,7 @@ def scale_meta_from_dataset_transforms(
     try:
         dataset_transforms = MultiscaleTransforms.from_list(transformations)
     except ValueError:
-        warnings.warn(
+        logger.debug(
             f"Invalid OME-Zarr metadata: dataset scale and translation transform do not match each other. "
             "Continuing with relative scale factor as pixel size. Received: "
             f"{transformations!r}"
@@ -921,7 +922,7 @@ def scale_meta_from_dataset_transforms(
 
     if dataset_transforms is None:
         # Meta existed and was valid but e.g. empty
-        warnings.warn(
+        logger.debug(
             f'Invalid OME-Zarr metadata: expected at least a "scale" transform, but found none. '
             "Continuing with relative scale factor as pixel size. Received: "
             f"{transformations!r}"
@@ -929,7 +930,7 @@ def scale_meta_from_dataset_transforms(
         return relative_scale_pixel_size, None, None
 
     if len(axis_keys) != len(dataset_transforms.scale_transform.scale):
-        warnings.warn(
+        logger.debug(
             f"Invalid OME-Zarr metadata: dataset reports {len(dataset_transforms.scale_transform.scale)} "
             f"pixel size values, mismatching its axes {list(axis_keys)}. "
             "Continuing with relative scale factor as pixel size. Received: "
@@ -938,7 +939,7 @@ def scale_meta_from_dataset_transforms(
         return relative_scale_pixel_size, None, None
 
     if any(v < 0.0 for v in dataset_transforms.scale_transform.scale):
-        warnings.warn(
+        logger.debug(
             f"Invalid OME-Zarr metadata: dataset has negative pixel size values. "
             "Continuing with relative scale factor as pixel size. Received: "
             f"{dataset_transforms.scale_transform.scale!r}"

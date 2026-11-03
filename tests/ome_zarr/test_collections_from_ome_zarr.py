@@ -167,8 +167,7 @@ class TestOmeroAndImageLabel:
         attrs = example.to_group_attrs()
         attrs["omero"]["channels"].append({"color": "FF0000"})
 
-        with pytest.warns(UserWarning, match="Invalid entry in 'omero.channels'"):
-            ome_group = OmeZarrGroup.from_group(MockZarrGroup(attrs, make_all_singleton_shapes(example.ndim)))
+        ome_group = OmeZarrGroup.from_group(MockZarrGroup(attrs, make_all_singleton_shapes(example.ndim)))
 
         assert ome_group.kind is GroupKind.MULTISCALE
         assert ome_group.multiscales[0].ome.omero is None

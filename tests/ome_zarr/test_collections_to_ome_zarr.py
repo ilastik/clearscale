@@ -1,5 +1,4 @@
 import re
-import warnings
 from unittest.mock import Mock
 
 import pytest
@@ -67,9 +66,7 @@ def test_ome_zarr_group_to_attrs_scene():
 def test_ome_zarr_group_to_attrs_labels(version, expected):
     children = (ChildRef("label", FileRef("labels/a")), ChildRef("label", FileRef("labels/b")))
     group = OmeZarrGroup(children=children)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        result = group.to_attrs(version)
+    result = group.to_attrs(version)
     assert result == expected
 
 
@@ -77,10 +74,8 @@ def test_ome_zarr_group_to_attrs_labels(version, expected):
 @pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
 def test_ome_zarr_group_to_attrs_plate_and_well_not_implemented(child_type, version):
     group = OmeZarrGroup(children=(ChildRef(child_type, FileRef("child")),))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        with pytest.raises(NotImplementedError, match="Writing plate and well metadata is not supported yet"):
-            group.to_attrs(version)
+    with pytest.raises(NotImplementedError, match="Writing plate and well metadata is not supported yet"):
+        group.to_attrs(version)
 
 
 @pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
@@ -102,9 +97,7 @@ def test_ome_zarr_group_to_attrs_multiple_multiscales_with_override(version, exp
     multiscale_0 = _mock_ms_with_to_ome_zarr({"id": 0})
     multiscale_1 = _mock_ms_with_to_ome_zarr({"id": 1})
     group = OmeZarrGroup(multiscales=(multiscale_0, multiscale_1))
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        result = group.to_attrs(version, override_multi_multiscales=True)
+    result = group.to_attrs(version, override_multi_multiscales=True)
     assert result == expected
     multiscale_0.to_ome_zarr.assert_called_once_with(version=version)
     multiscale_1.to_ome_zarr.assert_called_once_with(version=version)
@@ -143,9 +136,3 @@ def test_ome_zarr_group_to_attrs_0_5_wraps_metadata_in_ome_and_adds_group_versio
     multiscale = _mock_ms_with_to_ome_zarr({"datasets": []})
     result = OmeZarrGroup(multiscales=(multiscale,)).to_attrs("0.5")
     assert result == {"ome": {"version": "0.5", "multiscales": [{"datasets": []}]}}
-
-
-def test_ome_zarr_group_to_attrs_empty_0_6_does_not_warn():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        assert OmeZarrGroup().to_attrs("0.6") == {}

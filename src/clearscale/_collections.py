@@ -4,7 +4,7 @@ from enum import Enum
 from pathlib import PurePosixPath
 from typing import Any, Dict, List, Literal, Mapping, Optional, Tuple, Union
 import copy
-import warnings
+import logging
 
 from clearscale._multiscale import Multiscale
 from clearscale._scene import Scene
@@ -16,6 +16,8 @@ from clearscale._services.ome_zarr import (
     InvalidObject,
 )
 from clearscale.types import ZarrGroup, ShapeSource
+
+logger = logging.getLogger(__name__)
 
 
 class GroupKind(str, Enum):
@@ -375,10 +377,9 @@ class OmeZarrGroup:
         if isinstance(unique_omero, Omero):
             multiscale_group_attrs["omero"] = unique_omero.to_ome_zarr()
         elif unique_omero is not None:
-            warnings.warn(
+            logger.debug(
                 "This group's Multiscales carry conflicting `.ome.omero` metadata. "
-                "Only one Multiscale should set it, or all of them must agree. Continuing without writing omero.",
-                UserWarning,
+                "Only one Multiscale should set it, or all of them must agree. Continuing without writing omero."
             )
         if isinstance(unique_image_label, ImageLabel):
             multiscale_group_attrs["image-label"] = unique_image_label.to_ome_zarr(version=version)

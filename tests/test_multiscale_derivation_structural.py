@@ -97,8 +97,7 @@ def test_as_derived_from_cannot_carry_over_axis_dropping_system_when_derivation_
     by, derived_axes = DERIVED_BY_VARIANTS[derivation_variant]
     derived_ms = _multiscale(derived_axes)
 
-    with pytest.warns(UserWarning, match="Cannot carry over"):
-        result = derived_ms.as_derived_from(source_ms, by=by)
+    result = derived_ms.as_derived_from(source_ms, by=by)
     assert system_name not in result.coordinate_systems
 
 

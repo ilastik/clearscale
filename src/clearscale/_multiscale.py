@@ -1,7 +1,7 @@
 import copy
 import math
 import string
-import warnings
+import logging
 from abc import ABC
 from collections import OrderedDict, defaultdict
 from collections.abc import Mapping as ABCMapping
@@ -81,6 +81,7 @@ ValueType = TypeVar("ValueType", Shape, Factor, "Scale")
 AxisValuesType = TypeVar("AxisValuesType", Shape, Factor)
 _ScaleMappingSelf = TypeVar("_ScaleMappingSelf", bound="_ScaleMapping[Any]")
 _ScaledAxisValuesSelf = TypeVar("_ScaledAxisValuesSelf", bound="_ScaledAxisValues[Any]")
+logger = logging.getLogger(__name__)
 DEFAULT_NAME_PATTERN = "s{}"
 
 OmeZarrAxesParam = Union[Literal["infer"], OmeZarrAxes, Mapping[AxisKeyT, OmeZarrAxis]]
@@ -1802,7 +1803,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
             voxel_offset = scale_dict.get("voxel_offset", [0, 0, 0])
             if len(voxel_offset) != 3:
-                warnings.warn(f"Scale {scale_key!r} has invalid voxel_offset. Using [0, 0, 0].")
+                logger.debug(f"Scale {scale_key!r} has invalid voxel_offset. Using [0, 0, 0].")
                 voxel_offset = [0, 0, 0]
             offset = PixelOffset(zip(axis_keys, [0] + list(reversed(voxel_offset))))
             translation = offset.to_physical(pixel_size)
@@ -2068,7 +2069,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     # `self <--deriv-- other --t--> satellite`
                     # Can only be resolved if drops in deriv and t are a subset of each other. Edge case, skip.
                     if relation:
-                        warnings.warn(
+                        logger.debug(
                             f"Cannot carry over a connection to {satellite.name!r}: Both `by` and the transformation "
                             "from the source to it lose information (e.g. by dropping axes)."
                         )
