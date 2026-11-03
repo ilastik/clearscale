@@ -33,7 +33,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         )
         ms_by_path = {"a": a, "b": b}
 
-        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=ms_by_path)
+        result = scene.with_multiscale_paths(ms_by_path).to_ome_zarr(version="0.6")
 
         names = {s["name"] for s in result["coordinateSystems"]}
         assert names == {"world", "mm"}
@@ -57,7 +57,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         )
         paths = {"a.zarr": tile_a, "b.zarr": tile_b}
 
-        result = scene.to_ome_zarr(version="0.6", multiscales_by_path=paths)
+        result = scene.with_multiscale_paths(paths).to_ome_zarr(version="0.6")
 
         assert [s["name"] for s in result["coordinateSystems"]] == ["stage"]
         assert [(t["type"], t["input"]["path"]) for t in result["coordinateTransformations"]] == [

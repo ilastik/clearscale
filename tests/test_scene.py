@@ -356,6 +356,24 @@ class TestMultiscalePaths:
         assert moved.multiscale_paths == {"renamed": ms}
         assert moved.is_fully_resolved
 
+    def test_to_ome_zarr_requires_paths_for_all_graph_multiscales(self):
+        scene, tile_0, _tile_1 = self._two_tile_scene()
+
+        with pytest.raises(ValueError, match="no path is known for 2 of its Multiscales"):
+            scene.to_ome_zarr(version="0.6")
+
+        scene = scene.with_multiscale_paths({"tile_0": tile_0})
+
+        with pytest.raises(ValueError, match="no path is known for 1 of its Multiscales"):
+            scene.to_ome_zarr(version="0.6")
+
+    def test_to_ome_zarr_does_not_require_paths_for_coordinate_systems(self):
+        world = CoordinateSystem.fromkeys("yx")._as_ref("world")
+        other = CoordinateSystem.fromkeys("yx")._as_ref("other")
+        scene = Scene._from_graph_edges([(world, TranslationTransform((1, 1)), other)])
+
+        assert scene.to_ome_zarr(version="0.6")["coordinateTransformations"]
+
 
 class TestMultiscalesProperty:
     def test_lists_multiscales_in_order_of_appearance(self):
