@@ -158,3 +158,46 @@ def test_transforms_between_with_children_through_axis_changing_child_system():
         drops=(0,), source=multiscale._as_ref_to_intrinsic(), target=multiscale._as_ref("preview")
     )
     assert full_edges == (scene_transform, ported_projection)
+
+
+class TestMultiscalesProperty:
+    def test_lists_multiscales_in_order_of_appearance(self):
+        tiles = [_multiscale(y=2, x=2), _multiscale(y=3, x=3), _multiscale(y=4, x=4)]
+        stage = CoordinateSystem.fromkeys("yx")._as_ref("stage")
+
+        scene = Scene._from_graph_edges([(tile, IdentityTransform(), stage) for tile in tiles])
+
+        assert len(scene.multiscales) == 3
+        assert all(found is tile for found, tile in zip(scene.multiscales, tiles))
+
+    def test_lists_multiscales_that_look_alike_separately(self):
+        tiles = [_multiscale(y=2, x=2), _multiscale(y=2, x=2)]
+        assert tiles[0] == tiles[1]
+        stage = CoordinateSystem.fromkeys("yx")._as_ref("stage")
+
+        scene = Scene._from_graph_edges([(tile, IdentityTransform(), stage) for tile in tiles])
+
+        assert len(scene.multiscales) == 2
+
+    def test_does_not_duplicate_multiply_referenced_instances(self):
+        volume = _multiscale(z=2, y=3, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
+        stage = CoordinateSystem.fromkeys("yx")._as_ref("stage")
+
+        scene = Scene._from_graph_edges(
+            [
+                (volume._as_ref_to_intrinsic(), ProjectAxisTransform(drops=(0,)), stage),
+                (volume._as_ref("preview"), IdentityTransform(), stage),
+            ]
+        )
+
+        assert len(scene.multiscales) == 1
+        assert scene.multiscales[0] is volume
+
+    def test_excludes_unresolved_multiscales(self):
+        tile = _multiscale(y=2, x=2)
+        stage = CoordinateSystem.fromkeys("yx")._as_ref("stage")
+        original = Scene._from_graph_edges([(tile, IdentityTransform(), stage)])
+        read_back = Scene.from_ome_zarr(original.to_ome_zarr(version="0.6", multiscales_by_path={"tile": tile}))
+
+        assert read_back.multiscales == ()
+        assert read_back.with_resolved({"tile": tile}).multiscales == (tile,)

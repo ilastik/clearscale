@@ -1,7 +1,7 @@
 import functools
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, replace
-from typing import Any, Dict, Iterable, Mapping, Union, Tuple, Literal, FrozenSet, TypeGuard
+from typing import Any, Dict, Iterable, Mapping, NamedTuple, Union, Tuple, Literal
 from typing import Optional, List
 
 from clearscale._errors import MismatchingMultiscaleError
@@ -17,7 +17,7 @@ from clearscale._transforms import (
     Transform,
     TransformGraph,
 )
-from clearscale._transforms._base import _is_owner_coordinate_system
+from clearscale._transforms._base import _is_owner_coordinate_system, TransformGraphNode
 
 MultiscalesByPath = Mapping[RelativePath, Multiscale]
 UserFacingCoordinateSystemKey = Union[
@@ -26,7 +26,7 @@ UserFacingCoordinateSystemKey = Union[
     Tuple[Multiscale, CoordinateSystemName],
     Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]],
 ]
-Node = Union[Multiscale, NodeRef[CoordinateSystem]]
+Node = Union[Multiscale, NodeRef]
 
 
 @dataclass(frozen=True)
@@ -63,22 +63,21 @@ class Scene:
         return paths
 
     @functools.cached_property
-    def _resolved_multiscales(self) -> FrozenSet[NodeRef[Multiscale]]:
-        def _is_owner_multiscale(ref: Optional[AnyRef]) -> TypeGuard[NodeRef[Multiscale]]:
-            return isinstance(ref, NodeRef) and isinstance(ref.owner, Multiscale)
-
-        return frozenset(
-            endpoint
-            for t in self._internal_graph.transforms
-            for endpoint in (t.source, t.target)
-            if _is_owner_multiscale(endpoint)
-        )
+    def multiscales(self) -> Tuple[Multiscale, ...]:
+        """The Multiscales this Scene knows, in order of appearance.
+        Paths to additional Multiscales whose metadata has not been loaded yet may be found in `Scene.unresolved_paths`.
+        """
+        multiscales: Dict[int, Multiscale] = {}  # by identity
+        for t in self._internal_graph.transforms:
+            for endpoint in (t.source, t.target):
+                if isinstance(endpoint, NodeRef) and isinstance(endpoint.owner, Multiscale):
+                    multiscales.setdefault(id(endpoint.owner), endpoint.owner)
+        return tuple(multiscales.values())
 
     @functools.cached_property
     def _full_graph(self):
         all_transforms = list(self._internal_graph.transforms)
-        for ms_ref in self._resolved_multiscales:
-            ms = ms_ref.owner
+        for ms in self.multiscales:
             ms_transforms = []
             for child_t in ms._transform_graph.transforms:
                 if not _is_owner_coordinate_system(child_t.source) or not _is_owner_coordinate_system(child_t.target):
@@ -107,7 +106,7 @@ class Scene:
         def node_to_ref(node: Node) -> NodeRef:
             if isinstance(node, Multiscale):
                 ref = node._as_ref_to_intrinsic()
-            elif isinstance(node, NodeRef) and isinstance(node.owner, CoordinateSystem):
+            elif isinstance(node, NodeRef) and isinstance(node.owner, TransformGraphNode):
                 ref = node
             else:
                 raise TypeError(
