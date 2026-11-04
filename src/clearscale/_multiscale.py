@@ -1943,47 +1943,43 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
         )
 
-    def as_derived_from(self, other: "Multiscale", *, by: RelationsParam = None) -> "Multiscale":
+    def as_derived_from(self, other: "Multiscale", *, reached_by: RelationsParam = None) -> "Multiscale":
         """
         Transfer `self` into the spatial context of `other`, carrying over axis properties, coordinate systems and
         serialization convention.
 
-        Optionally specify *how* `self` was derived from `other` using `by=AxisRearrangementTo(...)` or other SpatialRelations.
+        `reached_by` describes how to reach the source `other` as a coordinate system:
+        `self --reached_by--> other`. It does not describe how the image was derived.
+        For changed axes, use e.g. `AxisRearrangementTo(other.axes)`.
+        Axes present only in the source are inserted at coordinate 0. For a slice at z=z0, follow the
+        insertion with `Translation(z=z0, ...)`. For a maximum projection, this plane is a representative position.
+        Affines must be invertible here to carry source axis properties back to the derived image.
 
         The returned Multiscale loses spatial identity with `self` if `other` has different axis metadata (indicating
         that it originates from a different space).
         `other`, and its additional coordinate systems, may be renamed on transfer in case of clashes with existing
         systems in `self`'s context, but otherwise maintain spatial identity.
         """
-        relation = normalize_relations_param(by)
-        source_axes = other.axes
-        target_axes = self.axes
+        relation = normalize_relations_param(reached_by)
+        parent_axes = other.axes
+        self_axes = self.axes
 
         if not relation:
-            if source_axes != target_axes:
+            if parent_axes != self_axes:
                 raise ValueError(
-                    f"Cannot transfer coordinate systems from source with axes {source_axes!r} to Multiscale "
-                    f"with axes {target_axes!r}. Use `by` to specify how the new axes were obtained. "
-                    f"E.g. `ProjectionTo(result_axes)` for inserted or dropped axes, `PermutationTo(result_axes)` "
-                    f"for reordering, or a list of both."
+                    f"Cannot transfer coordinate systems from source with axes {parent_axes!r} to Multiscale with axes {self_axes!r}. Use `reached_by=AxisRearrangementTo(source.axes)` to reach the source axes."
                 )
-        else:
-            derived_axes = relation.target_axes(source_axes)
-            if derived_axes != target_axes:
-                raise ValueError(
-                    f"Incompatible derivation: Provided relation chain would produce axes {derived_axes!r} "
-                    f"from {source_axes!r}, but this Multiscale has {target_axes!r}. {by=!r}"
-                )
-
+        elif relation.target_axes(self_axes) != parent_axes:
+            raise ValueError(
+                f"Incompatible derivation: Provided relation chain would produce axes {relation.target_axes(self_axes)!r} from {self_axes!r}, but the source has {parent_axes!r}. {reached_by=!r}"
+            )
         self._require_matching_units_or_affine_relation(
-            other.ome_zarr_axes,
-            self.ome_zarr_axes,
-            relation,
-            source_label="`other`",
-            target_label="this Multiscale",
+            self.ome_zarr_axes, other.ome_zarr_axes, relation, source_label="this Multiscale", target_label="`other`"
         )
-        dependencies = relation._axis_dependencies(source_axes) if relation else tuple((a,) for a in source_axes)
-        carried_from_other = other.ome_zarr_axes.with_axes_carried_over(target_axes, dependencies)
+        dependencies = (
+            self._reverse_axis_dependencies(relation, self_axes) if relation else tuple((a,) for a in parent_axes)
+        )
+        carried_from_other = other.ome_zarr_axes.with_axes_carried_over(self_axes, dependencies)
         merged_ome_axes = self.ome_zarr_axes.with_blanks_filled_from(carried_from_other)
         if merged_ome_axes == self.ome_zarr_axes:
             intrinsic_ref = self._intrinsic_ref
@@ -2027,8 +2023,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         other_unique = self._find_or_make_unique_ref(
             other._intrinsic_ref.owner, other._intrinsic_ref.name, existing_refs
         )
-        derivation = (relation_to_transform_canonic(relation, source_axes) if relation else IdentityTransform()).bound(
-            source=other_unique, target=intrinsic_ref
+        reached_by_t = (relation_to_transform_canonic(relation, self_axes) if relation else IdentityTransform()).bound(
+            source=intrinsic_ref, target=other_unique
         )
         existing_refs.append(other_unique)
 
@@ -2041,44 +2037,41 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 if {satellite, other._intrinsic_ref} == {t.source, t.target}
             )
             for t in to_port:
-                # derivation is natively `self <--deriv-- other`
-                if t.target is satellite and derivation.is_invertible:
-                    # `self <--deriv--(>) other --t--> satellite` becomes `self --(deriv^-1)--t--> satellite` (preferred final direction)
+                # Compose the connection derived -> source -> satellite whenever its direction permits.
+                if t.target is satellite:
+                    # `self --reached_by_t--> other --t--> satellite` (preferred final direction)
                     edge = (
-                        TransformSequence((derivation.inverted(), t))
+                        TransformSequence((reached_by_t, t))
                         .canonicalized()
                         .bound(source=intrinsic_ref, target=resolved_ref)
                     )
-                elif t.source is satellite:
-                    # `self <--deriv-- other <--t-- satellite` becomes `self <--deriv--t-- satellite` (prefer not inverting)
-                    edge = (
-                        TransformSequence((t, derivation))
-                        .canonicalized()
-                        .bound(source=resolved_ref, target=intrinsic_ref)
-                    )
                 elif t.is_invertible:
-                    # `self <--deriv-- other (<)--t--> satellite` becomes `self <--deriv--(t^-1)-- satellite` (last resort)
+                    # `self --reached_by_t--> other <--t--(>) satellite` becomes `self --reached_by_t--t^-1--> satellite`
                     edge = (
-                        TransformSequence((t.inverted(), derivation))
+                        TransformSequence((reached_by_t, t.inverted()))
+                        .canonicalized()
+                        .bound(source=intrinsic_ref, target=resolved_ref)
+                    )
+                elif reached_by_t.is_invertible:
+                    # `self (<)--reached_by_t--> other <--t-- satellite` becomes `self <--reached_by_t^-1--t-- satellite`
+                    edge = (
+                        TransformSequence((t, reached_by_t.inverted()))
                         .canonicalized()
                         .bound(source=resolved_ref, target=intrinsic_ref)
                     )
                 else:
-                    # `self <--deriv-- other --t--> satellite`
-                    # Can only be resolved if drops in deriv and t are a subset of each other. Edge case, skip.
-                    if relation:
-                        logger.debug(
-                            f"Cannot carry over a connection to {satellite.name!r}: Both `by` and the transformation "
-                            "from the source to it lose information (e.g. by dropping axes)."
-                        )
+                    # `self --reached_by_t--> other <--t-- satellite`; anything we do here would be an approximation
+                    logger.debug(
+                        f"Cannot carry over a connection to {satellite.name!r}: Neither the source connection nor `reached_by` can be inverted."
+                    )
                     continue
 
                 if edge not in transform_graph.transforms + tuple(to_merge_list):
                     existing_refs.append(resolved_ref)
                     to_merge_list.append(edge)
 
-        if relation and derivation not in transform_graph.transforms + tuple(to_merge_list):
-            to_merge_list.append(derivation)
+        if relation and reached_by_t not in transform_graph.transforms + tuple(to_merge_list):
+            to_merge_list.append(reached_by_t)
         if not to_merge_list and unchanged_t_scale and intrinsic_ref == self._intrinsic_ref:
             return self
         to_merge = tuple(to_merge_list)
@@ -2135,7 +2128,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     def relation_to_coordinate_system(self, name: str) -> Optional[SpatialRelation]:
         """
         The spatial relation that describes how the coordinate system `name` is reached from this Multiscale's own
-        space: `self --relation--> name`. The counterpart of `with_coordinate_system(name, reached_by=relation)`.
+        space: `self --relation--> name`.
+        Use to retrieve the `reached_by` relation in `with_coordinate_system(name, reached_by=relation)` or
+        `as_derived_from(other, reached_by=relation)`.
 
         Returns None if `name` is the same space as this Multiscale's own (only under another name).
         Otherwise returns one SpatialRelation, or a SpatialRelationSequence of them. The result is in
@@ -2153,8 +2148,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     def relation_from_coordinate_system(self, name: str) -> Optional[SpatialRelation]:
         """
         The spatial relation that describes how this Multiscale is reached from the coordinate system `name`:
-        `name --relation--> self`. The counterpart of `as_derived_from(other, by=relation)`, where `name` is the
-        coordinate system that `other` contributed.
+        `name --relation--> self`.
+        Should only be necessary for metadata written by other tools (clearscale methods write self-->name).
 
         Connections that cannot be retrieved with `relation_to_coordinate_system` because they lose information in
         the `name -> self` direction, may be retrievable here.
@@ -2322,6 +2317,40 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _transform_graph=self._transform_graph,
             _intrinsic_ref=self._intrinsic_ref,
             _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
+        )
+
+    @staticmethod
+    def _reverse_axis_dependencies(relation: SpatialRelation, source_axes: OrderedAxes) -> AxisKeyDependencies:
+        """Dependencies for property flow against a relation; structural inserts and drops exchange roles.
+        Helper for as_derived_from. If the same logic is needed elsewhere, move to
+        SpatialRelation._reverse_axis_dependencies(source_axes) with implementation split as described in comments."""
+        source_axes = tuple(source_axes)
+        if isinstance(relation, Affine):
+            # Affine._reverse_axis_dependencies(source_axes)
+            try:
+                return relation.inverted()._axis_dependencies(source_axes)
+            except ValueError as e:
+                raise ValueError(f"Affine in `as_derived_from` must be invertible to carry axis properties: {e}") from e
+        if isinstance(relation, SpatialRelationSequence):
+            # SpatialRelationSequence._reverse_axis_dependencies(source_axes).
+            # Essentially the same folding as SpatialRelationSequence._axis_dependencies
+            axes = [source_axes]
+            for step in relation:
+                axes.append(step.target_axes(axes[-1]))
+            dependencies: AxisKeyDependencies = tuple((axis,) for axis in axes[-1])
+            for index in reversed(range(len(relation))):
+                by_axis = dict(zip(axes[index + 1], dependencies))
+                reverse = Multiscale._reverse_axis_dependencies(relation[index], axes[index])
+                dependencies = tuple(
+                    tuple(axis for axis in axes[-1] if any(axis in by_axis[a] for a in deps)) for deps in reverse
+                )
+            return dependencies
+        # Default case that covers Translation and structural relations - transpose forward dependencies
+        # (SpatialRelation._reverse_axis_dependencies(source_axes))
+        forward = relation._axis_dependencies(source_axes)
+        target_axes = relation.target_axes(source_axes)
+        return tuple(
+            tuple(target for target, deps in zip(target_axes, forward) if source in deps) for source in source_axes
         )
 
     @staticmethod

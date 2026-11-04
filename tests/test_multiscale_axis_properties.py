@@ -665,7 +665,7 @@ class TestMultiscaleTransfer:
             }
         )
 
-        result = child.as_derived_from(parent, by=Affine.from_factor({"x": 1000.0, "y": 1.0, "z": 1.0}))
+        result = child.as_derived_from(parent, reached_by=Affine.from_factor({"x": 1000.0, "y": 1.0, "z": 1.0}))
 
         assert result.ome_zarr_axes["x"].type == "channel"
         assert result.ome_zarr_axes["x"].unit == "nanometer"
@@ -692,7 +692,7 @@ class TestMultiscaleTransfer:
             }
         )
 
-        result = child.as_derived_from(parent, by=AxisRearrangementTo(("x", "y")))
+        result = child.as_derived_from(parent, reached_by=AxisRearrangementTo("cxy"))
 
         assert set(result.ome_zarr_axes) == {"x", "y"}
 
@@ -719,7 +719,7 @@ class TestMultiscaleTransfer:
             }
         )
 
-        result = child.as_derived_from(parent, by=AxisRearrangementTo(("c", "z", "y", "x")))
+        result = child.as_derived_from(parent, reached_by=AxisRearrangementTo("xy"))
 
         assert result.ome_zarr_axes["c"].type == "channel"
         assert result.ome_zarr_axes["x"].type == "space"
@@ -749,7 +749,7 @@ class TestMultiscaleTransfer:
             }
         )
 
-        result = child.as_derived_from(parent, by=AxisRearrangementTo(("c", "z", "x")))
+        result = child.as_derived_from(parent, reached_by=AxisRearrangementTo("xy"))
 
         assert result.ome_zarr_axes["x"].unit == "micrometer"
         assert "y" not in result.ome_zarr_axes
@@ -802,10 +802,37 @@ class TestMultiscaleTransfer:
         )
 
         # The result's c-axis can now be traced as being a different c-axis than the parent's
-        result = child.as_derived_from(parent, by=[ProjectionTo(("y", "x")), ProjectionTo(("c", "y", "x"))])
+        result = child.as_derived_from(parent, reached_by=[ProjectionTo(("y", "x")), ProjectionTo(("c", "y", "x"))])
 
         assert result.ome_zarr_axes["c"].type == "label"
         assert result.ome_zarr_axes["x"].type == "space"
+
+    def test_as_derived_from_carries_properties_along_inverse_affine_dependencies(self):
+        source = Multiscale.from_single(
+            Scale(
+                Shape(z=4, y=4, x=4),
+                ome_zarr_axes={
+                    "z": ome_zarr.Axis(type="space", long_name="shared"),
+                    "y": ome_zarr.Axis(type="space", long_name="shared"),
+                    "x": ome_zarr.Axis(type="space", long_name="different"),
+                },
+            )
+        )
+        derived = Multiscale.from_single(Scale(Shape(z=4, y=4, x=4)))
+        reached_by = Affine.from_array(((1, 1, 0, 0), (0, 1, 1, 0), (0, 0, 1, 0)), "zyx")
+        assert reached_by.inverted()._axis_dependencies("zyx") == (("z", "y", "x"), ("y", "x"), ("x",))
+        # Only x can inherit long_name because the others' dependencies all mix different values
+        result = derived.as_derived_from(source, reached_by=reached_by)
+        assert result.ome_zarr_axes["z"].long_name is None
+        assert result.ome_zarr_axes["y"].long_name is None
+        assert result.ome_zarr_axes["x"].long_name == "different"
+
+    def test_singular_affine_can_add_a_system_but_cannot_carry_derivation_properties(self):
+        source = Multiscale.from_single(Scale(Shape(y=4, x=4)))
+        singular = Affine.from_array(((1, 2, 0), (2, 4, 0)), "yx")
+        assert source.with_coordinate_system("singular", reached_by=singular)
+        with pytest.raises(ValueError, match="as_derived_from.*must be invertible.*axis properties"):
+            source.as_derived_from(source, reached_by=singular)
 
 
 def test_precomputed_axis_types_are_hardcoded():
@@ -1008,12 +1035,12 @@ class TestScaleWithUnitConverted:
         converted_base = original_base.with_unit_converted({"z": "nm"})
         converted_ms = Multiscale.from_single(converted_base, scale_key="s0")
 
-        conversion_relation = Affine.from_unit_conversion(original_ms.unit, converted_ms.unit)
+        conversion_relation = Affine.from_unit_conversion(converted_ms.unit, original_ms.unit)
 
-        derived = converted_ms.as_derived_from(original_ms, by=conversion_relation)
+        derived = converted_ms.as_derived_from(original_ms, reached_by=conversion_relation)
 
         scale = derived.to_ome_zarr(version="0.6")["coordinateTransformations"][0]["scale"]
-        assert scale == [1000.0, 1.0, 1.0]
+        assert scale == [0.001, 1.0, 1.0]
 
 
 class TestUnitSpellings:

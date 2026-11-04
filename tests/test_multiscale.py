@@ -120,7 +120,9 @@ class TestEqAndHash:
         intrinsic system names. On derive with a relation, the intrinsic is transferred,
         but the daughter no longer knows this was an intrinsic system whose name is not as strictly meaningful
         as a coordinate system added through `with_coordinate_system`."""
-        make_ms = lambda: _multiscale().as_derived_from(_multiscale(), by=Affine.from_factor({"y": 0.5, "x": 0.5}))
+        make_ms = lambda: _multiscale().as_derived_from(
+            _multiscale(), reached_by=Affine.from_factor({"y": 0.5, "x": 0.5})
+        )
 
         left = make_ms()
         right = make_ms()
@@ -718,7 +720,7 @@ class TestMultiscaleAsDerivedFrom:
         source_ms = _with_extra_system(_multiscale(), "world")
 
         derived_ms = _multiscale()
-        result = derived_ms.as_derived_from(source_ms, by=Affine.identity(derived_ms.axes))
+        result = derived_ms.as_derived_from(source_ms, reached_by=Affine.identity(derived_ms.axes))
 
         assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
@@ -728,7 +730,7 @@ class TestMultiscaleAsDerivedFrom:
         source_ms = _multiscale()
 
         derived_ms = _multiscale()
-        result = derived_ms.as_derived_from(source_ms, by=Affine.identity(derived_ms.axes))
+        result = derived_ms.as_derived_from(source_ms, reached_by=Affine.identity(derived_ms.axes))
 
         assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
@@ -737,7 +739,7 @@ class TestMultiscaleAsDerivedFrom:
         derived_ms = _with_intrinsic_system_name(_multiscale(), "physical")
         source_ms = _with_intrinsic_system_name(_multiscale(), "physical")
 
-        result = derived_ms.as_derived_from(source_ms, by=Affine.identity(derived_ms.axes))
+        result = derived_ms.as_derived_from(source_ms, reached_by=Affine.identity(derived_ms.axes))
 
         assert len(result._transform_graph.all_system_refs) == 2
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
@@ -768,17 +770,17 @@ class TestMultiscaleAsDerivedFrom:
         donor_ms = _multiscale("xyz")
 
         with pytest.raises(ValueError, match=re.escape("Relations must be expressed using SpatialRelations")):
-            caller_ms.as_derived_from(donor_ms, by="not a relation")  # type: ignore[arg-type]
+            caller_ms.as_derived_from(donor_ms, reached_by="not a relation")  # type: ignore[arg-type]
 
     def test_rejects_mismatching_derivation(self):
         caller_ms = _multiscale("xyz")
         donor_ms = _multiscale("xyz")
 
         with pytest.raises(ValueError, match="Incompatible axes/order"):
-            caller_ms.as_derived_from(donor_ms, by=Affine.identity("xy"))
+            caller_ms.as_derived_from(donor_ms, reached_by=Affine.identity("xy"))
 
     @pytest.mark.parametrize(
-        "derived_axes, relations, expected_derivation_transform",
+        "derived_axes, relations, expected_transform_to_source",
         [
             pytest.param("zyx", [], IdentityTransform(), id="empty_list"),
             pytest.param("zyx", [Affine.identity("zyx")], IdentityTransform(), id="single_entry_identity"),
@@ -804,21 +806,21 @@ class TestMultiscaleAsDerivedFrom:
             ),
             pytest.param(
                 "tyxz",
-                [ProjectionTo("tzyx"), PermutationTo("tyxz")],
-                TransformSequence((ProjectAxisTransform(inserts=(0,)), MapAxisTransform(map_axis=(0, 2, 3, 1)))),
+                [ProjectionTo("yxz"), PermutationTo("zyx")],
+                TransformSequence((ProjectAxisTransform(drops=(0,)), MapAxisTransform(map_axis=(2, 0, 1)))),
                 id="insertion_permutation",
             ),
         ],
     )
     def test_accepts_list_of_relations(
-        self, derived_axes: str, relations: List[SpatialRelation], expected_derivation_transform: Transform
+        self, derived_axes: str, relations: List[SpatialRelation], expected_transform_to_source: Transform
     ):
         source_axes = "zyx"
         # source_ms -> world is IdentityTransform
         source_ms = _with_extra_system(_multiscale(source_axes), "world")
         derived_ms = _multiscale(derived_axes)
 
-        result = derived_ms.as_derived_from(source_ms, by=relations)
+        result = derived_ms.as_derived_from(source_ms, reached_by=relations)
 
         assert "world" in result.coordinate_systems
         world_refs = tuple(ref for ref in source_ms._transform_graph.all_system_refs if ref.name == "world")
@@ -826,26 +828,19 @@ class TestMultiscaleAsDerivedFrom:
         world = next(iter(world_refs))
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
         assert world in result._transform_graph.all_system_refs
-        # We store `source_ms --derivation_t--> derived_ms` only if relations has contents
+        # We store `derived_ms --reached_by_t--> source_ms` only if relations has contents
         expected_n_transforms = 1 if not relations else 2
         assert len(result._transform_graph.transforms) == expected_n_transforms
         if relations:
-            expected_derived_to_source = expected_derivation_transform.bound(
-                source=source_ms._intrinsic_ref, target=derived_ms._intrinsic_ref
+            expected_derived_to_source = expected_transform_to_source.bound(
+                source=derived_ms._intrinsic_ref, target=source_ms._intrinsic_ref
             )
             assert (
                 expected_derived_to_source in result._transform_graph.transforms
             ), f"expected {source_ms._intrinsic_ref.name}-->{derived_ms._intrinsic_ref.name}"
-        # Maybe slightly counterintuitive, but the expected
-        # `derived_ms -> world` is the derivation *inverted*:
-        # The derivation tells us how derived_ms was made from source_ms:
-        # `source_ms --derivation_t--> derived_ms`
-        # but source_ms has `source_ms -(identity)-> world`, hence
-        # `derived_ms -derivation_t.inverted-> source_ms -(identity)-> world`
-        # (with identity dropping out by composition).
-        # At least as long as the derivation itself is invertible.
+        # Source -> world is identity, so derived -> world is just reached_by
         expected_derived_to_world = (
-            TransformSequence((expected_derivation_transform.inverted(),))
+            TransformSequence((expected_transform_to_source,))
             .canonicalized()
             .bound(source=derived_ms._intrinsic_ref, target=world)
         )
@@ -856,25 +851,25 @@ class TestMultiscaleAsDerivedFrom:
     def test_relation_list_order_matters(self):
         source_ms = _multiscale("zyx")
         derived_ms = _multiscale("tyxz")
-        # Same two relations, reversed: PermutationTo can't apply first, source has no "t" yet.
-        relations = [PermutationTo("tyxz"), ProjectionTo("tzyx")]
+        # Same two relations, reversed: PermutationTo can't apply first, derived still has "t"
+        relations = [PermutationTo("zyx"), ProjectionTo("yxz")]
 
         with pytest.raises(ValueError, match="PermutationTo cannot insert or drop axes, only reorder"):
-            derived_ms.as_derived_from(source_ms, by=relations)
+            derived_ms.as_derived_from(source_ms, reached_by=relations)
 
     def test_rejects_mismatching_relation_list(self):
         caller_ms = _multiscale("tyxz")
         donor_ms = _multiscale("zyx")
-        # Composed chain lands on tzyx, not caller's tyxz.
-        relations = [ProjectionTo("tzyx"), PermutationTo("tzyx")]
+        # Composed chain lands on tzyx, not donor's zyx.
+        relations = [PermutationTo("tzyx"), ProjectionTo("tzyx")]
 
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "Provided relation chain would produce axes ('t', 'z', 'y', 'x') from ('z', 'y', 'x'), but this Multiscale has ('t', 'y', 'x', 'z')"
+                "Provided relation chain would produce axes ('t', 'z', 'y', 'x') from ('t', 'y', 'x', 'z'), but the source has ('z', 'y', 'x')"
             ),
         ):
-            caller_ms.as_derived_from(donor_ms, by=relations)
+            caller_ms.as_derived_from(donor_ms, reached_by=relations)
 
 
 class TestMultiscaleWithCoordinateSystem:
@@ -1108,8 +1103,8 @@ class TestPropertyCarryover:
         lambda ms: ms.with_keys("level{}"),
         lambda ms: ms.drop_before("s1"),
         lambda ms: ms.with_coordinate_system("physical"),
-        # `by` to avoid early-return, skipping the carryover (although the stated affine is semantically wrong)
-        lambda ms: ms.as_derived_from(_multiscale("yx", 64), by=Affine.from_factor({"y": 2.0, "x": 2.0})),
+        # `reached_by` to avoid early-return, skipping the carryover (although the stated affine is semantically wrong)
+        lambda ms: ms.as_derived_from(_multiscale("yx", 64), reached_by=Affine.from_factor({"y": 0.5, "x": 0.5})),
     ]
     expected_keys = [
         ["s0", "s2"],
@@ -1347,7 +1342,7 @@ class TestMultiscaleAsDerivedFromUnitValidation:
         derived = _multiscale_with_unit("micrometer")
         source = _multiscale_with_unit("nanometer")
 
-        result = derived.as_derived_from(source, by=Affine.from_factor({"y": 1000.0, "x": 1000.0}))
+        result = derived.as_derived_from(source, reached_by=Affine.from_factor({"y": 0.001, "x": 0.001}))
 
         assert result.unit == Unit(y="micrometer", x="micrometer")
 
@@ -1356,7 +1351,7 @@ class TestMultiscaleAsDerivedFromUnitValidation:
         source = _multiscale_with_unit("nanometer")
 
         with pytest.raises(
-            ValueError, match=r"units.*differ.*'x': 'nanometer' vs 'micrometer'.*State the conversion.*Affine"
+            ValueError, match=r"units.*differ.*'x': 'micrometer' vs 'nanometer'.*State the conversion.*Affine"
         ):
             derived.as_derived_from(source)
 
@@ -1365,4 +1360,4 @@ class TestMultiscaleAsDerivedFromUnitValidation:
         source = _multiscale_with_unit("nanometer")
 
         with pytest.raises(ValueError, match=r"no relation converts between them.*State the conversion.*Affine"):
-            derived.as_derived_from(source, by=Translation(y=1.0, x=1.0))
+            derived.as_derived_from(source, reached_by=Translation(y=1.0, x=1.0))

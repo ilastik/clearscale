@@ -43,12 +43,9 @@ def _cube(axes: str) -> Multiscale:
 
 
 def _plane(axes: str = "yx") -> Multiscale:
-    return Multiscale.from_single(
-        Scale(Shape({a: 8 for a in axes}), ome_zarr_axes={a: Axis(type="space") for a in axes})
-    )
+    return Multiscale.from_single(Scale(Shape({a: 8 for a in axes})))
 
 
-# Values are exactly representable, so that factors survive 1 / (1 / f) and round trips compare equal
 @pytest.mark.parametrize(
     "relation",
     [
@@ -94,42 +91,42 @@ def test_with_coordinate_system_reached_by_non_canonical_sequence_returns_canoni
     [
         (scaled(z=1, y=2, x=2), "zyx"),
         (Translation(z=0.0, y=4.0, x=8.0), "zyx"),
-        (ProjectionTo("yx"), "yx"),
-        (ProjectionTo("cyx"), "cyx"),
-        (AxisRearrangementTo("xy"), "xy"),
-        (PermutationTo("xyz"), "xyz"),
-        (SpatialRelationSequence((scaled(z=1, y=2, x=2), ProjectionTo("yx"))), "yx"),
-        (AxisRenaming(z="Z", y="Y", x="X"), "ZYX"),
+        (ProjectionTo("zyx"), "yx"),
+        (ProjectionTo("zyx"), "cyx"),
+        (AxisRearrangementTo("zyx"), "xy"),
+        (PermutationTo("zyx"), "xyz"),
+        (SpatialRelationSequence((ProjectionTo("zyx"), scaled(z=1, y=2, x=2))), "yx"),
+        (AxisRenaming(Z="z", Y="y", X="x"), "ZYX"),
     ],
     ids=repr,
 )
-def test_relation_from_coordinate_system_inverts_as_derived_from(relation, derived_axes):
+def test_relation_to_coordinate_system_inverts_as_derived_from(relation, derived_axes):
     volume = _volume()
     cube = _cube(derived_axes)
-    derived_ms = cube.as_derived_from(volume, by=relation)
+    derived_ms = cube.as_derived_from(volume, reached_by=relation)
     (source_name,) = derived_ms.coordinate_systems
-    retrieved = derived_ms.relation_from_coordinate_system(source_name)
+    retrieved = derived_ms.relation_to_coordinate_system(source_name)
     assert retrieved is not None
-    assert retrieved.target_axes(volume.axes) == derived_ms.axes
-    rebuilt = cube.as_derived_from(volume, by=retrieved)
+    assert retrieved.target_axes(derived_ms.axes) == volume.axes
+    rebuilt = cube.as_derived_from(volume, reached_by=retrieved)
     assert rebuilt == derived_ms
 
 
-def test_invertible_derivation_has_the_inverse_relation_in_the_other_direction():
+def test_invertible_derivation_is_retrievable_in_both_directions_when_invertible():
     volume = _volume()
-    derived = _cube("zyx").as_derived_from(volume, by=scaled(z=1, y=2, x=2))
+    derived = _cube("zyx").as_derived_from(volume, reached_by=scaled(z=1, y=2, x=2))
     (name,) = derived.coordinate_systems
-    assert derived.relation_from_coordinate_system(name) == scaled(z=1.0, y=2.0, x=2.0)
-    assert derived.relation_to_coordinate_system(name) == scaled(z=1.0, y=0.5, x=0.5)
+    assert derived.relation_to_coordinate_system(name) == scaled(z=1.0, y=2.0, x=2.0)
+    assert derived.relation_from_coordinate_system(name) == scaled(z=1.0, y=0.5, x=0.5)
 
 
-def test_derivation_that_drops_axes_has_a_relation_from_but_none_to_the_source():
+def test_derivation_that_drops_axes_only_has_the_to_direction():
     volume = _volume()
-    derived = _plane("yx").as_derived_from(volume, by=ProjectionTo("yx"))
+    derived = _plane("tzyx").as_derived_from(volume, reached_by=ProjectionTo("zyx"))
     (name,) = derived.coordinate_systems
-    assert derived.relation_from_coordinate_system(name) == ProjectionTo("yx")
+    assert derived.relation_to_coordinate_system(name) == ProjectionTo("zyx")
     with pytest.raises(CannotConvertToSpatialRelationError, match="cannot be inverted"):
-        derived.relation_to_coordinate_system(name)
+        derived.relation_from_coordinate_system(name)
 
 
 def test_with_coordinate_system_is_retrievable_in_both_directions_when_invertible():
@@ -204,27 +201,21 @@ def test_legacy_global_transforms_are_retrievable_through_their_synthetic_system
     )
 
 
-def test_system_carried_over_a_dropping_derivation_is_retrievable_from_but_not_to():
-    # The example in docs/space.md
-    source = Multiscale.from_single(
-        Scale(Shape(z=40, y=512, x=512), PixelSize(z=2.0, y=0.5, x=0.5), Unit(z="um", y="um", x="um"))
-    ).with_coordinate_system("stage", reached_by=Translation(z=100.0, y=250.0, x=250.0).inverted())
-    projection = Multiscale.from_single(
-        Scale(Shape(y=512, x=512), PixelSize(y=0.5, x=0.5), Unit(y="um", x="um")), scale_key="mip"
-    )
-    result = projection.as_derived_from(source, by=ProjectionTo("yx"))
-    assert "stage" in result.coordinate_systems
-    assert result.relation_from_coordinate_system("stage") == SpatialRelationSequence(
-        (ProjectionTo("yx"), Translation(y=250.0, x=250.0))
+def test_system_carried_over_a_dropping_derivation_is_retrievable_to_but_not_from():
+    source_zyx = _volume().with_coordinate_system("stage", reached_by=Translation(z=100.0, y=250.0, x=250.0))
+    result_tzyx = _plane("tzyx").as_derived_from(source_zyx, reached_by=ProjectionTo(source_zyx.axes))
+    assert "stage" in result_tzyx.coordinate_systems
+    assert result_tzyx.relation_to_coordinate_system("stage") == SpatialRelationSequence(
+        (ProjectionTo("zyx"), Translation(z=100.0, y=250.0, x=250.0))
     )
     with pytest.raises(CannotConvertToSpatialRelationError, match="cannot be inverted"):
-        result.relation_to_coordinate_system("stage")
+        result_tzyx.relation_from_coordinate_system("stage")
 
 
 def test_system_carried_over_an_invertible_derivation_is_retrievable_in_both_directions():
-    source = _volume().with_coordinate_system("stage", reached_by=Translation(z=100.0, y=250.0, x=250.0).inverted())
-    derived = _cube("zyx").as_derived_from(source, by=scaled(z=1, y=2, x=2))
+    source = _volume().with_coordinate_system("stage", reached_by=Translation(z=7.0, y=250.0, x=250.0))
+    derived = _cube("zyx").as_derived_from(source, reached_by=scaled(z=1, y=2, x=2))
     to_stage = derived.relation_to_coordinate_system("stage")
     from_stage = derived.relation_from_coordinate_system("stage")
-    assert to_stage == SpatialRelationSequence((scaled(z=1.0, y=0.5, x=0.5), Translation(z=-100.0, y=-250.0, x=-250.0)))
-    assert from_stage == SpatialRelationSequence((scaled(z=1.0, y=2.0, x=2.0), Translation(z=100.0, y=125.0, x=125.0)))
+    assert to_stage == SpatialRelationSequence((scaled(z=1.0, y=2.0, x=2.0), Translation(z=7.0, y=250.0, x=250.0)))
+    assert from_stage == SpatialRelationSequence((scaled(z=1.0, y=0.5, x=0.5), Translation(z=-7.0, y=-125.0, x=-125.0)))

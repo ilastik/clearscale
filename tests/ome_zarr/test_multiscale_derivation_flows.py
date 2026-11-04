@@ -31,7 +31,7 @@ def test_full_flow_carries_axis_insertion_relation_into_legacy_output():
     assert source._legacy_convention_global_t_scale is None
 
     derived = Multiscale({key: source[key].with_axes("tczyx") for key in source.keys()})
-    derived = derived.as_derived_from(source, by=ProjectionTo(derived.axes))
+    derived = derived.as_derived_from(source, reached_by=ProjectionTo(source.axes))
 
     result = derived.to_ome_zarr(version="0.4")
 
@@ -55,7 +55,7 @@ def test_full_flow_carries_axis_drop_relation_into_legacy_output():
 
     # Simulate selecting one channel and then dropping the c-axis
     derived = Multiscale({key: source[key].with_axes("zyx") for key in source.keys()})
-    derived = derived.as_derived_from(source, by=ProjectionTo(derived.axes))
+    derived = derived.as_derived_from(source, reached_by=ProjectionTo(source.axes))
 
     result = derived.to_ome_zarr(version="0.4")
 
@@ -78,8 +78,8 @@ def test_full_flow_carries_combined_projection_and_permutation_relations_into_le
 
     # Derived Multiscale: time dropped, channel inserted
     derived = Multiscale({key: source[key].with_axes("czyx") for key in source.keys()})
-    relations = [ProjectionTo("cxyz"), PermutationTo("czyx")]
-    derived = derived.as_derived_from(source, by=relations)
+    relations = [PermutationTo("cxyz"), ProjectionTo("txyz")]
+    derived = derived.as_derived_from(source, reached_by=relations)
 
     result = derived.to_ome_zarr(version="0.4")
 
@@ -103,7 +103,7 @@ def test_full_flow_carries_axis_reordering_relation_into_legacy_output():
 
     # Reorder axes only
     derived = Multiscale({key: source[key].with_axes("xycz") for key in source.keys()})
-    derived = derived.as_derived_from(source, by=PermutationTo(derived.axes))
+    derived = derived.as_derived_from(source, reached_by=PermutationTo(source.axes))
 
     result = derived.to_ome_zarr(version="0.4")
 
@@ -132,7 +132,7 @@ def test_full_flow_preserves_t_scale_convention_after_axis_insertion():
 
     # Derive a Multiscale that only adds a channel axis
     derived = Multiscale({key: source[key].with_axes("tczyx") for key in source.keys()})
-    derived = derived.as_derived_from(source, by=ProjectionTo(derived.axes))
+    derived = derived.as_derived_from(source, reached_by=ProjectionTo(source.axes))
     assert derived._legacy_convention_global_t_scale == 0.5  # inherited via identity space
 
     result = derived.to_ome_zarr(version="0.4")
@@ -162,7 +162,7 @@ def test_full_flow_carries_axis_insertion_relation_into_generic_global_transform
     assert source._legacy_convention_global_t_scale is None
 
     derived = Multiscale({key: source[key].with_axes("tczyx") for key in source.keys()})
-    derived = derived.as_derived_from(source, by=ProjectionTo(derived.axes))
+    derived = derived.as_derived_from(source, reached_by=ProjectionTo(source.axes))
 
     result = derived.to_ome_zarr(version="0.4")
 

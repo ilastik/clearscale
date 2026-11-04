@@ -63,41 +63,40 @@ SOURCE_VARIANTS = {
 
 DERIVED_BY_VARIANTS = {
     "none": (None, "zyx"),
-    "insert": (ProjectionTo("tczyx"), "tczyx"),
-    "drop": (ProjectionTo("yx"), "yx"),
+    "insert": (ProjectionTo("zyx"), "tczyx"),
+    "drop": (ProjectionTo("zyx"), "yx"),
 }
 
 
 @pytest.mark.parametrize("derivation_variant", DERIVED_BY_VARIANTS.keys())
 @pytest.mark.parametrize("source_variant", SOURCE_VARIANTS.keys())
 def test_as_derived_from_carries_source_system_per_structural_combination(source_variant, derivation_variant, recwarn):
-    if (source_variant, derivation_variant) == ("source_to_system_drop", "drop"):
-        return  # See test below; this is the only combination that cannot be carried over yet
+    if (source_variant, derivation_variant) == ("system_to_source_drop", "insert"):
+        return  # Both paths drop axes towards the source.
     source_ms, system_name = SOURCE_VARIANTS[source_variant]()
-    by, derived_axes = DERIVED_BY_VARIANTS[derivation_variant]
+    to_source, derived_axes = DERIVED_BY_VARIANTS[derivation_variant]
     derived_ms = _multiscale(derived_axes)
 
-    result = derived_ms.as_derived_from(source_ms, by=by)
+    result = derived_ms.as_derived_from(source_ms, reached_by=to_source)
     assert len(recwarn) == 0
     if system_name is not None:
         assert system_name in result.coordinate_systems
 
 
-def test_as_derived_from_cannot_carry_over_axis_dropping_system_when_derivation_also_drops():
+def test_as_derived_from_cannot_carry_over_inverted_axis_dropping_system():
     """
-    `derived_ms <--dropA-- source_ms --dropB--> satellite_system`
+    `derived_ms --dropA--> source_ms <--dropB-- satellite_system`
     Tough: Neither edge can be inverted to form a unidirectional path, so preserving this
     means keeping `source_ms` in the graph. We don't want that.
-    The direct `derived_ms --X--> satellite_system` *can* be computed when dropB is a subset of dropA
-    (or vice versa).
-    Implementing this is deferred until someone needs it.
+    This constellation would never appear while using clearscale
+    (there is no way to add `source_ms <--dropB-- satellite_system`).
     """
-    source_variant, derivation_variant = ("source_to_system_drop", "drop")
+    source_variant, derivation_variant = ("system_to_source_drop", "insert")
     source_ms, system_name = SOURCE_VARIANTS[source_variant]()
-    by, derived_axes = DERIVED_BY_VARIANTS[derivation_variant]
+    to_source, derived_axes = DERIVED_BY_VARIANTS[derivation_variant]
     derived_ms = _multiscale(derived_axes)
 
-    result = derived_ms.as_derived_from(source_ms, by=by)
+    result = derived_ms.as_derived_from(source_ms, reached_by=to_source)
     assert system_name not in result.coordinate_systems
 
 
@@ -105,7 +104,7 @@ def test_as_derived_from_preserves_derived_ms_own_existing_system():
     source_ms, _ = _source_invertible_forward()
     derived_ms = _with_edge(_multiscale("tczyx"), "derived_own", "tczyx", direction="forward")
 
-    result = derived_ms.as_derived_from(source_ms, by=ProjectionTo("tczyx"))
+    result = derived_ms.as_derived_from(source_ms, reached_by=ProjectionTo("zyx"))
 
     assert "derived_own" in result.coordinate_systems
     assert "system" in result.coordinate_systems
@@ -113,10 +112,10 @@ def test_as_derived_from_preserves_derived_ms_own_existing_system():
 
 def test_as_derived_from_is_idempotent_when_source_intrinsic_already_connected():
     source_ms, _ = _source_plain()
-    by = ProjectionTo("tczyx")
+    by = ProjectionTo("zyx")
 
-    once = _multiscale("tczyx").as_derived_from(source_ms, by=by)
-    twice = once.as_derived_from(source_ms, by=by)
+    once = _multiscale("tczyx").as_derived_from(source_ms, reached_by=by)
+    twice = once.as_derived_from(source_ms, reached_by=by)
 
     assert twice._transform_graph.transforms == once._transform_graph.transforms
     assert len(twice._transform_graph.all_system_refs) == len(once._transform_graph.all_system_refs)
@@ -124,10 +123,10 @@ def test_as_derived_from_is_idempotent_when_source_intrinsic_already_connected()
 
 def test_as_derived_from_is_idempotent_when_source_other_system_already_connected():
     source_ms, system_name = _source_invertible_forward()
-    by = ProjectionTo("tczyx")
+    by = ProjectionTo("zyx")
 
-    once = _multiscale("tczyx").as_derived_from(source_ms, by=by)
-    twice = once.as_derived_from(source_ms, by=by)
+    once = _multiscale("tczyx").as_derived_from(source_ms, reached_by=by)
+    twice = once.as_derived_from(source_ms, reached_by=by)
 
     assert twice._transform_graph.transforms == once._transform_graph.transforms
     system_ref = next(r for r in twice._transform_graph.all_system_refs if r.name == system_name)

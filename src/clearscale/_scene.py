@@ -246,9 +246,9 @@ class Scene:
         Use `a_to_b` for the relation that specifies how to reach b from a (a --a_to_b--> b), same as:
           `a.with_coordinate_system("b", reached_by=a_to_b)`
         or
-          `b.as_derived_from(a, by=a_to_b)`.
-        Spatial relations say what you do with `a` to obtain `b`, e.g. `Translation(p)` for "cropped with its
-        origin at p", or `ProjectionTo(axes)` for "dropped or added axes". `None` means the same space.
+          `a.as_derived_from(b, reached_by=a_to_b)`.
+        Spatial relations map coordinates from `a` to `b`: `Translation(p)` adds p to each coordinate,
+        while `ProjectionTo(axes)` drops or inserts axes. `None` means the same space.
 
         Applying `a_to_b` to the axes of `a` must produce the axes of `b`.
         `a` and `b` can also be one of the other coordinate systems of a Multiscale: `(multiscale, name)`.

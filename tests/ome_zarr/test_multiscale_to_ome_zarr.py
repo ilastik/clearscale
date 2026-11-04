@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 from clearscale import ome_zarr
 from clearscale import Affine
@@ -6,6 +8,14 @@ from clearscale._axis_values import PixelSize, Shape, Unit, Translation
 from clearscale._multiscale import BlueprintShapes, Multiscale, Scale
 from clearscale._services.ome_zarr import SUPPORTED_VERSIONS_WRITE
 from clearscale._spatial_relations import AxisRearrangementTo
+from clearscale._transforms import (
+    ProjectAxisTransform,
+    TransformGraph,
+    TransformSequence,
+    TranslationTransform,
+    CoordinateSystem,
+    OmeZarrAxes,
+)
 
 
 def _multiscale(axes, size=4, pixel_size=None):
@@ -89,10 +99,20 @@ class TestCoordinateSystemToLegacy:
         assert _global_scale_and_translation(result) == expected_global_scale_and_translation
 
     def test_serializes_coordinate_system_connected_by_reverse_drop(self):
-        source = _multiscale("zyx")
-        # The source--drop-->derived connection can only be stored in reverse
-        # (normally external systems on `derived` are connected as `derived --t--> system`)
-        derived_ms = _multiscale("yx").as_derived_from(source, by=[AxisRearrangementTo("yx"), Translation(y=3, x=4)])
+        """Multiscale.as_derived_from always connects `derived --reached_by_t--> source`, so this is an edge case.
+        An externally read system could have `system --drop-translate--> derived` stored in the opposite direction."""
+        source_ref = CoordinateSystem(OmeZarrAxes.fromkeys("zyx").with_types_inferred())._as_ref(
+            "hypothetical_source_intrinsic_name"
+        )
+        derived_ms_base = Multiscale({"s0": Scale(shape=Shape(y=4, x=4))})
+        edge = TransformSequence((ProjectAxisTransform(drops=(0,)), TranslationTransform((-3.0, -4.0)))).bound(
+            source=source_ref, target=derived_ms_base._intrinsic_ref
+        )
+        graph = TransformGraph(transforms=(edge,))
+        derived_ms = Multiscale(
+            derived_ms_base.items(), _transform_graph=graph, _intrinsic_ref=derived_ms_base._intrinsic_ref
+        )
+        # The global scale+translation must be `derived --> source` while the stored transform is `source --> derived`. Hence invert.
         expected_global_scale_and_translation = ([1.0, 1.0], [3.0, 4.0])
 
         result = derived_ms.to_ome_zarr(version="0.4")

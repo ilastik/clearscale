@@ -127,7 +127,7 @@ class TestAsDerivedFrom:
                 Shape(Z=4, Y=8, X=8),
                 ome_zarr_axes={"Z": Axis(type="space"), "Y": Axis(type="space"), "X": Axis(type="space")},
             )
-        ).as_derived_from(source, by=AxisRenaming(z="Z", y="Y", x="X"))
+        ).as_derived_from(source, reached_by=AxisRenaming(Z="z", Y="y", X="x"))
         assert derived.unit == Unit(Z="um", Y="um", X="um")
         assert derived.ome_zarr_axes["Z"] == Axis(name="Z", type="space", unit="um", long_name="Depth")
 
@@ -136,7 +136,7 @@ class TestAsDerivedFrom:
             Scale(Shape(z=4, y=8, x=8), ome_zarr_axes={a: Axis(type="space") for a in "zyx"})
         )
         result = derived.as_derived_from(
-            _multiscale_zyx(), by=SpatialRelationSequence((AxisRenaming(z="Z"), ProjectionTo("zyx")))
+            _multiscale_zyx(), reached_by=SpatialRelationSequence((AxisRenaming(z="Z"), ProjectionTo("zyx")))
         )
         assert result.unit == Unit(z="", y="um", x="um")
 
@@ -154,7 +154,7 @@ class TestErrors:
             _multiscale_zyx().with_coordinate_system("n", reached_by=AxisRenaming(c="C"))
         with pytest.raises(ValueError, match=r"Cannot rename axes.*not present in source axes"):
             Multiscale.from_single(Scale(Shape(Z=4, y=8, x=8))).as_derived_from(
-                _multiscale_zyx(), by=AxisRenaming(c="C")
+                _multiscale_zyx(), reached_by=AxisRenaming(c="C")
             )
 
     def test_as_derived_from_with_mismatching_axes_requires_renaming(self):
@@ -163,4 +163,4 @@ class TestErrors:
         )
         with pytest.raises(ValueError, match="Cannot transfer coordinate systems"):
             derived.as_derived_from(_multiscale_zyx())
-        assert derived.as_derived_from(_multiscale_zyx(), by=AxisRenaming(z="Z")).unit["Z"] == "um"
+        assert derived.as_derived_from(_multiscale_zyx(), reached_by=AxisRenaming(Z="z")).unit["Z"] == "um"
