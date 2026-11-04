@@ -786,7 +786,7 @@ def test_affine_with_translation():
 
 
 @pytest.mark.parametrize("factor", [Factor(z=1.0, y=2.0, x=4.0), {"z": 1.0, "y": 2.0, "x": 4.0}])
-def test_affine_from_factor(factor):
+def test_affine_from_factor_uses_values_as_diagonal(factor):
     result = Affine.from_factor(factor)
 
     assert result.axes == ("z", "y", "x")
@@ -902,31 +902,30 @@ class TestFromLinearAndOffset:
         assert result.translation == Translation(y=1, x=2)
 
     def test_maps_a_feature_like_the_index_space_matrix(self):
-        """Follow one pixel from target index space to source index space by hand,
-        and compare with the physical Affine's action on the corresponding physical coordinates."""
         source = self._grid("yx", (0.5, 0.25), (10.0, 20.0))
         target = self._grid("yx", (2.0, 4.0), (1.0, -2.0))
         linear, offset = ((0, 1), (1, 0)), (2, 3)
-        target_index = (3, 5)
+        source_index = (3, 5)
 
-        # `linear` and `offset` are in index-space, so they apply to `target_index` as-is, in
-        # Affine's conventional direction: source_index = linear @ target_index + offset
-        source_index = (
-            linear[0][0] * target_index[0] + linear[0][1] * target_index[1] + offset[0],
-            linear[1][0] * target_index[0] + linear[1][1] * target_index[1] + offset[1],
-        )
-        # Affine is supposed to be in physical space, so it maps
-        # physical_source_x = affine.linear @ physical_target_x + affine.translation
+        # `linear` and `offset` are in index-space, so they apply to `source_index` as-is, in
+        # Affine's conventional "push" direction: target_index = linear @ source_index + offset
+        target_index = ((0 * 3 + 1 * 5 + 2), (1 * 3 + 0 * 5 + 3))
+        source_x = (0.5 * source_index[0] + 10.0, 0.25 * source_index[1] + 20.0)
         target_x = (2.0 * target_index[0] + 1.0, 4.0 * target_index[1] - 2.0)
-        expected_source_x = (0.5 * source_index[0] + 10.0, 0.25 * source_index[1] + 20.0)
 
         affine = Affine.from_linear_and_offset(linear, offset, "yx", source=source, target=target)
 
-        actual_physical_source_x = [
-            sum(c * v for c, v in zip(row, target_x)) + t
+        # linear = target_spacing @ linear @ inv(source_spacing)
+        # translation = target_spacing @ offset + target_origin - A @ source_origin
+        assert affine.to_tuples() == (
+            (0, 8, -155),  # 8 = (1 / 0.5) * 2.0 and -155 = 2.0 * 2 + 1.0 - 8.0 * 20.0)
+            (8, 0, -70),  # 70 = 4.0 * 3 - 2.0 - 8.0 * 10.0
+        )
+        actual_target_x = [
+            sum(c * v for c, v in zip(row, source_x)) + t
             for row, t in zip(affine.linear.to_tuples(), affine.translation.values())
         ]
-        assert actual_physical_source_x == pytest.approx(expected_source_x)
+        assert actual_target_x == pytest.approx(target_x)
 
     def test_matches_from_array_with_grids(self):
         source = self._grid("yx", (0.5, 0.25), (10.0, 20.0))
@@ -945,7 +944,7 @@ class TestFromLinearAndOffset:
         source = self._grid("yx", (15.0, 15.0))
         target = self._grid("yx", (30.0, 30.0))
 
-        result = Affine.from_linear_and_offset(((2, 0), (0, 2)), (0, 0), "yx", source=source, target=target)
+        result = Affine.from_linear_and_offset(((0.5, 0), (0, 0.5)), (0, 0), "yx", source=source, target=target)
 
         assert _flat(result.linear.to_tuples()) == pytest.approx(_flat(((1.0, 0.0), (0.0, 1.0))))
         assert list(result.translation.values()) == pytest.approx([0.0, 0.0])
@@ -964,12 +963,12 @@ class TestFromLinearAndOffset:
 
         affine = Affine.from_linear_and_offset(((1, 0), (0, 1)), (0, 0), "yx", source=nanometer, target=micrometer)
 
-        assert _flat(affine.linear.to_tuples()) == pytest.approx(_flat(((1000.0, 0.0), (0.0, 1000.0))))
-        # And the unit check accepts it as the explicit conversion, writing the inverse transform source -> target
+        assert _flat(affine.linear.to_tuples()) == pytest.approx(_flat(((0.001, 0.0), (0.0, 0.001))))
+        # Derivation reaches back from target units to source units.
         source_ms = Multiscale({"s0": nanometer})
         target_ms = Multiscale({"s0": micrometer})
-        result = target_ms.as_derived_from(source_ms, by=affine).to_ome_zarr(version="0.6")
-        assert result["coordinateTransformations"][0]["scale"] == pytest.approx([0.001, 0.001])
+        result = target_ms.as_derived_from(source_ms, reached_by=affine.inverted()).to_ome_zarr(version="0.6")
+        assert result["coordinateTransformations"][0]["scale"] == pytest.approx([1000.0, 1000.0])
 
     def test_accepts_any_object_with_a_pixel_grid(self):
         @dataclass(frozen=True)
@@ -980,7 +979,7 @@ class TestFromLinearAndOffset:
         source = Grid(PixelSize(y=2.0, x=2.0), Translation(y=0.0, x=0.0))
         target = Grid(PixelSize(y=4.0, x=4.0), Translation(y=0.0, x=0.0))
 
-        result = Affine.from_linear_and_offset(((2, 0), (0, 2)), (0, 0), "yx", source=source, target=target)
+        result = Affine.from_linear_and_offset(((0.5, 0), (0, 0.5)), (0, 0), "yx", source=source, target=target)
 
         assert result.linear.to_tuples() == ((1.0, 0.0), (0.0, 1.0))
 
@@ -1013,7 +1012,7 @@ class TestFromUnitConversion:
             unit, Unit(t="millisecond", z="nanometer", y="micrometer", x="nanometer", c="")
         )
 
-        factors = dict(t=0.001, z=0.001, y=1000.0, x=1.0, c=1.0)
+        factors = dict(t=1000.0, z=1000.0, y=0.001, x=1.0, c=1.0)
         expected = Affine(
             linear=Linear.identity("tzyxc").with_values({axis: {axis: value} for axis, value in factors.items()})
         )
@@ -1022,7 +1021,7 @@ class TestFromUnitConversion:
     def test_accepts_plain_mapping_docstring_example(self):
         assert Affine.from_unit_conversion(
             source_unit={"x": "micrometer"}, target_unit={"x": "nanometer"}
-        ) == Affine.from_array([[0.001, 0]], axes="x")
+        ) == Affine.from_array([[1000.0, 0]], axes="x")
 
     def test_produces_correct_forward_coordinate_transform_docstring_example(self):
         source_ms = Multiscale.from_single(Scale.from_lists("xy", unit=["micrometer", "micrometer"]))
@@ -1043,7 +1042,7 @@ class TestFromUnitConversion:
 
     def test_accepts_nonstandard_spellings(self):
         assert Affine.from_unit_conversion(source_unit={"x": "micron"}, target_unit={"x": "nm"}) == Affine.from_array(
-            [[0.001, 0]], axes="x"
+            [[1000.0, 0]], axes="x"
         )
 
         assert Affine.from_unit_conversion(source_unit={"x": "micron"}, target_unit={"x": "um"}) == Affine.identity("x")
@@ -1063,8 +1062,8 @@ class TestFromUnitConversion:
         with pytest.raises(ValueError, match="Axis 'z': Unknown unit 'furlong'"):
             Affine.from_unit_conversion(Unit(y="nm", z="furlong"), Unit(y="nm", z="meter"))
 
-    def test_returns_affine_from_the_new_space_to_the_old_one(self):
-        """`Affine` maps new coordinates to old coordinates, but the constructor asks (old, new)."""
+    def test_returns_affine_from_source_to_target(self):
+        """The Affine and its coordinate transform both map source to target."""
         ms = Multiscale({"s0": Scale(shape=Shape(y=4, x=4), unit=Unit(y="nanometer", x="nanometer"))})
         old, new = Unit(y="nanometer", x="nanometer"), Unit(y="micrometer", x="micrometer")
 
@@ -1085,15 +1084,15 @@ class TestToLinearAndOffset:
         )
 
     @staticmethod
-    def _pulled_index_by_hand(affine: Affine, source, target, target_index):
-        """What index of `source` a pixel of `target` samples, going through physical coordinates step by step"""
-        axes = affine.axes
-        target_physical = [target.pixel_size[a] * i + target.translation[a] for a, i in zip(axes, target_index)]
-        rows, translation = affine.linear.to_tuples(), affine.translation.values_tuple()
-        source_physical = [sum(c * p for c, p in zip(row, target_physical)) + t for row, t in zip(rows, translation)]
-        return [(p - source.translation[a]) / source.pixel_size[a] for a, p in zip(axes, source_physical)]
+    def _pushed_index_by_hand(affine: Affine, source, target, source_index):
+        source_physical = [source.pixel_size[a] * i + source.translation[a] for a, i in zip(affine.axes, source_index)]
+        target_physical = [
+            sum(c * p for c, p in zip(row, source_physical)) + t
+            for row, t in zip(affine.linear.to_tuples(), affine.translation.values())
+        ]
+        return [(p - target.translation[a]) / target.pixel_size[a] for a, p in zip(affine.axes, target_physical)]
 
-    def test_affine_to_linear_and_offset_without_grids_returns_the_physical_values(self):
+    def test_affine_to_linear_and_offset_without_grids_returns_physical_push_values(self):
         affine = Affine.from_array(((1, 2, 3), (4, 5, 6)), "yx")
         assert affine.to_linear_and_offset() == (((1.0, 2.0), (4.0, 5.0)), (3.0, 6.0))
 
@@ -1113,14 +1112,14 @@ class TestToLinearAndOffset:
         matrix, offset = affine.to_linear_and_offset(source=source, target=target)
         for target_index in ((0, 0), (1, 0), (0, 1), (5, 7), (-3, 2.5)):
             by_formula = [sum(m * i for m, i in zip(row, target_index)) + o for row, o in zip(matrix, offset)]
-            assert by_formula == pytest.approx(self._pulled_index_by_hand(affine, source, target, target_index))
+            assert by_formula == pytest.approx(self._pushed_index_by_hand(affine, source, target, target_index))
 
     def test_affine_to_linear_and_offset_in_index_space_takes_the_units_of_the_grids_into_account(self):
-        # x[nm] = 1000 * x[um] converts between the units. A 15 nm grid and a 0.015 um grid have the same pixels,
+        # x[um] = 0.001 * x[nm] converts the units. A 15 nm grid and a 0.015 um grid have the same pixels,
         # so sampling each target pixel at "the same pixel" of the source is the identity in index space
         nanometers = self._pixel_grid("x", (15.0,), (0.0,))
         micrometers = self._pixel_grid("x", (0.015,), (0.0,))
-        unit_conversion = Affine.from_array(((1000.0, 0.0),), "x")
+        unit_conversion = Affine.from_array(((0.001, 0.0),), "x")
         matrix, offset = unit_conversion.to_linear_and_offset(source=nanometers, target=micrometers)
         assert _flat(matrix) + list(offset) == pytest.approx([1.0, 0.0])
 
@@ -1167,3 +1166,27 @@ class TestToLinearAndOffset:
             )
         with pytest.raises(ValueError, match="`source` must have exactly the axes"):
             Affine.identity("yx").to_linear_and_offset(source=self._pixel_grid("y", (1.0,), (0.0,)), target=grid)
+
+
+@pytest.mark.parametrize("with_grids", [False, True])
+def test_matrix_helpers_preserve_singular_push_matrices(with_grids):
+    source = Scale(Shape(y=4, x=4), PixelSize(y=2, x=3), translation=Translation(y=4, x=5))
+    target = Scale(Shape(y=4, x=4), PixelSize(y=7, x=11), translation=Translation(y=13, x=17))
+    kwargs = {"source": source, "target": target} if with_grids else {}
+    affine = Affine.from_linear_and_offset(((1, 2), (2, 4)), (3, 6), "yx", **kwargs)
+    assert affine == Affine.from_array(((1, 2, 3), (2, 4, 6)), "yx", **kwargs)
+    linear, offset = affine.to_linear_and_offset(**kwargs)
+    assert _flat(linear) == pytest.approx([1, 2, 2, 4])
+    assert offset == pytest.approx([3, 6])
+
+
+def test_scipy_pull_conversion_requires_explicit_inversion_and_reversed_grids():
+    input_grid = Scale(Shape(y=4, x=4), PixelSize(y=0.5, x=0.25), translation=Translation(y=10, x=20))
+    output_grid = Scale(Shape(y=4, x=4), PixelSize(y=2, x=4), translation=Translation(y=1, x=-2))
+    push = Affine.from_linear_and_offset(
+        ((0, 1), (1, 0)), (2, 3), "yx", source=output_grid, target=input_grid
+    ).inverted()
+    assert _flat(push.to_tuples()) == pytest.approx([0, 8, -165, 8, 0, -90])
+    linear, offset = push.inverted().to_linear_and_offset(source=output_grid, target=input_grid)
+    assert _flat(linear) == pytest.approx([0, 1, 1, 0])
+    assert offset == pytest.approx([2, 3])

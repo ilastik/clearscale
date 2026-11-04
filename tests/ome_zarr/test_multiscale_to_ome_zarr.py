@@ -184,7 +184,7 @@ class TestLegacyGlobalTScale:
             },
             _legacy_convention_global_t_scale=0.5,
         )
-        ms = ms.with_coordinate_system("world", reached_by=Affine.from_factor({"t": 4.0, "y": 1.0, "x": 1.0}))
+        ms = ms.with_coordinate_system("world", reached_by=Affine.from_factor({"t": 0.25, "y": 1.0, "x": 1.0}))
 
         result = ms.to_ome_zarr(version="0.4")
 
@@ -204,7 +204,7 @@ class TestCoordinateSystems06:
         ms = _multiscale("yx", pixel_size=[0.5, 0.5])
         ms = ms.with_coordinate_system("world", reached_by=Translation(y=3, x=4))
         ms = ms.with_coordinate_system(
-            "mm", reached_by=Affine.from_factor({"y": 1000, "x": 1000}), unit=Unit(y="mm", x="mm")
+            "mm", reached_by=Affine.from_factor({"y": 0.001, "x": 0.001}), unit=Unit(y="mm", x="mm")
         )
         ms = ms.with_coordinate_system("proj", reached_by=AxisRearrangementTo("zyx"))
 

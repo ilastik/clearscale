@@ -120,7 +120,7 @@ class TestEqAndHash:
         intrinsic system names. On derive with a relation, the intrinsic is transferred,
         but the daughter no longer knows this was an intrinsic system whose name is not as strictly meaningful
         as a coordinate system added through `with_coordinate_system`."""
-        make_ms = lambda: _multiscale().as_derived_from(_multiscale(), by=Affine.from_factor({"y": 2, "x": 2}))
+        make_ms = lambda: _multiscale().as_derived_from(_multiscale(), by=Affine.from_factor({"y": 0.5, "x": 0.5}))
 
         left = make_ms()
         right = make_ms()
@@ -784,7 +784,7 @@ class TestMultiscaleAsDerivedFrom:
             pytest.param("zyx", [Affine.identity("zyx")], IdentityTransform(), id="single_entry_identity"),
             pytest.param(
                 "zyx",
-                [Affine.from_factor({"z": 2.0, "y": 2.0, "x": 2.0})],
+                [Affine.from_factor({"z": 0.5, "y": 0.5, "x": 0.5})],
                 ScaleTransform(scale=(0.5, 0.5, 0.5)),
                 id="single_factor",
             ),
@@ -796,7 +796,7 @@ class TestMultiscaleAsDerivedFrom:
             ),
             pytest.param(
                 "zyx",
-                [Affine.from_factor({"z": 2.0, "y": 2.0, "x": 2.0}), Translation(z=1.0, y=2.0, x=3.0)],
+                [Affine.from_factor({"z": 0.5, "y": 0.5, "x": 0.5}), Translation(z=1.0, y=2.0, x=3.0)],
                 TransformSequence(
                     (ScaleTransform(scale=(0.5, 0.5, 0.5)), TranslationTransform(translation=(1.0, 2.0, 3.0)))
                 ),
@@ -894,13 +894,12 @@ class TestMultiscaleWithCoordinateSystem:
 
     def test_accepts_single_relation(self):
         ms = _multiscale("zyx")
-        relation = Affine.from_factor({"z": 2.0, "y": 2.0, "x": 2.0})
+        relation = Affine.from_factor({"z": 0.5, "y": 0.5, "x": 0.5})
 
         result = ms.with_coordinate_system("world", reached_by=relation)
 
         world = next(ref for ref in result._transform_graph.all_system_refs if ref.name == "world")
-        # Just like Factor(2), a scaling Affine.from_factor(2) states a 2x downscaling.
-        # I.e. "world" is reached by downscaling `ms` by 2,
+        # "world" is reached by downscaling `ms` by 2,
         # which means ms-coordinates need to be halved to find world-coordinates: ms[2, 2, 2] == world[1, 1, 1]
         expected = ScaleTransform((0.5, 0.5, 0.5)).bound(source=ms._intrinsic_ref, target=world)
         assert expected in result._transform_graph.transforms
@@ -914,7 +913,7 @@ class TestMultiscaleWithCoordinateSystem:
         # then the relation to return from ms to world is [Drop(z), Affine(diag(0.5)), Translation(-3, -4)]
         relations = [
             AxisRearrangementTo("yx"),
-            Affine.from_factor({"y": 0.5, "x": 0.5}),
+            Affine.from_factor({"y": 2.0, "x": 2.0}),
             Translation(y=-3.0, x=-4.0),
         ]
 
@@ -939,7 +938,9 @@ class TestMultiscaleWithCoordinateSystem:
     def test_preserves_existing_graph(self):
         original = _multiscale("zyx")
         with_first = original.with_coordinate_system("first")
-        with_both = with_first.with_coordinate_system("second", reached_by=Affine.from_factor({"z": 2, "y": 2, "x": 2}))
+        with_both = with_first.with_coordinate_system(
+            "second", reached_by=Affine.from_factor({"z": 0.5, "y": 0.5, "x": 0.5})
+        )
 
         assert "first" not in original.coordinate_systems
         assert not original._transform_graph.transforms
@@ -1022,10 +1023,10 @@ class TestLosslessOmeZarrVersion:
         "relation",
         [
             None,
-            Affine.from_factor({"y": 0.5, "x": 0.5}),
+            Affine.from_factor({"y": 2.0, "x": 2.0}),
             Translation(y=-4.0, x=-2.0),
-            [Affine.from_factor({"y": 0.5, "x": 0.5}), Translation(y=-4.0, x=-2.0)],
-            [Translation(y=-4.0, x=-2.0), Affine.from_factor({"y": 0.5, "x": 0.5})],
+            [Affine.from_factor({"y": 2.0, "x": 2.0}), Translation(y=-4.0, x=-2.0)],
+            [Translation(y=-4.0, x=-2.0), Affine.from_factor({"y": 2.0, "x": 2.0})],
             PermutationTo("xy"),
             AxisRearrangementTo("czy"),
         ],
@@ -1246,7 +1247,7 @@ class TestMultiscaleWithCoordinateSystemUnitValidation:
         ms = _multiscale_with_unit("nanometer")
 
         result = ms.with_coordinate_system(
-            "um", reached_by=Affine.from_factor({"y": 0.001, "x": 0.001}), unit=Unit(y="micrometer", x="micrometer")
+            "um", reached_by=Affine.from_factor({"y": 1000.0, "x": 1000.0}), unit=Unit(y="micrometer", x="micrometer")
         )
 
         assert result.coordinate_system_ome_zarr_axes("um")["x"].unit == "micrometer"
@@ -1256,7 +1257,7 @@ class TestMultiscaleWithCoordinateSystemUnitValidation:
 
         result = ms.with_coordinate_system(
             "um",
-            reached_by=[Translation(y=1.0, x=1.0), Affine.from_factor({"y": 0.001, "x": 0.001})],
+            reached_by=[Translation(y=1.0, x=1.0), Affine.from_factor({"y": 1000.0, "x": 1000.0})],
             unit=Unit(y="micrometer", x="micrometer"),
         )
 

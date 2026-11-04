@@ -452,7 +452,7 @@ class TestMultiscaleTransfer:
 
         ms2 = ms.with_coordinate_system(
             "world",
-            reached_by=Affine.from_factor({"y": 1.0, "x": 0.001}),  # 1 nm = 0.001 micrometer
+            reached_by=Affine.from_factor({"y": 1.0, "x": 1000.0}),  # 1 nm = 0.001 micrometer
             unit=Unit(x="nanometer"),
         )
 
@@ -475,7 +475,7 @@ class TestMultiscaleTransfer:
 
         ms2 = ms.with_coordinate_system(
             "world",
-            reached_by=Affine.from_factor({"z": 1.0, "y": 1.0, "x": 0.001}),  # 1 nm = 0.001 micrometer
+            reached_by=Affine.from_factor({"z": 1.0, "y": 1.0, "x": 1000.0}),  # 1 nm = 0.001 micrometer
             unit={"x": "nm"},
             ome_zarr_axes={"x": ome_zarr.Axis(type="custom")},
         )
@@ -665,7 +665,7 @@ class TestMultiscaleTransfer:
             }
         )
 
-        result = child.as_derived_from(parent, by=Affine.from_factor({"x": 0.001, "y": 1.0, "z": 1.0}))
+        result = child.as_derived_from(parent, by=Affine.from_factor({"x": 1000.0, "y": 1.0, "z": 1.0}))
 
         assert result.ome_zarr_axes["x"].type == "channel"
         assert result.ome_zarr_axes["x"].unit == "nanometer"

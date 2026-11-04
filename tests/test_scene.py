@@ -433,14 +433,14 @@ class TestFromSharedCoordinateSystem:
             connections=[
                 # Accepts both the Scene.Connection NamedTuple helper and an equivalent bare tuple
                 Scene.Connection(tile1, to_shared=Translation(y=1.0, x=2.0)),
-                (tile2, Affine.from_factor(Factor(y=2, x=2))),
+                (tile2, Affine.from_factor(Factor(y=0.5, x=0.5))),
             ],
         )
 
         path1 = scene._transforms_between(tile1, "stage")
         path2 = scene._transforms_between(tile2, "stage")
         assert path1 is not None and path2 is not None
-        assert path1[0].unbound() == TranslationTransform((-1.0, -2.0)), "relations are inverted into transforms"
+        assert path1[0].unbound() == TranslationTransform((1.0, 2.0)), "relations preserve the coordinate direction"
         assert path2[0].unbound() == ScaleTransform((0.5, 0.5))
         assert path1[0].source == tile1._as_ref_to_intrinsic()
         assert path1[0].target == path2[0].target
@@ -684,11 +684,11 @@ class TestFromMultiscalePair:
 
         path = scene._transforms_between(raw, atlas)
         assert path is not None and len(path) == 1
-        assert path[0].unbound() == TranslationTransform((-1.0, -2.0)), "relations are inverted into transforms"
+        assert path[0].unbound() == TranslationTransform((1.0, 2.0)), "relations preserve the coordinate direction"
         assert path[0].source == raw._as_ref_to_intrinsic()
         assert path[0].target == atlas._as_ref_to_intrinsic()
         inverse = scene._transforms_between(atlas, raw)
-        assert inverse is not None and inverse[0].unbound() == TranslationTransform((1.0, 2.0))
+        assert inverse is not None and inverse[0].unbound() == TranslationTransform((-1.0, -2.0))
         assert scene.is_fully_resolved
 
     def test_none_relation_is_identity(self):
@@ -707,7 +707,7 @@ class TestFromMultiscalePair:
         scene = Scene.from_multiscale_pair(
             a=volume,
             b=flat,
-            a_to_b=[ProjectionTo("yx"), Affine.from_factor(Factor(y=2, x=2)), Translation(y=1.0, x=1.0)],
+            a_to_b=[ProjectionTo("yx"), Affine.from_factor(Factor(y=0.5, x=0.5)), Translation(y=1.0, x=1.0)],
         )
 
         path = scene._transforms_between(volume, flat)
@@ -789,7 +789,7 @@ class TestRelationBetween:
     @pytest.mark.parametrize(
         ("relation", "a_axes", "b_axes"),
         [
-            pytest.param(Affine.from_factor(Factor(y=2.0, x=4.0)), dict(y=8, x=8), dict(y=4, x=2), id="scale"),
+            pytest.param(Affine.from_factor(Factor(y=0.5, x=0.25)), dict(y=8, x=8), dict(y=4, x=2), id="scale"),
             pytest.param(Translation(y=1.5, x=-2.0), dict(y=4, x=4), dict(y=4, x=4), id="translation"),
             pytest.param(PermutationTo("xy"), dict(y=4, x=4), dict(x=4, y=4), id="permutation"),
             pytest.param(ProjectionTo("yx"), dict(z=2, y=4, x=4), dict(y=4, x=4), id="drop axis"),
@@ -805,16 +805,16 @@ class TestRelationBetween:
     def test_reverse_direction_is_the_inverse_relation(self):
         a, b = _multiscale(y=8, x=8), _multiscale(y=4, x=4)
         scene = Scene.from_multiscale_pair(
-            a=a, b=b, a_to_b=[Affine.from_factor(Factor(y=2, x=2)), Translation(y=1.0, x=3.0)]
+            a=a, b=b, a_to_b=[Affine.from_factor(Factor(y=0.5, x=0.5)), Translation(y=1.0, x=3.0)]
         )
 
         assert scene.relation_from(a, to=b) == SpatialRelationSequence(
-            (Affine.from_factor(Factor(y=2, x=2)), Translation(y=1.0, x=3.0))
+            (Affine.from_factor(Factor(y=0.5, x=0.5)), Translation(y=1.0, x=3.0))
         )
         # Canonical form always puts the scaling first, so the sequence inverted, in canonical form,
         # has the Translation rescaled
         assert scene.relation_from(b, to=a) == SpatialRelationSequence(
-            (Affine.from_factor(Factor(y=0.5, x=0.5)), Translation(y=-2.0, x=-6.0))
+            (Affine.from_factor(Factor(y=2.0, x=2.0)), Translation(y=-2.0, x=-6.0))
         )
 
     def test_returns_relation_from_shared_coordinate_system(self):

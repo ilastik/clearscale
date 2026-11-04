@@ -624,7 +624,7 @@ def _0_6_metadata_with_coord_sys_transform_with(**updates):
         pytest.param(_0_6_metadata_with_coord_sys_transform_with(type="identity"), None, id="identity"),
         pytest.param(
             _0_6_metadata_with_coord_sys_transform_with(type="scale", scale=[0.5, 0.5]),
-            Affine.from_factor({"y": 2.0, "x": 2.0}),
+            Affine.from_factor({"y": 0.5, "x": 0.5}),
             id="scale",
         ),
         pytest.param(

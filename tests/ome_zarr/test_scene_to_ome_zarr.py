@@ -72,7 +72,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
     def test_writes_and_reads_back_multiscale_pair(self):
         raw = _multiscale(y=4, x=4)
         atlas = _multiscale(y=2, x=2)
-        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=Affine.from_factor(Factor(y=2, x=2)))
+        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=Affine.from_factor(Factor(y=0.5, x=0.5)))
         paths = {"raw.zarr": raw, "atlas.zarr": atlas}
         scene = scene.with_multiscale_paths(paths)
 
