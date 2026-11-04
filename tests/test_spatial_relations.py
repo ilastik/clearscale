@@ -135,7 +135,7 @@ class TestAxisDependencies:
             (AxisRenaming(z="Z"), "zyx", (("z",), ("y",), ("x",))),
             (AxisRenaming(y="x", x="y"), "yx", (("y",), ("x",))),
             (AxisRearrangementTo("xcy"), "zyx", (("x",), (), ("y",))),
-            (Affine.from_factor(Factor(y=2, x=2)), "yx", (("y",), ("x",))),
+            (Affine.from_factor(Factor(y=0.5, x=0.5)), "yx", (("y",), ("x",))),
             (Translation(y=1.0, x=1.0), "yx", (("y",), ("x",))),
         ],
     )
@@ -146,7 +146,7 @@ class TestAxisDependencies:
         "relation, source",
         [
             (PermutationTo("xy"), "zyx"),
-            (Affine.from_factor(Factor(y=2)), "yx"),
+            (Affine.from_factor(Factor(y=0.5)), "yx"),
             (AxisRenaming(c="C"), "zyx"),
         ],
     )
@@ -175,13 +175,7 @@ class TestAxisDependencies:
     def test_affine_follow_the_matrix_pattern(self, rows, expected):
         assert Affine.from_array(rows, "yx")._axis_dependencies("yx") == expected
 
-    def test_affine_are_those_of_the_inverse_not_of_the_transposed_matrix(self):
-        # x_old = L x_new with L upper bidiagonal. L's inverse is a full upper triangle, so the new z depends on all.
+    def test_affine_dependencies_use_the_forward_matrix(self):
+        # The forward upper bidiagonal pattern differs from the full upper triangle of its inverse.
         affine = Affine.from_array(((1, 1, 0, 0), (0, 1, 1, 0), (0, 0, 1, 0)), "zyx")
-        assert affine._axis_dependencies("zyx") == (("z", "y", "x"), ("y", "x"), ("x",))
-
-    def test_affine_require_an_invertible_matrix_and_matching_axes(self):
-        with pytest.raises(ValueError, match="must be invertible"):
-            Affine.from_array(((1, 2, 0), (2, 4, 0)), "yx")._axis_dependencies("yx")
-        with pytest.raises(ValueError, match="Incompatible axes"):
-            Affine.identity("yx")._axis_dependencies("xy")
+        assert affine._axis_dependencies("zyx") == (("z", "y"), ("y", "x"), ("x",))

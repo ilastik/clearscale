@@ -259,21 +259,17 @@ class Affine(SpatialRelation):
     A full affine transformation consists of a linear matrix and a translation.
     The perspective row required for homogenous coordinates is not represented.
 
-    As a spatial relation, Affine maps *physical* coordinates of the relation's
-    target space to physical coordinates of the source space:
-      `x_source = linear @ x_target + translation`.
-    I.e. self.translation is the origin of the target image within the source image.
+    As a spatial relation, Affine maps *physical* coordinates from source to target:
+      `x_target = linear @ x_source + translation`.
+    This is the "push" or "forward" direction used by coordinate transformations.
+    All "from_"/"to_" methods assume the same direction (push).
 
-    This is the direction of a *resampling* affine, the inverse of forward coordinate
-    transformations.
-    This allows it to directly interoperate with Factor and Translation algebraically:
-      `Factor(x=1000.0)`
-    represents a downsampling that results in the same scaling as
-      `Affine.from_array([[1000.0, 0]], axes="x")`.
+    Resampling matrices typically use the "pull" or "inverse" direction. Swap source/target when
+    converting index values and use `.inverted()` on the result to interchange with "pull" matrices.
 
     Note that scaling Affines do *not* represent image scaling as a relation between Multiscales:
     The source and target Multiscale each know their .pixel_size and the pixel size ratio *is* the
-    image scaling (Factor).
+    image scaling.
     Affines are appropriate for expressing unit conversions (e.g. nm to mm), or the relative scale
     of a coordinate system added by `Multiscale.with_coordinate_system` (which has no .pixel_size).
     """
@@ -433,7 +429,7 @@ class Affine(SpatialRelation):
                     "An unspecified unit has no known size."
                 )
             try:
-                factors.append((axis, unit_conversion_factor(unit, other_unit)))
+                factors.append((axis, unit_conversion_factor(other_unit, unit)))
             except ValueError as e:
                 raise ValueError(f"Axis {axis!r}: {e}") from e
         return cls(linear=Linear.identity(source).with_values({axis: {axis: value} for axis, value in factors}))
@@ -469,19 +465,12 @@ class Affine(SpatialRelation):
         return self.axes
 
     def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
-        """
-        An Affine keeps its axis names, but its values may mix them. As a relation, it maps the new space's
-        coordinates to the old space's (see inversion in `relation_to_transform`). Then the dependencies
-        is that of the inverse.
-        """
+        """An Affine keeps its axis names, but its values may mix them. Since it operates in "push"/"forward" direction,
+        output axes depend on the non-zero coefficients in their linear rows."""
         _ensure_compatible = self.target_axes(source_axes)
-        try:
-            inverse = self.inverted()
-        except ValueError as e:
-            raise ValueError(f"Affine relation must be invertible to connect two coordinate systems: {e}") from e
         return tuple(
             tuple(axis for axis, value in row.items() if abs(value) > DEFAULT_SINGULARITY_TOLERANCE)
-            for row in inverse.linear.values()
+            for row in self.linear.values()
         )
 
     def with_axes(self, axes: OrderedAxes) -> "Affine":

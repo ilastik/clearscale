@@ -14,7 +14,7 @@ One tuple of source axes per target axis, in target axis order.
 
 
 class SpatialRelation(ABC):
-    """Any object that can describe how a new image was derived from an existing one is a spatial relation."""
+    """A mapping of coordinates from a source space to a target space."""
 
     @abstractmethod
     def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:

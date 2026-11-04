@@ -184,23 +184,23 @@ class TestEdgeCases:
 
     def test_non_canonical_inputs_are_canonicalized(self):
         two_scales = TransformSequence((ScaleTransform((0.5, 0.5)), ScaleTransform((0.5, 1.0))))
-        assert transform_to_relation(two_scales, "yx", "yx") == scaling_relation(y=4.0, x=2.0)
+        assert transform_to_relation(two_scales, "yx", "yx") == scaling_relation(y=0.25, x=0.5)
 
         affine = AffineTransform(affine=((0.5, 0.0, 3.0), (0.0, 0.5, 4.0)))
         assert transform_to_relation(affine, "yx", "yx") == SpatialRelationSequence(
-            (scaling_relation(y=2.0, x=2.0), Translation(y=-3.0, x=-4.0))
+            (scaling_relation(y=0.5, x=0.5), Translation(y=3.0, x=4.0))
         )
 
     def test_legacy_multiscale_transforms_are_flattened(self):
         legacy = MultiscaleTransforms((ScaleTransform((0.5, 0.5)), TranslationTransform((1.0, 2.0))))
         assert transform_to_relation(legacy, "yx", "yx") == SpatialRelationSequence(
-            (scaling_relation(y=2.0, x=2.0), Translation(y=-1.0, x=-2.0))
+            (scaling_relation(y=0.5, x=0.5), Translation(y=1.0, x=2.0))
         )
 
     def test_worked_example_zyx_to_cyx(self):
         transform = TransformSequence((ProjectAxisTransform(drops=(0,), inserts=(0,)), ScaleTransform((1.0, 0.5, 0.5))))
         assert transform_to_relation(transform, "zyx", "cyx") == SpatialRelationSequence(
-            (ProjectionTo("cyx"), scaling_relation(c=1.0, y=2.0, x=2.0))
+            (ProjectionTo("cyx"), scaling_relation(c=1.0, y=0.5, x=0.5))
         )
 
     def test_dropped_and_inserted_axis_of_same_name_becomes_projection_chain(self):
@@ -235,10 +235,10 @@ class TestEdgeCases:
             relation_to_transform_canonic(relation, "cyx"), TransformSequence((transform,)).canonicalized()
         )
 
-    def test_rotation_relation_has_the_transposed_matrix(self):
+    def test_rotation_relation_has_the_same_matrix(self):
         relation = transform_to_relation(RotationTransform(rotation=((COS, -SIN), (SIN, COS))), "yx", "yx")
         assert isinstance(relation, Affine)
-        assert [v for row in relation.to_tuples() for v in row] == pytest.approx([COS, SIN, 0.0, -SIN, COS, 0.0])
+        assert relation.to_tuples() == ((COS, -SIN, 0.0), (SIN, COS, 0.0))
 
     def test_affine_after_projection_uses_the_names_of_the_projected_axes(self):
         transform = TransformSequence(
@@ -255,7 +255,7 @@ class TestEdgeCases:
         # zero-col is simply dropped first, leaving a scaling of the one remaining axis
         dropping_scaling = AffineTransform(affine=((2.0, 0.0, 0.0),))
         assert transform_to_relation(dropping_scaling, "yx", "y") == SpatialRelationSequence(
-            (ProjectionTo("y"), scaling_relation(y=0.5))
+            (ProjectionTo("y"), scaling_relation(y=2.0))
         )
 
 
@@ -296,11 +296,14 @@ class TestErrors:
         with pytest.raises(CannotConvertToSpatialRelationError, match=path_backed_equal_axes_error):
             transform_to_relation(TranslationTransform(translation=(), _ome_zarr_path="p"), "yx", "yx")
 
-    def test_non_invertible_matrix_raises_conversion_error(self):
-        with pytest.raises(CannotConvertToSpatialRelationError, match="cannot be inverted"):
-            transform_to_relation(ScaleTransform((0.0, 1.0)), "yx", "yx")
-        with pytest.raises(CannotConvertToSpatialRelationError, match="cannot be inverted"):
-            transform_to_relation(AffineTransform(affine=((1.0, 2.0, 0.0), (2.0, 4.0, 0.0))), "yx", "yx")
+    @pytest.mark.parametrize(
+        "transform", [ScaleTransform((0.0, 1.0)), AffineTransform(affine=((1.0, 2.0, 0.0), (2.0, 4.0, 0.0)))]
+    )
+    def test_non_invertible_matrices_can_convert_to_affine(self, transform):
+        relation = transform_to_relation(transform, "yx", "yx")
+        assert relation is not None
+        assert isinstance(relation, Affine)
+        assert relation.to_tuples() == transform._to_affine_transform(source_ndim=2, target_ndim=2).affine
 
     def test_transform_not_fitting_axes_raises_plain_value_error(self):
         for transform, source, target in (
@@ -343,7 +346,7 @@ class TestRenaming:
         assert transform_to_relation(IdentityTransform(), "zyx", "ZYX") == AxisRenaming(z="Z", y="Y", x="X")
         assert transform_to_relation(IdentityTransform(), "zyx", "zYx") == AxisRenaming(y="Y")
         assert transform_to_relation(TranslationTransform((2.0, 2.0)), "yx", "vu") == SpatialRelationSequence(
-            (Translation(y=-2.0, x=-2.0), AxisRenaming(y="v", x="u"))
+            (Translation(y=2.0, x=2.0), AxisRenaming(y="v", x="u"))
         )
 
     def test_swapped_axis_names_become_one_simultaneous_renaming_not_a_permutation(self):

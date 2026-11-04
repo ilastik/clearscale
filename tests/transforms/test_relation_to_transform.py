@@ -39,26 +39,25 @@ def test_axis_renaming_in_a_sequence_requires_later_relations_to_use_the_new_nam
     relation = SpatialRelationSequence((AxisRenaming(y="Y"), Translation(z=1, Y=2, x=2)))
     transform = relation_to_transform_canonic(relation, "zyx")
     assert isinstance(transform, TranslationTransform)
-    assert transform.translation == (-1.0, -2.0, -2.0)
+    assert transform.translation == (1.0, 2.0, 2.0)
     with pytest.raises(ValueError):
         relation_to_transform(SpatialRelationSequence((AxisRenaming(y="Y"), Translation(z=1, y=2, x=2))), "zyx")
 
 
-def test_affine_relation_to_transform_inverts_matrix_and_translation():
+def test_affine_relation_to_transform_preserves_matrix_and_translation():
     affine = Affine(linear=Linear.from_array(((1, 2), (3, 4)), "yx"), translation=Translation(y=5, x=6))
 
     result = relation_to_transform(affine, source_axes=("y", "x"))
 
     assert isinstance(result, AffineTransform)
     assert result.affine is not None
-    inverse = affine.inverted()
-    assert [v for row in result.affine for v in row] == pytest.approx([v for row in inverse.to_tuples() for v in row])
+    assert result.affine == affine.to_tuples()
 
 
-def test_affine_relation_canonic_diagonal_is_inverted_scale():
+def test_affine_relation_canonic_diagonal_preserves_coefficients():
     axes = ("z", "y", "x")
 
-    result = relation_to_transform_canonic(Affine.from_factor({"z": 1.0, "y": 2.0, "x": 4.0}), axes)
+    result = relation_to_transform_canonic(Affine.from_factor({"z": 1.0, "y": 0.5, "x": 0.25}), axes)
 
     assert result == ScaleTransform(scale=(1.0, 0.5, 0.25))
 
@@ -69,7 +68,7 @@ def test_affine_relation_canonic_pure_translation_matches_translation():
 
     result = relation_to_transform_canonic(affine, axes)
 
-    assert result == TranslationTransform(translation=(-1.0, -2.0))
+    assert result == TranslationTransform(translation=(1.0, 2.0))
     assert result == relation_to_transform_canonic(Translation(y=1.0, x=2.0), axes)
 
 
@@ -79,15 +78,15 @@ def test_affine_relation_canonic_scale_and_translation_is_sequence():
     result = relation_to_transform_canonic(affine, ("y", "x"))
 
     assert isinstance(result, TransformSequence)
-    assert result.transforms == (ScaleTransform(scale=(0.5, 0.5)), TranslationTransform(translation=(-1.5, -1.5)))
+    assert result.transforms == (ScaleTransform(scale=(2.0, 2.0)), TranslationTransform(translation=(3.0, 3.0)))
 
 
-def test_affine_relation_rejects_singular_matrix():
+def test_affine_relation_accepts_singular_matrix():
     # Row 0 and 1 are linearly dependent (row1 == 2*row0), determinant 1*4-2*2=4-4=0
     affine = Affine(linear=Linear.from_array(((1, 2), (2, 4)), "yx"))
 
-    with pytest.raises(ValueError, match="must be invertible"):
-        relation_to_transform(affine, source_axes=("y", "x"))
+    assert relation_to_transform(affine, source_axes=("y", "x")) == AffineTransform(affine=affine.to_tuples())
+    assert affine._axis_dependencies("yx") == (("y", "x"), ("y", "x"))
 
 
 def test_affine_relation_rejects_mismatching_source_axes():

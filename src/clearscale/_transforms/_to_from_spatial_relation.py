@@ -48,29 +48,11 @@ def relation_to_transform(relation: SpatialRelation, source_axes: OrderedAxes) -
 
     if isinstance(relation, Translation):
         _ensure_compatible = relation.target_axes(source_axes)
-        # Inversion: When acting as a SpatialRelation, the Translation is exactly the inverse of what the
-        # coordinate transformation needs to be.
-        # `derived_ms = B.as_derived_from(A, by=Translation(x=1.0))`
-        # means "B was derived by shifting A by 1".
-        # Then A[0] == B[-1] (A's origin is outside B, because B is shifted), and B[0] == A[1]
-        # i.e. to obtain B-coordinates, A-coordinates must have 1 subtracted (-1 added).
-        # hence, A--Translation(1.0)-->B is the coordinate transform A--TranslationTransform(-1.0)-->B.
-        # Likewise:
-        # `embedded_ms = A.with_coordinate_system("B", reached_by=Translation(x=1.0))`
-        # means "B is reached by shifting A by 1".
-        # Again, A[0] == B[-1] - if shifting A produces B, then A's origin is outside B.
-        return TranslationTransform(translation=tuple(relation.inverted().values()))
+        return TranslationTransform(translation=tuple(relation.values()))
 
     if isinstance(relation, Affine):
         _ensure_compatible = relation.target_axes(source_axes)
-        # Affine uses a convention such that Factor values become the matrix diagonal, and Translation
-        # becomes the offset column as-is, without any changes to the numbers.
-        # This means it needs to be inverted the same way.
-        try:
-            inverse = relation.inverted()
-        except ValueError as e:
-            raise ValueError(f"Affine relation must be invertible to connect two coordinate systems: {e}") from e
-        return AffineTransform(affine=inverse.to_tuples())
+        return AffineTransform(affine=relation.to_tuples())
 
     if isinstance(relation, AxisRenaming):
         _ensure_compatible = relation.target_axes(source_axes)
@@ -252,15 +234,14 @@ def _structural_relations(trace: _AxisLineageTrace, start: int, end: int) -> Lis
 
 
 def _physical_relation(transform: Transform, axes: Tuple[AxisKey, ...]) -> SpatialRelation:
-    """Inverse of the Translation and Affine branches of relation_to_transform (which invert, see there)."""
+    """Inverse of the Translation and Affine branches of relation_to_transform."""
     assert isinstance(transform, _PHYSICAL_TYPES)
     if isinstance(transform, TranslationTransform):
         if not transform.translation:
             raise CannotConvertToSpatialRelationError(
                 f"{type(transform).__name__} values are not loaded (path-backed); please request if you need this"
             )
-        return Translation(zip(axes, transform.translation)).inverted()
-    # Scale, rotation and affine: Whatever their payload, their matrix is the inverse of the Affine relation's
+        return Translation(zip(axes, transform.translation))
     try:
         as_affine = transform._to_affine_transform()
     except CannotConvertToAffineError:
@@ -268,12 +249,7 @@ def _physical_relation(transform: Transform, axes: Tuple[AxisKey, ...]) -> Spati
             f"{type(transform).__name__} values are not loaded (path-backed); please request if you need this"
         ) from None
     assert as_affine.affine is not None, "_to_affine_transform returns transforms with values"
-    try:
-        return Affine.from_array(as_affine.affine, axes).inverted()
-    except ValueError as e:
-        raise CannotConvertToSpatialRelationError(
-            f"{type(transform).__name__} cannot be inverted, but an Affine relation is the inverse of its transform: {e}"
-        ) from None
+    return Affine.from_array(as_affine.affine, axes)
 
 
 def _flatten_atomic(transform: Transform) -> Tuple[Transform, ...]:

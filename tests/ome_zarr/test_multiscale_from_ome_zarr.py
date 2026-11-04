@@ -629,7 +629,7 @@ def _0_6_metadata_with_coord_sys_transform_with(**updates):
         ),
         pytest.param(
             _0_6_metadata_with_coord_sys_transform_with(type="translation", translation=[0.2, 0.3]),
-            Translation(y=-0.2, x=-0.3),
+            Translation(y=0.2, x=0.3),
             id="translation",
         ),
     ],

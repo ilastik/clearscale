@@ -85,7 +85,7 @@ def test_with_coordinate_system_reached_by_non_canonical_sequence_returns_canoni
     ms = _volume().with_coordinate_system("other", reached_by=relation)
     # (translation, scale) -> canonical (scale, translation)
     assert ms.relation_to_coordinate_system("other") == SpatialRelationSequence(
-        (scaled(z=1.0, y=2.0, x=2.0), Translation(z=0.0, y=0.5, x=0.5))
+        (scaled(z=1.0, y=2.0, x=2.0), Translation(z=0.0, y=2.0, x=2.0))
     )
 
 
@@ -170,9 +170,9 @@ def test_rotations_from_other_tools_are_retrievable_as_affine_relations():
     to_system = rotated.relation_to_coordinate_system("rotated")
     from_system = rotated.relation_from_coordinate_system("rotated")
     assert isinstance(to_system, Affine) and isinstance(from_system, Affine)
-    # The relation is the inverse of the coordinate transformation, and the other direction is its inverse
-    assert [v for row in to_system.to_tuples() for v in row] == pytest.approx([cos, sin, 0.0, -sin, cos, 0.0])
-    assert [v for row in from_system.to_tuples() for v in row] == pytest.approx([cos, -sin, 0.0, sin, cos, 0.0])
+    # The relation preserves the coordinate transformation, and the other direction is its inverse
+    assert [v for row in to_system.to_tuples() for v in row] == pytest.approx([cos, -sin, 0.0, sin, cos, 0.0])
+    assert [v for row in from_system.to_tuples() for v in row] == pytest.approx([cos, sin, 0.0, -sin, cos, 0.0])
 
 
 def test_connections_without_relation_equivalent_raise_conversion_error():
@@ -198,9 +198,9 @@ def test_legacy_global_transforms_are_retrievable_through_their_synthetic_system
         shape_source="singletons",
     )
     (name,) = ms.coordinate_systems
-    # Inverted because relations are in "pull" / "backward" direction; ome-zarr transforms are "forward"
+    # Both diagonal and translation values preserve the stored push values.
     assert ms.relation_to_coordinate_system(name) == SpatialRelationSequence(
-        (scaled(y=0.5, x=0.5), Translation(y=-4.0, x=-8.0))
+        (scaled(y=2.0, x=2.0), Translation(y=4.0, x=8.0))
     )
 
 

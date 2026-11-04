@@ -798,7 +798,7 @@ class TestMultiscaleAsDerivedFrom:
                 "zyx",
                 [Affine.from_factor({"z": 2.0, "y": 2.0, "x": 2.0}), Translation(z=1.0, y=2.0, x=3.0)],
                 TransformSequence(
-                    (ScaleTransform(scale=(0.5, 0.5, 0.5)), TranslationTransform(translation=(-1.0, -2.0, -3.0)))
+                    (ScaleTransform(scale=(0.5, 0.5, 0.5)), TranslationTransform(translation=(1.0, 2.0, 3.0)))
                 ),
                 id="factor_translation",
             ),
@@ -931,7 +931,7 @@ class TestMultiscaleWithCoordinateSystem:
             (
                 ProjectAxisTransform(drops=(0,)),
                 ScaleTransform((2.0, 2.0)),
-                TranslationTransform((3.0, 4.0)),
+                TranslationTransform((-3.0, -4.0)),
             )
         ).bound(source=ms._intrinsic_ref, target=world)
         assert expected in result._transform_graph.transforms

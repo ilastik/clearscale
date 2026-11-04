@@ -67,12 +67,12 @@ class TestCoordinateSystemToLegacy:
     @pytest.mark.parametrize(
         "relation, expected_global_scale_and_translation",
         [
-            (Affine.from_factor({"y": 2, "x": 2}), ([0.5, 0.5], None)),
-            (Translation(y=3, x=4), ([1.0, 1.0], [-3.0, -4.0])),
-            ([Affine.from_factor({"y": 2, "x": 2}), Translation(y=3, x=4)], ([0.5, 0.5], [-3.0, -4.0])),
-            ([Translation(y=3, x=4), Affine.from_factor({"y": 2, "x": 2})], ([0.5, 0.5], [-1.5, -2.0])),
-            ([AxisRearrangementTo("zyx"), Translation(z=0, y=3, x=4)], ([1.0, 1.0], [-3.0, -4.0])),
-            ([Translation(y=3, x=4), AxisRearrangementTo("zx")], ([1.0, 1.0], [0.0, -4.0])),
+            (Affine.from_factor({"y": 0.5, "x": 0.5}), ([0.5, 0.5], None)),
+            (Translation(y=3, x=4), ([1.0, 1.0], [3.0, 4.0])),
+            ([Affine.from_factor({"y": 0.5, "x": 0.5}), Translation(y=3, x=4)], ([0.5, 0.5], [3.0, 4.0])),
+            ([Translation(y=3, x=4), Affine.from_factor({"y": 0.5, "x": 0.5})], ([0.5, 0.5], [1.5, 2.0])),
+            ([AxisRearrangementTo("zyx"), Translation(z=0, y=3, x=4)], ([1.0, 1.0], [3.0, 4.0])),
+            ([Translation(y=3, x=4), AxisRearrangementTo("zx")], ([1.0, 1.0], [0.0, 4.0])),
         ],
     )
     def test_serializes_compatible_coordinate_system_as_legacy_transforms(
@@ -220,7 +220,7 @@ class TestCoordinateSystems06:
         by_output = {t["output"]["name"]: t for t in result["coordinateTransformations"]}
         assert by_output["world"] == {
             "type": "translation",
-            "translation": [-3.0, -4.0],
+            "translation": [3.0, 4.0],
             "input": {"name": ms._intrinsic_ref.name},
             "output": {"name": "world"},
         }
@@ -250,7 +250,7 @@ class TestCoordinateSystems06:
             blueprint=BlueprintShapes({"s0": Shape(z=4, y=4, x=4), "s1": Shape(z=2, y=2, x=2)}),
         )
         source = source.with_coordinate_system("world", reached_by=Translation(z=1, y=2, x=3))
-        source = source.with_coordinate_system("other", reached_by=Affine.from_factor({"z": 1, "y": 2, "x": 2}))
+        source = source.with_coordinate_system("other", reached_by=Affine.from_factor({"z": 1, "y": 0.5, "x": 0.5}))
 
         derived = source.derive("s1")
 
@@ -264,9 +264,8 @@ class TestCoordinateSystems06:
         assert read_back == derived
         assert read_back.to_ome_zarr(version="0.6") == result
 
-    def test_affine_relation_is_written_inverted(self):
-        """Affine maps target coordinates to source coordinates (`x_source = L @ x_target + t`).
-        The written transform maps source to target, so it is the inverse: here a rotation, then a translation."""
+    def test_affine_relation_is_written_in_push_direction(self):
+        """Affine and its written transform both map source to target: rotation, then translation."""
         ms = _multiscale("yx", pixel_size=[0.5, 0.5])
         affine = Affine(linear=Linear.from_array(((0, -1), (1, 0)), "yx"), translation=Translation(y=1, x=2))
         ms = ms.with_coordinate_system("rotated", reached_by=affine)
@@ -277,8 +276,8 @@ class TestCoordinateSystems06:
             {
                 "type": "sequence",
                 "transformations": [
-                    {"type": "rotation", "rotation": [[0.0, 1.0], [-1.0, 0.0]]},
-                    {"type": "translation", "translation": [-2.0, 1.0]},
+                    {"type": "rotation", "rotation": [[0.0, -1.0], [1.0, 0.0]]},
+                    {"type": "translation", "translation": [1.0, 2.0]},
                 ],
                 "input": {"name": ms._intrinsic_ref.name},
                 "output": {"name": "rotated"},

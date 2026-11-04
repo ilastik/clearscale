@@ -51,7 +51,7 @@ def random_relation_chain(seed: int, *, max_steps: int = 5) -> Tuple[Tuple[str, 
             ["scaling", "affine", "translation", "permutation", "projection", "rearrangement", "renaming"]
         )
         if kind == "scaling":
-            relation = Affine.from_factor(Factor({a: rng.choice([0.5, 1.0, 2.0, 3.5, 4.0]) for a in axes}))
+            relation = Affine.from_factor(Factor({a: rng.choice([2.0, 1.0, 0.5, 1 / 3.5, 0.25]) for a in axes}))
         elif kind == "affine":
             # Triangular with a non-zero diagonal: Always invertible, and mixes axes
             n = len(axes)
@@ -68,9 +68,9 @@ def random_relation_chain(seed: int, *, max_steps: int = 5) -> Tuple[Tuple[str, 
                 + [round(rng.uniform(-5, 5), 3)]
                 for i in range(n)
             ]
-            relation = Affine.from_array(rows, axes)
+            relation = Affine.from_array(rows, axes).inverted()
         elif kind == "translation":
-            relation = Translation({a: round(rng.uniform(-5, 5), 3) for a in axes})
+            relation = Translation({a: round(rng.uniform(-5, 5), 3) for a in axes}).inverted()
         elif kind == "permutation":
             order = list(axes)
             rng.shuffle(order)
