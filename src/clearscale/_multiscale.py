@@ -1916,10 +1916,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         )
         self._require_matching_units_or_affine_relation(
             self.ome_zarr_axes,
-            # Problem: When target_axes has an axis renamed, the validator can't tell it's the same axis.
-            # What we would need is the reconciled target axes but prior to renaming
             target_ome_axes,
-            relation,  # This would contain an AxisRenaming, so should be able to undo it for validation?
+            relation,
             source_label="this Multiscale",
             target_label=f"coordinate system {name!r}",
         )
@@ -2386,7 +2384,11 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         if _contains_affine(relation):
             return
-        conflicts = source_axes.conflicts_with_unit(target_axes.get_unit())
+        implicit_target_axes = source_axes
+        if relation:
+            dependencies = relation._axis_dependencies(source_axes)
+            implicit_target_axes = source_axes.with_axes_carried_over(target_axes, dependencies)
+        conflicts = implicit_target_axes.conflicts_with_unit(target_axes.get_unit())
         if not conflicts:
             return
         details = ", ".join(f"{axis!r}: {src!r} vs {tgt!r}" for axis, (src, tgt) in conflicts.items())

@@ -142,12 +142,12 @@ class TestAsDerivedFrom:
 
 
 class TestErrors:
-    # TODO: implement validation through renaming
-    # def test_unit_override_without_affine_raises_through_renaming(self):
-    #     with pytest.raises(
-    #         ValueError, match=r"The units of 'z' and 'Z' differ.*, but no relation converts between them"
-    #     ):
-    #         _ = _multiscale_zyx().with_coordinate_system("renamed", reached_by=AxisRenaming(z="Z"), unit={"Z": "mm"})
+    def test_unit_override_without_affine_raises_through_renaming(self):
+        with pytest.raises(ValueError, match="units.*differ.*no relation converts"):
+            _multiscale_zyx().with_coordinate_system("renamed", reached_by=AxisRenaming(z="Z"), unit={"Z": "mm"})
+        derived = Multiscale.from_single(Scale(Shape(Z=4, y=8, x=8), unit=Unit(Z="mm", y="um", x="um")))
+        with pytest.raises(ValueError, match="units.*differ.*no relation converts"):
+            derived.as_derived_from(_multiscale_zyx(), reached_by=AxisRenaming(Z="z"))
 
     def test_incompatible_renaming_is_rejected(self):
         with pytest.raises(ValueError, match=r"Cannot rename axes.*not present in source axes"):
