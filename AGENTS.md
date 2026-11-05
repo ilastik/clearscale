@@ -3,19 +3,20 @@
 `src/clearscale/`, in order from lowest to highest level:
 
 - `types.py` defines common type aliases that might be needed publicly (e.g. AxisKey)
-- `_spatial_relations.py` defines the SpatialRelation base and simple non-mapping implementations (PermutationTo, ProjectionTo)
-- `_axis_values.py` defines axis-mapping primitives (Shape, Unit, PixelSize, ...)
-- `_affines.py` defines nested AxisValues (Linear matrices, their Coefficient building block, and Affine container)
+- `_spatial_relations.py` defines the SpatialRelation base and non-mapping implementations like PermutationTo, ProjectionTo
+- `_axis_values.py` defines axis-mapping primitives (Shape, Unit, PixelSize, ...); Translation is also a SpatialRelation
+- `_affines.py` defines nested AxisValues (Linear matrices, their Coefficient building block, and Affine SpatialRelation)
 - `_transforms` contains the new concepts from OME-Zarr 0.6. `_base.py` defines the transformation graph, transform base class, IdentityTransform and TransformSequence. `_transform_types.py` implements the payload-specific Transform subclasses according to the OME-Zarr 0.6 spec. The public API for users to interact with Transforms is the SpatialRelation.
 - `_multiscale.py` defines the primary user-value objects (Scale, Multiscale, BlueprintShapes and BlueprintFactors)
-- `_services` breaks out static helpers, mostly for `_multiscale.py`, `_transforms` and `_affines.py` at the moment
+- `_services` breaks out static helpers that sit beside this hierarchy. Two flavours:
+  - Fully dependency-free: e.g. `animal_names.py`, `matrices.py`, `units.py`
+  - Dependent on lower-level clearscale: `ome_zarr.py` and `precomputed.py` mainly help `_multiscale.py`, `axis_properties_across_relations.py` for methods that accept SpatialRelations (`_multiscale.py`, `_scene.py`)
 - `characterization.py` public helpers for characterizing scaling methods (mainly intended for learning during dev, not to run in production)
-- `_scene.py` defines the Scene concept of OME-Zarr 0.6
-- `_collections.py` serves as the primary entrypoint to discover OME-Zarr contents of arbitrary zarr attrs 
+- `_scene.py` defines the Scene that handles relations between Multiscales (OME-Zarr 0.6)
+- `_collections.py` is the primary entrypoint for discovering OME-Zarr contents of arbitrary zarr attrs 
 - `ome_zarr.py` exposes the parts of the public API that are specific to OME-Zarr
 
 Dependencies should flow only downward in this list.
-Lower-level modules must not import higher-level modules.
 
 # Philosophy and formatting guidelines
 
@@ -30,6 +31,7 @@ Lower-level modules must not import higher-level modules.
 - Avoid modelling concepts that cannot be represented in standardised metadata formats (i.e. OME-Zarr).
 - Similarly, methods should not by design create states or constellations that cannot be serialised.
 - The exception to this is serialisation requirements that substantially interfere with ergonomics for use-cases that never target serialisation at all. In such cases, the point of serialisation that can fail due to the requirement should also offer a fixup escape hatch.
+- American English spelling in public docs/docstrings and in class/function/method names. Internal comments/docs may use European spelling.
 
 ## Public APIs
 
@@ -59,7 +61,7 @@ Class methods should be ordered from top to bottom like:
 ## Naming
 
 - Immutables use descriptive naming ("with_axes"), mutables use imperative ("reorder")
-- Methods on base classes need to be generally named, so their names may be more technical ("with_default"). Classes in the public API should provide semantically informative and intuitive names. When in doubt, specific but verbose is better.
+- Classes in the public API should provide semantically informative and intuitive names. When in doubt, specific but verbose is better.
 - Use familiar names from core python or popular packages when their functionality is equivalent, but not when it is only similar and could cause unexpected or confusing behaviour
 
 ## Commit hygiene

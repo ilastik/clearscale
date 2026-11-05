@@ -132,6 +132,44 @@ class TestOmeZarrAxes:
         axes = ome_zarr.Axes.fromkeys("yx").with_types_inferred()
         assert axes.with_types_inferred() == axes
 
+    def test_with_axes_carried_over_keeps_only_agreeing_values_for_mixed_sources(self):
+        source = ome_zarr.Axes(
+            {
+                "y": ome_zarr.Axis(name="y", type="space", discrete=False, long_name="rows"),
+                "x": ome_zarr.Axis(name="x", type="space", discrete=True, long_name="columns"),
+            }
+        )
+        result = source.with_axes_carried_over(("mixed", "renamed", "inserted"), (("y", "x"), ("y",), ()))
+        assert result == ome_zarr.Axes(
+            {
+                "mixed": ome_zarr.Axis(name="mixed", type="space"),
+                "renamed": ome_zarr.Axis(name="renamed", type="space", discrete=False, long_name="rows"),
+                "inserted": ome_zarr.Axis(name="inserted"),
+            }
+        )
+
+    @pytest.mark.parametrize(
+        "first, second, expected",
+        [
+            ("um", "micrometer", "um"),
+            ("micrometer", "um", "micrometer"),
+            ("um", "nm", None),
+            ("um", None, None),
+            (None, "um", None),
+            (None, None, None),
+        ],
+    )
+    def test_with_axes_carried_over_recognises_unit_nicknames_from_mixed_sources(self, first, second, expected):
+        source = ome_zarr.Axes(
+            {
+                "y": ome_zarr.Axis(name="y", type="space", unit=first),
+                "x": ome_zarr.Axis(name="x", type="space", unit=second),
+            }
+        )
+        result = source.with_axes_carried_over(("Y", "x"), (("y", "x"), ("x",)))
+        assert result["Y"] == ome_zarr.Axis(name="Y", type="space", unit=expected)
+        assert result["x"] == source["x"]
+
 
 class TestScale:
     def test_default_ome_zarr_axes_has_type_inferred(self):
@@ -382,260 +420,32 @@ class TestMultiscaleAxisOrderValidation:
 
 
 class TestMultiscaleTransfer:
-    def test_with_coordinate_system_inherits_axis_properties(self):
-        ms = Multiscale(
-            {
-                "s0": Scale(
-                    shape=Shape(x=100, y=200),
-                    ome_zarr_axes={
-                        "x": ome_zarr.Axis(type="space", unit="micrometer"),
-                        "y": ome_zarr.Axis(type="space", unit="micrometer"),
-                    },
-                )
-            }
-        )
-
-        ms2 = ms.with_coordinate_system("world")
-
-        cs = ms2.coordinate_system_ome_zarr_axes("world")
-        assert cs == ms.ome_zarr_axes
-
-    def test_with_coordinate_system_inherits_axis_properties_for_shared_axes_only(self):
-        ms = Multiscale(
-            {
-                "s0": Scale(
-                    shape=Shape(z=10, y=200, x=100),
-                    ome_zarr_axes={
-                        "z": ome_zarr.Axis(type="space", unit="micrometer"),
-                        "y": ome_zarr.Axis(type="space", unit="micrometer"),
-                        "x": ome_zarr.Axis(type="space", unit="micrometer"),
-                    },
-                )
-            }
-        )
-
-        ms2 = ms.with_coordinate_system("world", reached_by=AxisRearrangementTo(("y", "x")))
-
-        cs = ms2.coordinate_system_ome_zarr_axes("world")
-        assert set(cs) == {"y", "x"}
-        assert cs["x"] == ms.ome_zarr_axes["x"]
-        assert cs["y"] == ms.ome_zarr_axes["y"]
-
-    def test_with_coordinate_system_overrides_inherited_axis_properties(self):
-        ms = Multiscale(
-            {
-                "s0": Scale(
-                    shape=Shape(z=5, y=10, x=100),
-                    ome_zarr_axes={
-                        "z": ome_zarr.Axis(type="space"),
-                        "y": ome_zarr.Axis(type="space"),
-                        "x": ome_zarr.Axis(type="space", unit="micrometer"),
-                    },
-                )
-            }
-        )
-
-        ms2 = ms.with_coordinate_system(
-            "world", reached_by=AxisRearrangementTo(("z", "y", "x")), ome_zarr_axes={"x": ome_zarr.Axis(type="custom")}
-        )
-
-        axis = ms2.coordinate_system_ome_zarr_axes("world")["x"]
-        assert axis.type == "custom"  # overridden
-        assert axis.unit == "micrometer"  # inherited
-
-    def test_with_coordinate_system_overrides_inherited_axis_properties_from_unit(self):
-        ms = Multiscale(
-            {
-                "s0": Scale(shape=Shape(y=10, x=100), unit=Unit(x="micrometer")),
-            }
-        )
-
-        ms2 = ms.with_coordinate_system(
-            "world",
-            reached_by=Affine.from_factor({"y": 1.0, "x": 1000.0}),  # 1 nm = 0.001 micrometer
-            unit=Unit(x="nanometer"),
-        )
-
-        axis = ms2.coordinate_system_ome_zarr_axes("world")["x"]
-        assert axis.unit == "nanometer"
-
-    def test_with_coordinate_system_merges_unit_and_axis_properties(self):
-        ms = Multiscale(
-            {
-                "s0": Scale(
-                    shape=Shape(z=5, y=10, x=100),
-                    ome_zarr_axes={
-                        "z": ome_zarr.Axis(type="space"),
-                        "y": ome_zarr.Axis(type="space"),
-                        "x": ome_zarr.Axis(type="space", unit="micrometer"),
-                    },
-                )
-            }
-        )
-
-        ms2 = ms.with_coordinate_system(
-            "world",
-            reached_by=Affine.from_factor({"z": 1.0, "y": 1.0, "x": 1000.0}),  # 1 nm = 0.001 micrometer
-            unit={"x": "nm"},
-            ome_zarr_axes={"x": ome_zarr.Axis(type="custom")},
-        )
-
-        axis = ms2.coordinate_system_ome_zarr_axes("world")["x"]
-        assert axis == ome_zarr.Axis(name="x", type="custom", unit="nm")  # both overridden
-
-    @pytest.mark.parametrize(
-        "y_unit, x_unit, expected_y",
-        [
-            ("um", "micrometer", "um"),
-            ("micrometer", "um", "micrometer"),
-            ("um", "nm", None),
-            ("um", None, None),
-            (None, "um", None),
-            (None, None, None),
-        ],
-    )
-    def test_with_coordinate_system_carries_unit_aliases_across_mixing_relation(self, y_unit, x_unit, expected_y):
+    def test_with_coordinate_system_uses_reconciled_properties_for_relation_target(self):
+        """Smoke test; full coverage in TestReconcileAxisPropParams"""
         source = Multiscale.from_single(
             Scale(
-                Shape(y=4, x=4),
+                Shape(z=4, y=8, x=8),
                 ome_zarr_axes={
-                    "y": ome_zarr.Axis(type="space", unit=y_unit),
-                    "x": ome_zarr.Axis(type="space", unit=x_unit),
+                    "z": ome_zarr.Axis(type="space", unit="um"),
+                    "y": ome_zarr.Axis(type="space", unit="um", long_name="rows"),
+                    "x": ome_zarr.Axis(type="space", unit="um"),
                 },
             )
         )
-        # target y depends on source x and y
-        relation = Affine.from_array(((1, 1, 0), (0, 1, 0)), "yx")
-        result = source.with_coordinate_system("mixed", reached_by=relation)
-        assert result.coordinate_system_ome_zarr_axes("mixed")["y"].unit == expected_y
-
-    def test_with_coordinate_system_rejects_conflicting_unit_arguments(self):
-        ms = Multiscale(
+        result = source.with_coordinate_system(
+            "world",
+            reached_by=[ProjectionTo("yx"), PermutationTo("xy"), ProjectionTo("cxy")],
+            unit={"c": "index"},
+            ome_zarr_axes={"c": ome_zarr.Axis(type="channel", discrete=True), "y": ome_zarr.Axis(long_name="height")},
+        )
+        assert result.ome_zarr_axes == source.ome_zarr_axes, "shouldn't change the multiscale itself"
+        assert result.coordinate_system_ome_zarr_axes("world") == ome_zarr.Axes(
             {
-                "s0": Scale(shape=Shape(x=100, y=100), unit=Unit(x="micrometer")),
+                "c": ome_zarr.Axis(name="c", type="channel", discrete=True, unit="index"),
+                "x": ome_zarr.Axis(name="x", type="space", unit="um"),
+                "y": ome_zarr.Axis(name="y", type="space", unit="um", long_name="height"),
             }
         )
-
-        with pytest.raises(ValueError, match="Conflicting unit"):
-            ms.with_coordinate_system(
-                "world",
-                reached_by=AxisRearrangementTo(("x",)),
-                unit=Unit(x="nanometer"),
-                ome_zarr_axes={"x": ome_zarr.Axis(unit="micrometer")},
-            )
-
-    def test_with_coordinate_system_default_infers_only_inserted_axes_type(self):
-        ms = Multiscale(
-            {
-                "s0": Scale(
-                    shape=Shape(nonstandard=5, t=4, x=100, y=100),
-                    ome_zarr_axes={
-                        "nonstandard": ome_zarr.Axis(),
-                        "t": ome_zarr.Axis(type="nonstandard-type"),
-                        "x": ome_zarr.Axis(type="space", unit="micrometer"),
-                        "y": ome_zarr.Axis(type="space"),
-                    },
-                )
-            }
-        )
-        assert ms["s0"].ome_zarr_axes["nonstandard"] == ome_zarr.Axis(name="nonstandard")
-        assert ms["s0"].ome_zarr_axes["t"] == ome_zarr.Axis(name="t", type="nonstandard-type")
-        assert ms["s0"].ome_zarr_axes["x"] == ome_zarr.Axis(name="x", type="space", unit="micrometer")
-
-        ms2 = ms.with_coordinate_system(
-            "world",
-            reached_by=AxisRearrangementTo(("c", "nonstandard", "t", "y", "x")),
-        )
-
-        cs = ms2.coordinate_system_ome_zarr_axes("world")
-
-        assert cs["nonstandard"] == ome_zarr.Axis(name="nonstandard"), "should be unchanged"
-        assert cs["t"] == ome_zarr.Axis(name="t", type="nonstandard-type"), "should be unchanged"
-        assert cs["x"] == ome_zarr.Axis(name="x", type="space", unit="micrometer"), "should be unchanged"
-        assert cs["c"] == ome_zarr.Axis(name="c", type="channel"), "type should be inferred"
-
-    def test_with_coordinate_system_accepts_properties_for_inserted_axes(self):
-        ms = Multiscale(
-            {
-                "s0": Scale(
-                    shape=Shape(y=10, x=100),
-                    ome_zarr_axes={"y": ome_zarr.Axis(type="space"), "x": ome_zarr.Axis(type="space")},
-                )
-            }
-        )
-
-        ms2 = ms.with_coordinate_system(
-            "world",
-            reached_by=AxisRearrangementTo(("c", "y", "x")),
-            ome_zarr_axes={"c": ome_zarr.Axis(type="channel", discrete=True)},
-        )
-
-        cs = ms2.coordinate_system_ome_zarr_axes("world")
-
-        assert cs["x"].type == "space"
-        assert cs["c"] == ome_zarr.Axis(name="c", type="channel", discrete=True)
-
-    def test_with_coordinate_system_accepts_unit_for_inserted_axes(self):
-        ms = Multiscale({"s0": Scale(shape=Shape(x=100, y=100))})
-
-        ms2 = ms.with_coordinate_system("world", reached_by=AxisRearrangementTo(("c", "y", "x")), unit=Unit(c="index"))
-
-        cs = ms2.coordinate_system_ome_zarr_axes("world")
-
-        assert cs["c"].unit == "index"
-        assert cs["x"].unit is None
-
-    def test_with_coordinate_system_accepts_matching_unit_and_ome_zarr_axes(self):
-        ms = Multiscale({"s0": Scale(shape=Shape(y=10, x=100))})
-
-        ms2 = ms.with_coordinate_system(
-            "world",
-            reached_by=AxisRearrangementTo(("y", "x")),
-            unit=Unit(x="nanometer"),
-            ome_zarr_axes={"x": ome_zarr.Axis(unit="nanometer", type="space")},
-        )
-
-        axis = ms2.coordinate_system_ome_zarr_axes("world")["x"]
-
-        assert axis.unit == "nanometer"
-        assert axis.type == "space"
-
-    def test_with_coordinate_system_ignores_excess_properties_and_unit(self):
-        ms = Multiscale({"s0": Scale(shape=Shape(x=100, y=100))})
-
-        ms2 = ms.with_coordinate_system(
-            "world",
-            reached_by=AxisRearrangementTo(("c", "y", "x")),
-            unit=Unit(z="cm"),
-            ome_zarr_axes={"t": ome_zarr.Axis(type="fun")},
-        )
-
-        cs = ms2.coordinate_system_ome_zarr_axes("world")
-
-        assert "z" not in cs
-        assert "t" not in cs
-
-    def test_with_coordinate_system_infers_for_inserted_axes_only(self):
-        ms = Multiscale(
-            {
-                "s0": Scale(
-                    shape=Shape(z=5, y=10, x=100),
-                    ome_zarr_axes={
-                        "z": ome_zarr.Axis(type="custom"),
-                        "y": ome_zarr.Axis(type="space"),
-                        "x": ome_zarr.Axis(type="space"),
-                    },
-                )
-            }
-        )
-
-        ms2 = ms.with_coordinate_system("world", reached_by=AxisRearrangementTo(("c", "z", "y", "x")))
-
-        cs = ms2.coordinate_system_ome_zarr_axes("world")
-
-        assert cs["c"].type == "channel"
-        assert cs["y"].type == "space"  # inherited
-        assert cs["z"].type == "custom"  # existing axis: not inferred (would be "space")
 
     def test_as_derived_from_fills_missing_axis_properties_from_parent(self):
         parent = Multiscale(

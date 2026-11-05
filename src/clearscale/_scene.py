@@ -7,11 +7,11 @@ from typing import Optional, List
 
 from clearscale._errors import MismatchingMultiscaleError
 from clearscale._axis_values import Unit
-from clearscale._multiscale import (
-    Multiscale,
+from clearscale._multiscale import Multiscale
+from clearscale._services.axis_properties_across_relations import (
     OmeZarrAxesParam,
-    _merge_ome_zarr_axes,
-    _reconcile_axis_prop_params,
+    merge_ome_zarr_axes,
+    reconcile_axis_prop_params,
 )
 from clearscale._axis_values import AxisKey
 from clearscale._spatial_relations import RelationsParam, SpatialRelation, normalize_relations_param
@@ -217,12 +217,12 @@ class Scene:
             relations.append(relation)
             dependencies = relation._axis_dependencies(ms_ref.axes) if relation else tuple((a,) for a in ms_ref.axes)
             reconciled_axes.append(
-                _reconcile_axis_prop_params(
+                reconcile_axis_prop_params(
                     reached_axes, dependencies, cls._source_ome_zarr_axes(ms_ref), ome_zarr_axes, unit
                 )
             )
 
-        shared_axes = _merge_ome_zarr_axes(reconciled_axes, sources="the connected coordinate systems")
+        shared_axes = merge_ome_zarr_axes(reconciled_axes, sources="the connected coordinate systems")
         shared = CoordinateSystem(shared_axes)._as_ref(coordinate_system)
         transforms = [
             (relation_to_transform_canonic(relation, source.axes) if relation else IdentityTransform()).bound(
