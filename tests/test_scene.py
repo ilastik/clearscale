@@ -612,9 +612,10 @@ class TestFromSharedCoordinateSystem:
         um = _multiscale(unit=first_unit, y=2, x=3)
         mm = _multiscale(unit=converted_unit, y=2, x=3)
 
-        # Would be better if the error could point out that you need to provide an explicit target unit,
-        # but the relation inspection this would need is too much work just for an error; docs should cover it
-        with pytest.raises(ValueError, match="Conflicting 'unit'"):
+        with pytest.raises(
+            ValueError,
+            match=r"Conflicting 'unit'.*Specify the shared coordinate system's conflicting axis properties explicitly using `ome_zarr_axes=` \(or `unit=` for units\)",
+        ):
             Scene.from_shared_coordinate_system(
                 coordinate_system="stage",
                 connections=[(um, None), (mm, Affine.from_unit_conversion(converted_unit, first_unit))],

@@ -223,7 +223,11 @@ class Scene:
                 )
             )
 
-        shared_axes = merge_ome_zarr_axes(reconciled_axes, sources="the connected coordinate systems")
+        shared_axes = merge_ome_zarr_axes(
+            reconciled_axes,
+            sources="the connected coordinate systems",
+            conflict_hint="Specify the shared coordinate system's conflicting axis properties explicitly using `ome_zarr_axes=` (or `unit=` for units). Connections with different units must also provide a converting Affine relation.",
+        )
         for i, (source, relation) in enumerate(zip(source_refs, relations)):
             require_matching_units_or_affine_relation(
                 cls._source_ome_zarr_axes(source),

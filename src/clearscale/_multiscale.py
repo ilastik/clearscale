@@ -1456,7 +1456,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             if _transform_graph:
                 raise AssertionError("Must specify _intrinsic_ref when _transform_graph is given.")
             canonical_axes = merge_ome_zarr_axes(
-                [scale.ome_zarr_axes for scale in self._mapping.values()], sources="this Multiscale's Scales"
+                [scale.ome_zarr_axes for scale in self._mapping.values()],
+                sources="this Multiscale's Scales",
+                conflict_hint="Only the first Scale providing a value gets to define it; all others must agree or be blank.",
             )
             canonical_unit = Unit([(a, ax.unit or "") for a, ax in canonical_axes.items()])
             # Dedup: every Scale shares the same canonical Unit/OmeZarrAxes instances.

@@ -71,7 +71,7 @@ def reconcile_axis_prop_params(
     return result.with_unit_merged(unit)
 
 
-def merge_ome_zarr_axes(axes_list: Sequence[OmeZarrAxes], *, sources: str) -> OmeZarrAxes:
+def merge_ome_zarr_axes(axes_list: Sequence[OmeZarrAxes], *, sources: str, conflict_hint: str) -> OmeZarrAxes:
     """Merge properties from multiple sources, rejecting any mismatches across the list.
     Appropriate when multiple axis definitions flow into one common coordinate system, i.e.
     Scale validation in Multiscale, or hub-and-spokes graphs in Scene."""
@@ -88,8 +88,7 @@ def merge_ome_zarr_axes(axes_list: Sequence[OmeZarrAxes], *, sources: str) -> Om
                 values = [v for i, v in enumerate(values) if not any(is_same_unit(v, w) for w in values[:i])]
             if len(values) > 1:
                 raise ValueError(
-                    f"Conflicting {field_name!r} for axis {a!r} across {sources}: {set(values)!r}. "
-                    "Only the first Scale providing a value gets to define it; all others must agree or be blank."
+                    f"Conflicting {field_name!r} for axis {a!r} across {sources}: {set(values)!r}. {conflict_hint}"
                 )
             merged[a][field_name] = next(iter(values), None)
     return OmeZarrAxes([(a, OmeZarrAxis(name=a, **merged[a])) for a in axes])
