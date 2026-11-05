@@ -1,3 +1,5 @@
+from unittest import mock
+
 import pytest
 
 from clearscale import (
@@ -418,6 +420,15 @@ class TestMultiscalesProperty:
         assert read_back.with_resolved({"tile": tile}).multiscales == (tile,)
 
 
+@pytest.fixture()
+def unit_validation_mock(monkeypatch):
+    import clearscale._scene as module
+
+    validator = mock.Mock(wraps=module.require_matching_units_or_affine_relation)
+    monkeypatch.setattr(module, "require_matching_units_or_affine_relation", validator)
+    return validator
+
+
 class TestFromSharedCoordinateSystem:
     @staticmethod
     def _system_ome_axes(scene: Scene, name: str):
@@ -492,6 +503,23 @@ class TestFromSharedCoordinateSystem:
         assert self._system_ome_axes(scene, "stage") == {
             "y": ome_zarr.Axis(name="y", type="space", unit="micrometer"),
             "x": ome_zarr.Axis(name="x", type="space", unit="micrometer"),
+        }
+
+    def test_accepts_mismatching_units_with_explicit_target_unit_and_converting_affine_for_mismatches(self):
+        first_unit = Unit(y="micrometer", x="um")
+        converted_unit = Unit(y="millimeter", x="mm")
+        tile1 = _multiscale(unit=first_unit, y=2, x=3)
+        tile2 = _multiscale(unit=converted_unit, y=2, x=3)
+
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage",
+            connections=[(tile1, None), (tile2, Affine.from_unit_conversion(converted_unit, first_unit))],
+            unit=first_unit,
+        )
+
+        assert self._system_ome_axes(scene, "stage") == {
+            "y": ome_zarr.Axis(name="y", type="space", unit="micrometer"),
+            "x": ome_zarr.Axis(name="x", type="space", unit="um"),
         }
 
     def test_explicit_unit_overrides_inherited_one(self):
@@ -570,6 +598,66 @@ class TestFromSharedCoordinateSystem:
 
         with pytest.raises(ValueError, match="Conflicting 'unit'"):
             Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(um, None), (mm, None)])
+
+    def test_rejects_conflicting_units_even_with_converting_affine_but_no_provided_unit(self):
+        """
+        Without an explicit target unit for the shared system, we would need to check whether each mismatching source
+        has an Affine that might convert its units to the central consensus.
+        Finding the central consensus in itself could be impossible: if *all* multiscales relate with a converting Affine,
+        we would have no way to know what the conversion target unit was supposed to be.
+        The conversion target is only known to the Affine.from_unit_conversion call (not the resulting Affine).
+        """
+        first_unit = Unit(y="micrometer", x="um")
+        converted_unit = Unit(y="millimeter", x="mm")
+        um = _multiscale(unit=first_unit, y=2, x=3)
+        mm = _multiscale(unit=converted_unit, y=2, x=3)
+
+        # Would be better if the error could point out that you need to provide an explicit target unit,
+        # but the relation inspection this would need is too much work just for an error; docs should cover it
+        with pytest.raises(ValueError, match="Conflicting 'unit'"):
+            Scene.from_shared_coordinate_system(
+                coordinate_system="stage",
+                connections=[(um, None), (mm, Affine.from_unit_conversion(converted_unit, first_unit))],
+            )
+
+    @pytest.mark.parametrize("properties", [{"unit": {"x": "nm"}}, {"ome_zarr_axes": {"x": ome_zarr.Axis(unit="nm")}}])
+    def test_explicit_target_unit_does_not_hide_missing_conversion(self, properties):
+        converted = _multiscale(unit=Unit(x="um"), y=4, x=4)
+        unconverted = _multiscale(unit=Unit(x="um"), y=4, x=4)
+        with pytest.raises(ValueError, match=r"connections\[1\] and coordinate system 'stage'.*no relation converts"):
+            Scene.from_shared_coordinate_system(
+                coordinate_system="stage",
+                connections=[(converted, Affine.from_factor({"y": 1, "x": 1000})), (unconverted, None)],
+                **properties,
+            )
+
+    def test_validates_each_selected_source_against_final_merged_properties(self, unit_validation_mock):
+        blank = _multiscale(y=4, x=4)
+        specified = _multiscale(unit=Unit(x="um"), y=4, x=4).with_coordinate_system(
+            "selected", reached_by=Affine.from_factor({"y": 1, "x": 1000}), unit={"x": "nm"}
+        )
+        steps = [Translation(y=0, x=1), Translation(y=0, x=2)]
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=[(blank, None), ((specified, "selected"), steps)]
+        )
+        shared = ome_zarr.Axes(self._system_ome_axes(scene, "stage"))
+        assert shared["x"].unit == "nm"
+        assert unit_validation_mock.call_args_list == [
+            mock.call(
+                blank.ome_zarr_axes,
+                shared,
+                None,
+                source_label="connections[0]",
+                target_label="coordinate system 'stage'",
+            ),
+            mock.call(
+                specified.coordinate_system_ome_zarr_axes("selected"),
+                shared,
+                SpatialRelationSequence(tuple(steps)),
+                source_label="connections[1]",
+                target_label="coordinate system 'stage'",
+            ),
+        ]
 
     def test_reports_relations_that_cannot_be_applied(self):
         tile = _multiscale(y=2, x=3)
@@ -750,6 +838,29 @@ class TestFromMultiscalePair:
 
         with pytest.raises(ValueError, match=r"produces \('z', 'y', 'x'\), but `b` has axes \('y', 'x'\)"):
             Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=None)
+
+    def test_rejects_unit_mismatch_without_conversion(self):
+        a = _multiscale(unit=Unit(x="um"), y=4, x=4)
+        b = _multiscale(unit=Unit(x="nm"), y=4, x=4)
+        with pytest.raises(ValueError, match=r"units of `a` and `b` differ.*no relation converts"):
+            Scene.from_multiscale_pair(a=a, b=b, a_to_b=None)
+
+    def test_forwards_selected_systems_and_normalized_relation_to_unit_validator(self, unit_validation_mock):
+        a = _multiscale(unit=Unit(x="um"), y=4, x=4).with_coordinate_system(
+            "selected", reached_by=Affine.from_factor({"y": 1, "x": 1000}), unit={"x": "nm"}
+        )
+        b = _multiscale(unit=Unit(x="um"), y=4, x=4).with_coordinate_system(
+            "selected", reached_by=Affine.from_factor({"y": 1, "x": 0.001}), unit={"x": "mm"}
+        )
+        steps = [Translation(y=0, x=1), Affine.from_factor({"y": 1, "x": 0.000001})]
+        Scene.from_multiscale_pair(a=(a, "selected"), b=(b, "selected"), a_to_b=steps)
+        unit_validation_mock.assert_called_once_with(
+            a.coordinate_system_ome_zarr_axes("selected"),
+            b.coordinate_system_ome_zarr_axes("selected"),
+            SpatialRelationSequence(tuple(steps)),
+            source_label="`a`",
+            target_label="`b`",
+        )
 
     def test_reports_relations_that_cannot_be_applied(self):
         with pytest.raises(ValueError, match=r"`a_to_b` cannot be applied to the axes of `a` \('y', 'x'\)"):

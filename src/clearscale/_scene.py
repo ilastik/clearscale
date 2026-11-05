@@ -12,6 +12,7 @@ from clearscale._services.axis_properties_across_relations import (
     OmeZarrAxesParam,
     merge_ome_zarr_axes,
     reconcile_axis_prop_params,
+    require_matching_units_or_affine_relation,
 )
 from clearscale._axis_values import AxisKey
 from clearscale._spatial_relations import RelationsParam, SpatialRelation, normalize_relations_param
@@ -223,6 +224,14 @@ class Scene:
             )
 
         shared_axes = merge_ome_zarr_axes(reconciled_axes, sources="the connected coordinate systems")
+        for i, (source, relation) in enumerate(zip(source_refs, relations)):
+            require_matching_units_or_affine_relation(
+                cls._source_ome_zarr_axes(source),
+                shared_axes,
+                relation,
+                source_label=f"connections[{i}]",
+                target_label=f"coordinate system {coordinate_system!r}",
+            )
         shared = CoordinateSystem(shared_axes)._as_ref(coordinate_system)
         transforms = [
             (relation_to_transform_canonic(relation, source.axes) if relation else IdentityTransform()).bound(
@@ -270,6 +279,13 @@ class Scene:
                 f"Applying `a_to_b` to the axes of `a` {a_ref.axes} produces {reached_axes}, "
                 f"but `b` has axes {b_ref.axes}."
             )
+        require_matching_units_or_affine_relation(
+            cls._source_ome_zarr_axes(a_ref),
+            cls._source_ome_zarr_axes(b_ref),
+            relation,
+            source_label="`a`",
+            target_label="`b`",
+        )
         transform = (relation_to_transform_canonic(relation, a_ref.axes) if relation else IdentityTransform()).bound(
             source=a_ref, target=b_ref
         )
