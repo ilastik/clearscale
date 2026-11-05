@@ -7,7 +7,7 @@ It also describes *where* its pixels are in space, and how that space relates to
 
 * **Coordinate systems**: named spaces with axes.
 * **Spatial context**: the set of coordinate systems a Multiscale knows about, and how it connects to each of them.
-* **Spatial relations**: descriptions of how to resample data to align them with another coordinate system.
+* **Spatial relations**: connections from one space to another.
 
 You can ignore all of this if you only care about pixel size and shape.
 It becomes useful when your output image has to stay correctly positioned relative to something else.
@@ -67,15 +67,15 @@ multiscale = Multiscale.from_single(
 acquisition_shift_from_stage_origin = Translation(z=100.0, y=250.0, x=250.0)
 multiscale = multiscale.with_coordinate_system(
     "stage",
-    # The stage is reached by *undoing* the acquisition's shift, so the Translation needs to be inverted
-    reached_by=acquisition_shift_from_stage_origin.inverted(),
+    reached_by=acquisition_shift_from_stage_origin,
 )
 
+converted_unit = Unit(z="mm", y="mm", x="mm")
 multiscale = multiscale.with_coordinate_system(
     "millimeter",
-    # One millimeter is 1000 micrometer
-    reached_by=Affine.from_factor({"z": 1000, "y": 1000, "x": 1000}),
-    unit=Unit(z="mm", y="mm", x="mm"),
+    # Unit conversion is a scaling affine relation
+    reached_by=Affine.from_unit_conversion(multiscale.unit, converted_unit),
+    unit=converted_unit,
 )
 
 assert set(multiscale.coordinate_systems) == {"stage", "millimeter"}
@@ -120,11 +120,15 @@ When writing OME-Zarr 0.6, this is stored in the output metadata.
 > "Deriving" does *not* establish a connection between the source Multiscale and the derived Multiscale.
 > Multiscale-Multiscale relations are only possible in a [Scene](scene.md).
 
-### Deriving by a spatial relation
+### Deriving with a spatial relation
 `derive` is a convenience shortcut for simple cases where the properties of the extracted Scale do not change.
 
 If something else changed between the source and the result — maybe you cropped the data, projected it along one axis, or otherwise transformed it — build the result yourself to accurately describe the result.
-Then use `as_derived_from` to inherit the unchanged properties, including any coordinate systems the parent might define:
+Then use `as_derived_from` to inherit the unchanged properties, including any coordinate systems the parent might define.
+
+In `as_derived_from`, the source acts as a new coordinate system.
+Specify how to reach the source from the result just like in `with_coordinate_system`: `result --reached_by--> source`.
+The relation you specify is chained before the original relation between the source and its coordinate systems:
 
 ```python
 from clearscale import Multiscale, PixelSize, ProjectionTo, Scale, Shape
@@ -135,26 +139,23 @@ projection = (
         Scale(shape=Shape(y=512, x=512), pixel_size=PixelSize(y=0.5, x=0.5)),
         scale_key="s1"
     )
-    .as_derived_from(volume, by=ProjectionTo("yx"))
+    .as_derived_from(volume, reached_by=ProjectionTo(volume.axes))
 )
 ```
 
-`projection.as_derived_from(volume, by=...)` says "`projection` was derived from `volume`, in this way".
+Without `reached_by`, both Multiscales must have identical axes.
+Blank axis properties on the result (type, unit, ...) are filled from the corresponding source axes.
 
-`by` takes the same spatial relations as `with_coordinate_system(reached_by=...)`, because the question is the same: "how do I get from one space to the other?"
+Source-only axes are inserted at coordinate 0.
+For example, if the result is a slice extracted at z=3.5, use `[ProjectionTo(volume.axes), Translation(z=3.5, y=0, x=0)]` (note Translation must be in physical units, i.e. `PixelOffset * PixelSize`).
+The expressive capabilities are limited: For example, it is not possible to distinguish a maximum projection (which represents all source slices) from a slice extracted at z=0.
 
-The direction to think about is the opposite in this case, as the method and parameter names suggest:
+Axis properties are transferred from source to derived, which is the opposite direction of the relation.
+Non-invertible relations (e.g. Affine with a singular matrix) cannot be used in `as_derived_from` as a consequence.
 
-* `with_coordinate_system("other", reached_by=...)`: self --relation-> "other" (*How do you reach the new coordinate system, from me?*)
-* `as_derived_from(source, by=...)`: source --relation-> self (*How do you reach me, from `source`?*)
-
-`as_derived_from` uses the answer to carry the source's other coordinate systems across wherever they remain well-defined.
-
-Not every relation can be carried over.
-A relation that drops an axis loses information, so connections to the source's other coordinate systems can only be carried over where they remain well-defined.
-
-Without `by`, `as_derived_from` requires both Multiscales to have identical axes.
-It also fills in axis properties you left blank (type, unit, ...) from `volume`.
+Source coordinate systems are carried over through `derived -> source -> system`.
+If a system came from another tool that stored it in the opposite direction `source <- system`, it can only be transferred to `derived` if either the `source <- system` connection or the provided `derived --reached_by--> source` can be inverted.
+A source connection stored in the reverse direction can still require an inverse that does not exist.
 
 ## Reading relations back
 
@@ -171,17 +172,13 @@ Coordinate systems are carried over by derivation (see above), so they can still
 Say `source` has axes `"zyx"`, and a coordinate system named `"stage"`, reached by a `Translation`, and the result is a maximum projection of it:
 
 ```python
-result = projection.as_derived_from(source, by=ProjectionTo("yx"))
+result = projection.as_derived_from(source, reached_by=ProjectionTo(source.axes))
 
-# "stage" --relation--> result
-relation = result.relation_from_coordinate_system("stage")
+# result --relation--> "stage"
+relation = result.relation_to_coordinate_system("stage")
 
-# e.g. SpatialRelationSequence((ProjectionTo("yx"), Translation(y=250.0, x=250.0)))
+# e.g. SpatialRelationSequence((ProjectionTo("zyx"), Translation(z=100.0, y=250.0, x=250.0)))
 ```
-
-For invertible connections like `Translation`, both directions work and return inverse relations.
-
-For non-invertible connections like axis drops, only the direction they were recorded in works. In the example, the projection dropped `z` from `source` to `result`, so there is no way from `result` back to `source` or `"stage"`: `result.relation_to_coordinate_system("stage")` raises `CannotConvertToSpatialRelationError`.
 
 * The result is a single relation, a list-like sequence of relations, or `None`, if the other space is the same space under another name.
 * It describes the same transformation as the one that was specified, but in canonical form: Relations may be merged or reordered (renamings come last), and values may differ by floating point rounding.
@@ -189,55 +186,23 @@ For non-invertible connections like axis drops, only the direction they were rec
 * `CannotConvertToSpatialRelationError` is also raised for connections that no relation expresses, such as displacement fields read from OME-Zarr metadata written by other tools. Rotations, shears and flips are expressed as `Affine`.
 * `NoSuchCoordinateSystemError` is raised for names that are not in `coordinate_systems` (including the Multiscale's own space).
 
+Tools other than clearscale may write connections in the opposite direction (`"stage" -> multiscale`).
+In this case, `relation_to_coordinate_system` returns the inverse of the stored connection for invertible connections like `Translation`.
+If the connection is not invertible, `relation_to_coordinate_system` raises `CannotConvertToSpatialRelationError`.
+To retrieve the original as written, or retrieve non-invertible connections, use the opposite counterpart `relation_from_coordinate_system`.
+
 ## Spatial relation vs coordinate transformation
 
-A **spatial relation** answers the question: *If I have an image in space A, and I do `<operation>` to it, how is the resulting image's space B related to A?*
+A spatial relation maps source coordinates to target coordinates.
+`Translation` adds its values; `Affine` applies `x_target = linear @ x_source + translation`.
+Lists apply first to last, so Affines compose as `A2 @ A1` for `[R1, R2]`.
 
-The operation you actually performed on the data could be cropping, shifting the origin, transposing the axes.
+Both `as_derived_from` and `with_coordinate_system` describe how to reach another coordinate system from the
+current image. A crop whose corner is at `(0, 50, 100)` in source coordinates reaches its source through
+`Translation(z=0, y=50, x=100)`, whether recorded as a derivation or as a new coordinate system.
 
-This is exactly the inverse of coordinate arithmetic, if this is what you are used to:
-
-* shifting by a `Translation` subtracts that from A-coordinates (shifted B's origin is somewhere inside A-space),
-* an `Affine` expresses A-coordinates in terms of B-coordinates (`x_A = linear @ x_B + translation`, a.k.a. "pull" or "backward" direction, as used for sampling B from A).
-
-In addition, also note the opposite directions of thinking in `as_derived_from` vs `with_coordinate_system`:
-
-* When deriving, the spatial relation says, *I made the derived output by doing `<operation>`*.
-* When specifying a new coordinate system, the spatial relation says, *To reach this other space, you need to do `<operation>`*
-
-For example, a numerically identical crop shift could be expressed in two different ways:
-
-```python
-from dataclasses import replace
-
-crop_offset = PixelOffset(z=0, y=100, x=200)
-crop_shape = Shape(z=40, y=128, x=128)
-crop_translation = crop_offset * source["s0"].pixel_size
-
-# "I made a new image by cropping `source["s0"]`"
-crop_expressed_as_derivation = (
-    Multiscale
-    .from_single(replace(source["s0"], shape=crop_shape), scale_key="s0")
-    .as_derived_from(source, by=crop_translation)
-)
-
-# "You can reach original_image by undoing a crop that I know about"
-crop_expressed_as_coordinate_system = processed_image.with_coordinate_system(
-    "original_image",
-    reached_by=crop_translation.inverted()  # <- same translation, but inverted
-)
-```
-
-This example is a bit contrived, because it is unlikely that the same shift (in physical units) applies to two different scenarios like this.
-
-This is just to illustrate that the resulting coordinate transformations
-
-* `(crop_expressed_as_derivation --> source) = [0.0, 50.0, 100.0]`
-* `(crop_expressed_as_coordinate_system --> "original_image") = [0.0, 50.0, 100.0]`
-
-are arithmetically identical, despite passing `Translation` to `as_derived_from` and `Translation.inverted()` to `with_coordinate_system`.
-
-(Although `crop_expressed_as_derivation --> source` is internally stored as the inverse `(source --> crop_expressed_as_derivation) = [0.0, -50.0, -100.0]`, because this is the direction of the derivation statement.)
+Resampling uses the opposite direction: For example, scipy asks where each output pixel samples the input.
+Refer to Affine constructor method docstrings for details on how to convert.
 
 ### Units
 
@@ -247,8 +212,7 @@ Trying to relate a source and target with different units in `with_coordinate_sy
 
 Intentional conversions from one unit to another need to be explicitly specified as a relation.
 Without a conversion, a coordinate in one space would be assumed to equal the same number in the other.
-
-State the conversion explicitly with a scaling `Affine` instead (see [Affine](#affine), specifically [Unit conversion](#unit-conversion)).
+The appropriate relation for a unit conversion is a scaling `Affine` (see [Affine](#affine), specifically [Unit conversion](#unit-conversion)).
 
 Things to know:
 
@@ -258,13 +222,13 @@ Things to know:
 
 ## Available spatial relations
 
-All spatial relations can be used in `with_coordinate_system(reached_by=...)` and `as_derived_from(by=...)`.
+All spatial relations can be used in `with_coordinate_system(reached_by=...)` and `as_derived_from(reached_by=...)`.
 To chain relations, pass a list; they are applied in order.
 
-| Relation              | What you did                     | Coordinates in the new space                    |
+| Relation              | Coordinate operation             | Coordinates in the target space                 |
 |-----------------------|----------------------------------|-------------------------------------------------|
-| `Affine`              | Resampled with an affine matrix  | inverse affine applied to the old coordinate    |
-| `Translation`         | Moved the origin                 | old coordinate - translation                    |
+| `Affine`              | Apply an affine mapping          | linear @ source coordinate + translation        |
+| `Translation`         | Add a physical shift             | source coordinate + translation                 |
 | `PermutationTo`       | Reordered axes                   | Same values, new axis order                     |
 | `ProjectionTo`        | Dropped and/or inserted axes     | Dropped axes are gone, inserted axes start at 0 |
 | `AxisRearrangementTo` | Any combination of the two above | See below                                       |
@@ -272,13 +236,12 @@ To chain relations, pass a list; they are applied in order.
 
 ### `Affine`
 
-* When deriving: "The new image's space relates to the old image's space by this affine".
-* When adding coordinate systems: "The old image's coordinates are this affine of the new coordinate system's coordinates".
-
-`Affine(linear=..., translation=...)` maps coordinates of the *new* space to coordinates of the *old* one, in physical units: `x_old = linear @ x_new + translation` (column vectors, axes in the order of the affine).
-The columns of `linear` are the new space's axes written in old-space coordinates, and `translation` is the new origin in the old space.
-The matrix must be invertible.
-The relation is stored in the metadata in the opposite direction, from the old space to the new one.
+`Affine(linear=..., translation=...)` maps physical coordinates from source to target:
+`x_target = linear @ x_source + translation` (column vectors, axes in the affine's order).
+Its values are stored in the same direction as coordinate transformations, also known as "push" or "forward".
+The columns of `linear` are the source space's axes, rows are target axes, and `translation` is the source origin in the target space.
+Singular matrices are accepted for forward mappings.
+Invertibility is required when retrieving the reverse, explicitly converting between push and pull mappings, or carrying properties in `as_derived_from`.
 
 An `Affine` is only a *true* statement if it carries information that the pixel sizes and translations of the Scales do not already hold.
 Resampling is not such information: a downscaled image has a larger pixel size, and that is all there is to say about it.
@@ -287,8 +250,11 @@ The two spaces are both physical, so they are the same space, and the correct sc
 Use it for relations the Scales cannot express, such as a rotation or a flip.
 
 Affines with a scaling component are correct only in two main cases:
-* In `with_coordinate_system` if the newly added coordinate system has a different pixel size than the Multiscale it is connected to.
-* When converting units: `Affine.from_factor({"x": 1000})` can represent e.g. going from `Unit(x="micrometer")` to `Unit(x="millimeter")`.
+* When the target system uses a different coordinate scale, such as the original dimensions of an expanded sample.
+* When converting units: `Affine.from_factor({"x": 0.001})` can represent e.g. going from `Unit(x="micrometer")` to `Unit(x="millimeter")`. `Affine.from_unit_conversion(source_unit, target_unit)` helps to get the direction right.
+
+Note that `Affine.from_factor` uses the provided values as-is, but its "push" convention is the opposite direction of clearscale's `Factor` class.
+If `Factor(x=2)` is "downscale by 2", then the corresponding downsampling (pull) Affine is `Affine.from_factor(factor.inverted())`.
 
 #### Example: expansion microscopy
 
@@ -298,14 +264,14 @@ To record the sample's original dimensions in the output metadata, add a coordin
 ```python
 from clearscale import Affine, Factor
 
-expansion_factor = Factor.uniform("zyx", 4.2)
+expansion_factor = Factor.uniform("zyx", 4.2)  # Factor here does *not* mean "downscale by 4.2" like usual
 multiscale = multiscale.with_coordinate_system(
     "unexpanded",
     reached_by=Affine.from_factor(expansion_factor),
 )
 
 # Pixel size of the image in unexpanded sample space:
-unexpanded_pixel_size = multiscale["s0"].pixel_size / expansion_factor
+unexpanded_pixel_size = multiscale["s0"].pixel_size * expansion_factor
 ```
 
 Note that the factor here *divides* the pixel size, because it represents a change of coordinate system rather than an image resampling operation.
@@ -315,9 +281,8 @@ Downsampling changes how many pixels cover the same physical distance; a scaling
 
 Registration tools may report where an image lies in a reference coordinate system, using a transformation such as `x_world = matrix @ x_image + shift`, with coordinates expressed in physical units.
 
-This is the opposite direction from Affine's "pull" convention, `x_source = linear @ x_target + translation`. Here, `x_source` corresponds to the registration tool's `x_world`, and `x_target` to its `x_image`.
-
-When a registration tool provides an image-to-world transformation in physical coordinates, invert it before passing it as reached_by:
+This is the same as Affine's push convention.
+Pass the physical image-to-world mapping directly as `reached_by`:
 
 ```python
 from clearscale import Affine
@@ -325,10 +290,9 @@ from clearscale import Affine
 # Registration tool output: "image -> world", in physical coordinates
 registration_matrix = [[0, -1, 10], [1, 0, 20]]
 
-# "image -> world" in registration terms is "world -> image" in Affine terms
-world_to_image = Affine.from_array(registration_matrix, "yx")
+image_to_world = Affine.from_array(registration_matrix, "yx")
 
-multiscale.with_coordinate_system("world", reached_by=world_to_image.inverted())
+multiscale.with_coordinate_system("world", reached_by=image_to_world)
 ```
 
 #### Unit conversion
@@ -375,9 +339,11 @@ converted_base = original_base.with_unit_converted({"z": "nm"})
 assert converted_base.pixel_size == PixelSize(z=2300.0, y=10.0, x=10.0), "2.3 micron = 2300 nm"
 
 converted_ms = Multiscale.from_single(converted_base, scale_key="s0")
-conversion_relation = Affine.from_unit_conversion(original_ms.unit, converted_ms.unit)
+# source is converted_ms and target is original_ms.
+# The relation needs to be *from* converted *to* the original as a coordinate system.
+conversion_relation = Affine.from_unit_conversion(converted_ms.unit, original_ms.unit)
 
-derived = converted_ms.as_derived_from(original_ms, by=conversion_relation)
+derived = converted_ms.as_derived_from(original_ms, reached_by=conversion_relation)
 ```
 
 clearscale maintains and writes unit strings as you provide them: `"nm"` stays `"nm"`, because tool interoperability can depend on the exact spelling.
@@ -407,11 +373,12 @@ assert Unit(x="\u00b5m", t="s").abbreviated().normalized() == Unit(x="micrometer
 
 #### Matrices in pixel index space
 
-Image resampling may work with pixel indices, not physical coordinates.
-`scipy.ndimage.affine_transform(image, matrix, offset)` is a classic example: output pixel `i_out` takes its value from input position `matrix @ i_out + offset`.
-That is already the direction of `Affine`, with the output image as the new space and the input image as the old space.
-Index space has no units, so to convert it into physical coordinates, `Affine` needs to know both pixel grids.
-Pass the `Scale` of each image:
+Image resampling may work with pixel indices, not physical coordinates, and often works with "pull" or "inverse" matrices.
+`scipy.ndimage.affine_transform(image, matrix, offset)` is a classic example: output pixel `i_out` takes its value from input position `i_in = matrix @ i_out + offset`.
+
+All Affine helpers assume the provided matrix is in the "push" or "forward" direction.
+For a scipy pull matrix, this means the *input* acts as the *target* and the output as the source.
+The Affine returned by the constructor will then be accurately converted to physical, but still in "pull" direction, so it needs to be inverted to obtain an accurate "push" Affine relation:
 
 ```python
 affine = Affine.from_linear_and_offset(
@@ -423,14 +390,17 @@ affine = Affine.from_linear_and_offset(
 )
 ```
 
-`source` is the image the values are taken from, `target` is the image that is produced, and both must have exactly the given axes.
-`Affine.from_array` takes the same arguments for a combined `[matrix | offset]` array.
-Index `i` refers to the *center* of pixel `i`.
+The resulting Affine maps physical input coordinates to physical output coordinates.
+`Affine.from_array` accepts a combined `[matrix | offset]` array with exactly the same convention.
+Without source/target, both constructors take values as is and assume they are physical; invert the resulting Affine if those values are pull values.
 
-The resulting physical matrix is `source.pixel_size * matrix / target.pixel_size` (axis-wise), and the physical translation is `source.pixel_size * offset + source.translation - physical_matrix @ target.translation`.
+For a push index mapping `index_target = matrix @ index_source + offset`, grid conversion gives
+`physical_matrix = target.pixel_size * matrix / source.pixel_size` (axis-wise) and
+`physical_translation = target.pixel_size * offset + target.translation - physical_matrix @ source.translation`.
+Integer indices refer to pixel centers. Both grids must have exactly the given axes in the same order.
 
-Since each Scale's pixel size is in its own unit, this also takes care of unit differences: an identity index-matrix "resampling" a 0.015 micrometer grid from a 15 nm source grid becomes a unit-converting Affine with a scaling factor of 1000.
-If the target is just a downscaled version of the source and both Scales are accurate, the result is the identity: Scales already describe the resampling.
+Since each Scale's pixel size is in its own unit, this also takes care of unit differences: an identity index-matrix mapping a 15 nm source grid to a 0.015 micrometer target grid becomes a unit-converting Affine with a physical coefficient of 0.001.
+If the target is just a downscaled version of the source and both Scales are accurate, the result is a physical identity: Scales already describe the image scaling.
 
 If you need a physical `Affine` for a coordinate system that has no `Scale` (i.e. for `with_coordinate_system`), describe the grid your matrix refers to with a placeholder `Scale`; its shape is not used:
 
@@ -438,8 +408,8 @@ If you need a physical `Affine` for a coordinate system that has no `Scale` (i.e
 grid = Scale(shape=Shape.all_singletons("yx"), pixel_size=PixelSize(y=0.5, x=0.5))
 ```
 
-The opposite direction, from an `Affine` to the `matrix` and `offset` that `affine_transform` takes, is `to_linear_and_offset`.
-Pass the same `source` and `target`, and use the result directly.
+`to_linear_and_offset` returns a push matrix and offset, optionally converted to index space.
+For scipy arguments, again, explicitly invert the Affine and swap the input and output grids.
 You choose the output grid: its pixel size, and the region it covers (`translation`).
 Its shape is what you pass to the resampling function, not to the placeholder `Scale`:
 
@@ -447,7 +417,7 @@ Its shape is what you pass to the resampling function, not to the placeholder `S
 # For example, a relation that deskews an oblique acquisition
 affine = multiscale.relation_to_coordinate_system("deskewed")
 output_grid = Scale(shape=Shape.all_singletons("zyx"), pixel_size=input_scale.pixel_size, translation=output_origin)
-matrix, offset = affine.to_linear_and_offset(source=input_scale, target=output_grid)
+matrix, offset = affine.inverted().to_linear_and_offset(source=output_grid, target=input_scale)
 deskewed = scipy.ndimage.affine_transform(data, matrix, offset=offset, output_shape=output_shape)
 ```
 
@@ -458,18 +428,18 @@ Without `source` and `target`, `to_linear_and_offset` returns the physical value
 #### Matrices from other sources
 
 Without `source` and `target`, `from_array` and `from_linear_and_offset` take the numbers as they are.
-If your matrix does not follow the convention above, convert it first:
+If your matrix does not follow the "push" or "forward" physical coordinate mapping convention, convert it first:
 
-* **Direction**: If it maps old coordinates to new coordinates, invert it (`.inverted()` after constructing).
-* **Row vectors**: `Affine` uses column vectors (`x_old = linear @ x_new`). For a matrix written for row vectors (`x_new @ matrix`), transpose it.
+* **Direction**: If it maps output coordinates to input coordinates as resampling matrices often do, supply output as source, input as target, and invert it (`.inverted()` after constructing).
+* **Row vectors**: `Affine` uses column vectors (`x_target = linear @ x_source`). For a matrix written for row vectors (`x_source @ matrix`), transpose it.
 * **Index vs physical coordinates**: If it works on pixel indices, pass `source` and `target`, as above.
 * **Axis order**: Rows and columns follow the `axes` you pass. Reorder if your matrix uses another order (for example `xyz` for data that is `zyx`).
 * **Pixel reference point**: `Affine` treats index `i` as the pixel center. If your tool places integer indices at pixel corners, the offset needs a half-pixel correction: `offset_center = offset_corner + 0.5 * (matrix @ ones - ones)`.
 
 ### `Translation`
 
-* When deriving: "The new image's origin is at this coordinate in the old image".
-* When adding coordinate systems: "The new coordinate system's origin is at this coordinate relative to the image origin".
+`Translation(t)` maps each source coordinate to `source + t` in the target system.
+For example, in the context of a crop reaching its source as a coordinate system, t is the crop start in the source image.
 
 `Translation` is in physical units (use `PixelOffset * PixelSize` to convert a pixel offset, such as a crop offset).
 
@@ -489,11 +459,11 @@ crop_shape = Shape(z=20, y=128, x=128)
 cropped = Multiscale.from_single(
     replace(s0, shape=crop_shape),  # same pixel size and unit, but the cropped shape
     blueprint=BlueprintShapes.downscale_powers_of_2_xyz(base_shape=crop_shape, rounding="ceil"),
-).as_derived_from(source, by=crop_offset * s0.pixel_size)  # PixelOffset * PixelSize = Translation
+).as_derived_from(source, reached_by=crop_offset * s0.pixel_size)  # PixelOffset * PixelSize = Translation
 ```
 
 The cropped Multiscale's own origin is the crop corner, and the relation says where that corner lies in the source:
-With a pixel size of 2.0/0.5/0.5 micrometer, `by` is `Translation(z=20.0, y=50.0, x=100.0)`.
+With a pixel size of 2.0/0.5/0.5 micrometer, `reached_by` is `Translation(z=20.0, y=50.0, x=100.0)`.
 
 If you set `Scale.translation` manually, make sure to keep this consistent (i.e. mutually exclusive) with any `Translation` relations. `Scale.translation` records shifts that come from resampling (`translating=`), while the offset of a crop belongs in the relation.
 Additionally writing the crop offset into the cropped image's `Scale.translation` would count it twice.
@@ -532,12 +502,12 @@ Relations later in a list must use the new names.
 
 ### Combining relations
 
-Relations that act on values (`Affine`, `Translation`) and relations that act on axes can be chained in one list:
+All relations, whether they act on values (`Affine`, `Translation`) or on axes, can be chained in one list:
 
 ```python
 multiscale.with_coordinate_system(
     "yx_preview",
-    reached_by=[ProjectionTo("yx"), Affine.from_factor({"y": 1000, "x": 1000})],
+    reached_by=[ProjectionTo("yx"), Affine.from_factor({"y": 0.001, "x": 0.001})],
 )
 ```
 

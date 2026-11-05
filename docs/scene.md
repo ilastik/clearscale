@@ -11,19 +11,14 @@ Use `Multiscale.with_coordinate_system` instead.
 A Scene is a graph.
 Its nodes are *spaces*: the space of a Multiscale's data (or one of its other coordinate systems), and coordinate systems that belong to the Scene itself.
 Its edges are *spatial relations*, exactly the ones described in [Space](space.md#available-spatial-relations).
+See there for more details of how to think of relations and the specific types available.
 
 Every Scene method reads relations the same way:
 
-> `a --Relation--> b`: `Relation` is what you do with an image in space `a` to obtain space `b`.
+> `a --Relation--> b`: `Relation` maps coordinates from space `a` to space `b`.
 
-`Translation(p)` means "cropped, so that the new origin is at `p`", and `ProjectionTo("yx")` means "dropped the other axes".
-This is the opposite of how you might think about coordinates, see [Space](space.md#spatial-relation-vs-coordinate-transformation) for the reasoning.
-
-Note that there is no simple relation for "scaled by":
-The scale of a space is expressed by its axis units (nanometer, micrometer, ...).
-Each Multiscale defines its own scale in that unit through its Scales' `.pixel_size`.
-Scaling relations *between* spaces are only appropriate when the spaces have different axis units.
-Use `Affine.from_unit_conversion` in this case.
+`Translation(p)` adds p to a coordinate, and `ProjectionTo("yx")` drops other axes.
+If you think of image operations as resampling new pixels out of an existing image, this is the opposite direction.
 
 ## Making a Scene
 
@@ -49,7 +44,7 @@ scene = Scene.from_multiscale_pair(
 )
 ```
 
-`a_to_b` says what you do with `raw` to obtain `atlas`: here, crop it with its origin at `(10, 20)`.
+`a_to_b` maps raw coordinates to atlas coordinates: here, add `(10, 20)`.
 It accepts a single relation or a list (applied first to last), or `None` if both are the same space.
 
 ### Shared space: tiles
@@ -68,7 +63,7 @@ scene = Scene.from_shared_coordinate_system(
     connections=[
         Scene.Connection(
           tile, 
-          to_shared=(offset * tile["s0"].pixel_size).inverted()
+          to_shared=offset * tile["s0"].pixel_size
         )
         for tile, offset in positions
     ],
@@ -79,7 +74,7 @@ This creates a new coordinate system, "stage", that all the tiles are connected 
 Each connection says how the stage is reached from that tile, the same way as for `tile.with_coordinate_system("stage", reached_by=...)`:
 `tile --to_shared--> "stage"`.
 
-Because `Translation(p)` places the *origin* of the result at `p`, a tile that sits at position `p` on the stage reaches the stage through `Translation(p).inverted()`.
+A tile whose origin sits at p on the stage reaches stage coordinates through `Translation(p)`.
 
 The axes of the shared system are what the relations produce, so all connections must produce the same axes.
 Its axis properties (units, types) are taken from the connected Multiscales.
@@ -88,31 +83,26 @@ They may differ in properties that are blank, but contradicting values raise an 
 ### Several derivations of one original
 
 For example, different segmentations, or different crops of the same original: Each of them is derived from the original, not from each other.
-Express them with `from_shared_coordinate_system`, with the original's space as the shared system, and each relation inverted compared to how you would pass it to `as_derived_from`.
-
-`result.as_derived_from(original, by=R)` says `original --R--> result`.
-A shared system needs the other direction, `result --R⁻¹--> original`:
+Express them with `from_shared_coordinate_system`, using the original's space as the shared system.
+The relation is the same one passed to `as_derived_from`: `result --R--> original`.
 
 ```python
-from clearscale import Scene, Translation
+from clearscale import Scene, Translation, ProjectionTo
 
 scene = Scene.from_shared_coordinate_system(
     coordinate_system="original",
     connections=[
         Scene.Connection(original, to_shared=None),
-        # nuclei = original.as_derived_from(..., by=Translation(y=32.0, x=48.0))
-        Scene.Connection(nuclei, to_shared=Translation(y=32.0, x=48.0).inverted()),
-        # cells = cropped from the original with its origin at (64, 128)
-        Scene.Connection(cells, to_shared=Translation(y=64.0, x=128.0).inverted()),
+        # cells = a full segmentation image
+        Scene.Connection(cells, to_shared=None),
+        # nuclei = a segmentation image cropped from original, like:
+        # nuclei.as_derived_from(original, reached_by=Translation(y=32.0, x=48.0))
+        Scene.Connection(nuclei, to_shared=Translation(y=32.0, x=48.0)),
+        # thumbnail = a representative slice extracted from the center of the stack (e.g. at 160um)
+        Scene.Connection(thumbnail_yx, to_shared=[ProjectionTo("zyx", Translation(z=160.0, y=0, x=0)]),
     ],
 )
 ```
-
-`Translation` has `.inverted()`, and so does `Affine`.
-For relations that act on axes, name the axes the other way round, e.g. `PermutationTo(original_axes)`.
-Derivations that *drop* axes (like projections) need to be handled carefully: Inverting them would insert the axes again at coordinate 0, so the Scene would claim the result sits at slice 0 of the original.
-
-You can check the result with `scene.relation_from("original", to=nuclei)` (see below), which returns the relation you would have given to `as_derived_from`.
 
 ## Retrieving relations
 
