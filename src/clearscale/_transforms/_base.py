@@ -263,8 +263,18 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
             source_props = [self[d] for d in sources]
             agreed = {
                 field: (values.pop() if len(values := {getattr(src, field) for src in source_props}) == 1 else None)
-                for field in ("discrete", "type", "unit", "long_name")
+                for field in ("discrete", "type", "long_name")
             }
+            # unit separately: don't just check equality but alias matching
+            first_unit = source_props[0].unit
+            agreed["unit"] = (
+                first_unit
+                if all(
+                    first_unit is not None and src.unit is not None and is_same_unit(first_unit, src.unit)
+                    for src in source_props
+                )
+                else None
+            )
             return OmeZarrAxis(name=str(target), **agreed)
 
         return self.__class__((axis, carry_forward(axis, deps)) for axis, deps in zip(target_axes, dependencies))

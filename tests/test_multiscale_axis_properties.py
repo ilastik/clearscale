@@ -483,6 +483,32 @@ class TestMultiscaleTransfer:
         axis = ms2.coordinate_system_ome_zarr_axes("world")["x"]
         assert axis == ome_zarr.Axis(name="x", type="custom", unit="nm")  # both overridden
 
+    @pytest.mark.parametrize(
+        "y_unit, x_unit, expected_y",
+        [
+            ("um", "micrometer", "um"),
+            ("micrometer", "um", "micrometer"),
+            ("um", "nm", None),
+            ("um", None, None),
+            (None, "um", None),
+            (None, None, None),
+        ],
+    )
+    def test_with_coordinate_system_carries_unit_aliases_across_mixing_relation(self, y_unit, x_unit, expected_y):
+        source = Multiscale.from_single(
+            Scale(
+                Shape(y=4, x=4),
+                ome_zarr_axes={
+                    "y": ome_zarr.Axis(type="space", unit=y_unit),
+                    "x": ome_zarr.Axis(type="space", unit=x_unit),
+                },
+            )
+        )
+        # target y depends on source x and y
+        relation = Affine.from_array(((1, 1, 0), (0, 1, 0)), "yx")
+        result = source.with_coordinate_system("mixed", reached_by=relation)
+        assert result.coordinate_system_ome_zarr_axes("mixed")["y"].unit == expected_y
+
     def test_with_coordinate_system_rejects_conflicting_unit_arguments(self):
         ms = Multiscale(
             {
