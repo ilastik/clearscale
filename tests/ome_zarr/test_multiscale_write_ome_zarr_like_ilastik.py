@@ -43,15 +43,15 @@ def write_ome_zarr_like_ilastik(
     if export_offset:
         crop_translation = export_offset.with_axes(axes).to_physical(export_pixel_size)
     if input_multiscale:
-        derivation = []
+        to_input = []
         if axes != input_multiscale.axes:
-            derivation.append(clearscale.AxisRearrangementTo(axes))
+            to_input.append(clearscale.AxisRearrangementTo(input_multiscale.axes))
         if crop_translation is not None:
-            derivation.append(crop_translation)
-        multiscale = multiscale.as_derived_from(input_multiscale, by=derivation)
+            to_input.append(crop_translation.with_axes(input_multiscale.axes))
+        multiscale = multiscale.as_derived_from(input_multiscale, reached_by=to_input)
     elif crop_translation is not None:
-        # Inverted: the export needs to be un-shifted to return to its original space
-        multiscale = multiscale.with_coordinate_system("source_image_space", reached_by=crop_translation.inverted())
+        # Add the crop offset to reach coordinates in the original space.
+        multiscale = multiscale.with_coordinate_system("source_image_space", reached_by=crop_translation)
     multiscale.ome.metadata.update(
         {
             "description": "ilastik's lazyflow.operators.opResize.OpResize is a lazy implementation of skimage.transform.resize.",
