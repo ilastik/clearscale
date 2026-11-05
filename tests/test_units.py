@@ -76,22 +76,22 @@ def test_unrecognised_units_are_none(spelling):
 @pytest.mark.parametrize(
     "unit, other, expected",
     [
-        ("nanometer", "micrometer", 1000.0),
-        ("micrometer", "nanometer", 0.001),
-        ("nanometer", "meter", 1e9),
-        ("meter", "millimeter", 0.001),
-        ("millimeter", "kilometer", 1e6),
-        ("millimeter", "inch", 25.4),
-        ("inch", "foot", 12.0),
-        ("foot", "yard", 3.0),
-        ("yard", "mile", 1760.0),
-        ("nanometer", "angstrom", 0.1),
-        ("second", "hour", 3600.0),
-        ("hour", "day", 24.0),
-        ("second", "minute", 60.0),
-        ("microsecond", "millisecond", 1000.0),
-        ("nm", "um", 1000.0),
-        ("\u00c5", "micron", 10000.0),
+        ("micrometer", "nanometer", 1000.0),
+        ("nanometer", "micrometer", 0.001),
+        ("meter", "nanometer", 1e9),
+        ("millimeter", "meter", 0.001),
+        ("kilometer", "millimeter", 1e6),
+        ("inch", "millimeter", 25.4),
+        ("foot", "inch", 12.0),
+        ("yard", "foot", 3.0),
+        ("mile", "yard", 1760.0),
+        ("angstrom", "nanometer", 0.1),
+        ("hour", "second", 3600.0),
+        ("day", "hour", 24.0),
+        ("minute", "second", 60.0),
+        ("millisecond", "microsecond", 1000.0),
+        ("um", "nm", 1000.0),
+        ("micron", "\u00c5", 10000.0),
     ],
 )
 def test_unit_conversion_factor_is_exact(unit, other, expected):
@@ -99,7 +99,7 @@ def test_unit_conversion_factor_is_exact(unit, other, expected):
 
 
 def test_unit_conversion_factor_parsec():
-    assert unit_conversion_factor("meter", "parsec") == pytest.approx(3.0856775814913673e16, rel=1e-15)
+    assert unit_conversion_factor("parsec", "meter") == pytest.approx(3.0856775814913673e16, rel=1e-15)
 
 
 def test_unit_conversion_factor_inverse_round_trips():

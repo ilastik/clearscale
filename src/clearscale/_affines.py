@@ -424,7 +424,7 @@ class Affine(SpatialRelation):
                     "An unspecified unit has no known size."
                 )
             try:
-                factors.append((axis, unit_conversion_factor(other_unit, unit)))
+                factors.append((axis, unit_conversion_factor(unit, other_unit)))
             except ValueError as e:
                 raise ValueError(f"Axis {axis!r}: {e}") from e
         return cls(linear=Linear.identity(source).with_values({axis: {axis: value} for axis, value in factors}))

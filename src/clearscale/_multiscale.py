@@ -397,9 +397,7 @@ class Scale:
                     "An unspecified unit has no known size. Use `with_unit_replaced` to set or remove a unit label."
                 )
             try:
-                # Need to use exactly the "wrong way round" here because unit_conversion_factor returns the convenient
-                # direction for Affine (old = new * factor), but we need the opposite here (new = old * factor).
-                factors[axis] = unit_conversion_factor(new_unit, old_unit)
+                factors[axis] = unit_conversion_factor(old_unit, new_unit)
             except ValueError as e:
                 raise ValueError(f"Axis {axis!r}: {e}") from e
         relabelled = self.with_unit_replaced(new)

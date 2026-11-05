@@ -989,7 +989,7 @@ class TestScaleWithUnitConverted:
             self._scale().with_unit_converted({"x": "furlong"})
 
     def test_rejects_space_to_time(self):
-        with pytest.raises(ValueError, match=r"Cannot convert between 'second' \(time\) and 'micrometer' \(space\)"):
+        with pytest.raises(ValueError, match=r"Cannot convert between 'micrometer' \(space\) and 'second' \(time\)"):
             self._scale().with_unit_converted({"x": "second"})
 
     def test_rejects_empty_arg(self):
