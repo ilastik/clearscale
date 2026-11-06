@@ -2,7 +2,7 @@ import re
 from unittest.mock import Mock
 
 import pytest
-from clearscale import Multiscale, OmeZarrGroup, ChildRef, FileRef, Scene
+from clearscale import Multiscale, OmeZarrGroup, ChildRef, Scene
 from clearscale._services.ome_zarr import MultiscaleProperties
 
 
@@ -64,7 +64,7 @@ def test_ome_zarr_group_to_attrs_scene():
     ],
 )
 def test_ome_zarr_group_to_attrs_labels(version, expected):
-    children = (ChildRef("label", FileRef("labels/a")), ChildRef("label", FileRef("labels/b")))
+    children = (ChildRef("label", "labels/a"), ChildRef("label", "labels/b"))
     group = OmeZarrGroup(children=children)
     result = group.to_attrs(version)
     assert result == expected
@@ -73,7 +73,7 @@ def test_ome_zarr_group_to_attrs_labels(version, expected):
 @pytest.mark.parametrize("child_type", ["well", "multiscale"])
 @pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
 def test_ome_zarr_group_to_attrs_plate_and_well_not_implemented(child_type, version):
-    group = OmeZarrGroup(children=(ChildRef(child_type, FileRef("child")),))
+    group = OmeZarrGroup(children=(ChildRef(child_type, "child"),))
     with pytest.raises(NotImplementedError, match="Writing plate and well metadata is not supported yet"):
         group.to_attrs(version)
 
@@ -108,8 +108,8 @@ def test_ome_zarr_group_to_attrs_multiple_multiscales_with_override(version, exp
     [
         {"multiscales": (Mock(spec=Multiscale),), "scenes": (Mock(spec=Scene),)},
         {"scenes": (Mock(spec=Scene), Mock(spec=Scene))},
-        {"children": (ChildRef("label", FileRef("label")), ChildRef("well", FileRef("well")))},
-        {"multiscales": (Mock(spec=Multiscale),), "children": (ChildRef("well", FileRef("well")),)},
+        {"children": (ChildRef("label", "label"), ChildRef("well", "well"))},
+        {"multiscales": (Mock(spec=Multiscale),), "children": (ChildRef("well", "well"),)},
     ],
 )
 @pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])

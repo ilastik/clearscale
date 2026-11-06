@@ -256,7 +256,7 @@ The simplest thing to do is to choose (or let the user choose) one of the refere
 You can access all paths recorded in the group metadata itself through `OmeZarrGroup.children`.
 
 `.children` contains `clearscale.ChildRef` instances.
-You can learn what kind of children (well, multiscale, label) from each child's `.child_type`, or you can just collect and display each child's `.file.path` to choose from.
+You can learn what kind of children (well, multiscale, label) from each child's `.child_type`, or you can just collect and display each child's `.path` to choose from.
 Up to OME-Zarr version 0.6, these paths are always relative to the group you loaded the metadata from.
 
 Groups of kind `MULTISCALE`, `PLATE` or `BF2RAW` can have `OmeZarrGroup.maybe_subgroups`.
@@ -409,7 +409,7 @@ Special cases for further path discovery that you may want to handle for full su
 
 * OME-Zarr multiscale groups *usually* define only a single multiscale (in which case they would be `GroupKind.MULTISCALE`), but they can define multiple (in which case they are `GroupKind.COLLECTION`). In this case, you could obtain the first scale key from each Multiscale, form the full paths like `f"{group_path}/{first_scale_key}"`, and display them to choose from. Then on the second round, pick the Multiscale that contains the chosen scale key.
 * In the `GroupKind.BF2RAW` case, there may or may not be a subgroup called `"OME"` that you can try inspecting like `bf2raw_ome_zarr_group = OmeZarrGroup.from_group(bf2raw_group["OME"])`.
-  If it exists, it may or may not have `bf2raw_ome_zarr_group.children` with `child.file.path` like `"../ms_0"`.
+  If it exists, it may or may not have `bf2raw_ome_zarr_group.children` with `child.path` like `"../ms_0"`.
   The paths will all begin with `../` because they reference multiscales in `bf2raw_group`, which is the parent of `bf2raw_group["OME"]` (where the `bf2raw_ome_zarr_group.children` are defined).
   If the `bf2raw_group["OME"]` does *not* exist or if there are no `bf2raw_ome_zarr_group.children`, this means there are an unknown number of multiscales in the parent `bf2raw_group` and the only way to find out how many is to try progressively loading `bf2raw_group["0"]`, `bf2raw_group["1"]`, etc., until a load fails because that number is absent.
 * Any OME-Zarr group that has `.multiscales` may also have one `"labels"` subgroup per multiscale.

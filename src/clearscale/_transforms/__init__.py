@@ -3,7 +3,8 @@
 from clearscale._transforms._base import (
     RelativePath,
     CoordinateSystemName,
-    FileRef,
+    PathType,
+    _infer_path_type,
     NodeRef,
     _UnresolvedRef,
     AnyRef,
@@ -36,9 +37,8 @@ from clearscale._transforms._transform_types import (
 )
 from clearscale._transforms._to_from_spatial_relation import relation_to_transform_canonic, transform_to_relation
 
-__all__ = ["FileRef", "OmeZarrAxes", "OmeZarrAxis"]
+__all__ = ["OmeZarrAxes", "OmeZarrAxis"]
 """Transforms are generally not part of the public API.
 
-FileRef is public via OmeZarrGroup.
 OmeZarrAxes/OmeZarrAxis are for specifying axis properties specific to OME-Zarr for users familiar with the spec.
 They are importable from `clearscale.ome_zarr.Axes`/`clearscale.ome_zarr.Axis`"""

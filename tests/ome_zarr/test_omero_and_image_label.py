@@ -212,7 +212,7 @@ def test_image_label_from_ome_zarr_merges_colors_and_properties_by_label_value()
     assert label.labels[2].properties == {"class": "bar"}
     assert not label.labels[3]
     assert label.source is not None
-    assert label.source.path == "../../raw"
+    assert label.source == "../../raw"
 
 
 def test_image_label_from_ome_zarr_last_value_wins_on_duplicate_label_value():
@@ -368,3 +368,9 @@ def test_omero_and_image_label_deep_copy_cleanly():
     image_label = ImageLabel(source="../../", labels={1: LabelEntry(color=(255, 0, 0, 128))})
     copy.deepcopy(omero)
     copy.deepcopy(image_label)
+
+
+@pytest.mark.parametrize("source", ["", 3])
+def test_image_label_rejects_empty_or_non_string_source(source):
+    with pytest.raises(ValueError, match="source must be a non-empty string"):
+        ImageLabel(source=source)

@@ -91,7 +91,7 @@ class TestOmeroAndImageLabel:
         image_label = ome_group.multiscales[0].ome.image_label
 
         assert image_label is not None
-        assert image_label.source is not None and image_label.source.path == "../../"
+        assert image_label.source == "../../"
         assert list(image_label.labels) == [1, 2, 3]
         assert image_label.labels[1].color == (255, 0, 0, 128)
         assert image_label.labels[1].properties == {"class": "cell", "area (pixels)": 1200}
@@ -220,7 +220,7 @@ def test_ome_zarr_group_parses_scene_stitching_example():
     assert ome_group.kind is GroupKind.SCENE
     assert len(ome_group.scenes) == 1
     assert ome_group.scenes[0].unresolved_paths == expected_paths
-    assert [child.file.path for child in ome_group.children] == expected_paths
+    assert [child.path for child in ome_group.children] == expected_paths
     assert ome_group.version == "0.6"
 
 
@@ -231,7 +231,7 @@ def test_ome_zarr_group_parses_scene_registration_example():
     assert ome_group.kind is GroupKind.SCENE
     assert len(ome_group.scenes) == 1
     assert ome_group.scenes[0].unresolved_paths == ["JRC2018F", "FCWB"]
-    assert [child.file.path for child in ome_group.children] == ["JRC2018F", "FCWB"]
+    assert [child.path for child in ome_group.children] == ["JRC2018F", "FCWB"]
     assert ome_group.version == "0.6"
 
 

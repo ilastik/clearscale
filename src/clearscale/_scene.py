@@ -26,7 +26,6 @@ from clearscale._transforms import (
     RelativePath,
     CoordinateSystem,
     CoordinateSystemName,
-    FileRef,
     NodeRef,
     _UnresolvedRef,
     AnyRef,
@@ -112,10 +111,10 @@ class Scene:
             for endpoint in (t.source, t.target):
                 if not isinstance(endpoint, _UnresolvedRef):
                     continue
-                if endpoint.file is None or endpoint.file.path in seen_paths:
+                if endpoint.path is None or endpoint.path in seen_paths:
                     continue
-                paths.append(endpoint.file.path)
-                seen_paths.add(endpoint.file.path)
+                paths.append(endpoint.path)
+                seen_paths.add(endpoint.path)
         return paths
 
     @functools.cached_property
@@ -459,7 +458,7 @@ class Scene:
         if isinstance(key, dict):  # Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]]
             if key["path"] in self._multiscale_paths:
                 return self._multiscale_paths[key["path"]]._as_ref(key["name"])
-            return _UnresolvedRef(name=key["name"], file=FileRef.from_string(key["path"]))
+            return _UnresolvedRef.from_path(key["path"], name=key["name"])
 
         if isinstance(key, (tuple, Multiscale)):
             return self._multiscale_key_to_ref(key)
@@ -509,14 +508,14 @@ class Scene:
     ) -> Dict[RelativePath, Multiscale]:
         resolved_paths = {}
         for old_ref, new_ref in ((before.source, after.source), (before.target, after.target)):
-            if new_ref is old_ref or not isinstance(old_ref, _UnresolvedRef) or old_ref.file is None:
+            if new_ref is old_ref or not isinstance(old_ref, _UnresolvedRef) or old_ref.path is None:
                 continue
-            multiscale = multiscales_by_path.get(old_ref.file.path)
+            multiscale = multiscales_by_path.get(old_ref.path)
             if multiscale is None:
                 continue
             assert new_ref is not None, f"Dev error: previously not-None {old_ref!r} became None {new_ref!r}"
             if isinstance(new_ref, NodeRef) and isinstance(new_ref.owner, Multiscale) and new_ref.owner is multiscale:
-                resolved_paths[old_ref.file.path] = multiscale
+                resolved_paths[old_ref.path] = multiscale
         return resolved_paths
 
     def _require_max_one_path_per_multiscale_and_no_unrelated_paths(

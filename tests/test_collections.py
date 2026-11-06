@@ -16,42 +16,42 @@ from clearscale._collections import OmeZarrGroup, GroupKind, ChildRef
         pytest.param({"multiscales": (Mock(), Mock())}, GroupKind.COLLECTION, id="multiple-multiscales"),
         pytest.param({"scenes": (Mock(),)}, GroupKind.SCENE, id="scene-without-children"),
         pytest.param(
-            {"scenes": (Mock(),), "children": (ChildRef("multiscale", Mock()), ChildRef("multiscale", Mock()))},
+            {"scenes": (Mock(),), "children": (ChildRef("multiscale", "child"), ChildRef("multiscale", "child"))},
             GroupKind.SCENE,
             id="scene-with-multiscale-children",
         ),
-        pytest.param({"children": (ChildRef("well", Mock()),)}, GroupKind.PLATE, id="plate"),
+        pytest.param({"children": (ChildRef("well", "child"),)}, GroupKind.PLATE, id="plate"),
         pytest.param(
-            {"children": (ChildRef("well", Mock()), ChildRef("well", Mock()))},
+            {"children": (ChildRef("well", "child"), ChildRef("well", "child"))},
             GroupKind.PLATE,
             id="plate-multiple-wells",
         ),
-        pytest.param({"children": (ChildRef("multiscale", Mock()),)}, GroupKind.WELL, id="well"),
+        pytest.param({"children": (ChildRef("multiscale", "child"),)}, GroupKind.WELL, id="well"),
         pytest.param(
-            {"children": (ChildRef("multiscale", Mock()), ChildRef("multiscale", Mock()))},
+            {"children": (ChildRef("multiscale", "child"), ChildRef("multiscale", "child"))},
             GroupKind.WELL,
             id="well-multiple-multiscales",
         ),
-        pytest.param({"children": (ChildRef("label", Mock()),)}, GroupKind.LABELS, id="labels"),
+        pytest.param({"children": (ChildRef("label", "child"),)}, GroupKind.LABELS, id="labels"),
         pytest.param(
-            {"children": (ChildRef("label", Mock()), ChildRef("label", Mock()))},
+            {"children": (ChildRef("label", "child"), ChildRef("label", "child"))},
             GroupKind.LABELS,
             id="labels-multiple-labels",
         ),
         pytest.param({"multiscales": (Mock(),), "scenes": (Mock(),)}, GroupKind.COLLECTION, id="multiscale-and-scene"),
         pytest.param(
-            {"multiscales": (Mock(), Mock()), "children": (ChildRef("multiscale", Mock()),)},
+            {"multiscales": (Mock(), Mock()), "children": (ChildRef("multiscale", "child"),)},
             GroupKind.COLLECTION,
             id="multiscales-and-children",
         ),
         pytest.param({"scenes": (Mock(), Mock())}, GroupKind.COLLECTION, id="multiple-scenes"),
         pytest.param(
-            {"scenes": (Mock(),), "children": (ChildRef("well", Mock()),)},
+            {"scenes": (Mock(),), "children": (ChildRef("well", "child"),)},
             GroupKind.COLLECTION,
             id="scene-with-non-multiscale-child",
         ),
         pytest.param(
-            {"children": (ChildRef("well", Mock()), ChildRef("multiscale", Mock()))},
+            {"children": (ChildRef("well", "child"), ChildRef("multiscale", "child"))},
             GroupKind.COLLECTION,
             id="mixed-child-types",
         ),
@@ -212,7 +212,7 @@ def test_ome_zarr_group_loads_scene(monkeypatch):
     assert result.kind is GroupKind.SCENE
     assert len(result.scenes) == 1
     assert result.scenes[0] is scene
-    assert [child.file.path for child in result.children] == ["path1", "path2"]
+    assert [child.path for child in result.children] == ["path1", "path2"]
     scene_construct.assert_called_once_with(scene_json)
 
 
@@ -260,8 +260,8 @@ def test_ome_zarr_group_collects_labels_series_well_and_plate_paths_in_order():
         "well",
         "well",
     )
-    assert all(c.file.path_type == "zarr" for c in ome_group.children)
-    paths = tuple(c.file.path for c in ome_group.children)
+    assert all(c.path_type == "zarr" for c in ome_group.children)
+    paths = tuple(c.path for c in ome_group.children)
     assert paths == (
         "label-0",
         "label-1",
@@ -326,8 +326,8 @@ def test_ome_zarr_group_labels_list_only_accepts_strings():
     assert ome_group.kind is GroupKind.LABELS
     assert len(ome_group.children) > 0
     assert tuple(c.child_type for c in ome_group.children) == ("label", "label")
-    assert all(c.file.path_type == "zarr" for c in ome_group.children)
-    paths = tuple(c.file.path for c in ome_group.children)
+    assert all(c.path_type == "zarr" for c in ome_group.children)
+    paths = tuple(c.path for c in ome_group.children)
     assert paths == ("nuclei", "cytoplasm")
 
 
@@ -349,8 +349,8 @@ def test_ome_zarr_group_labels_list_only_accepts_strings_under_ome():
     assert ome_group.kind is GroupKind.LABELS
     assert len(ome_group.children) > 0
     assert tuple(c.child_type for c in ome_group.children) == ("label", "label")
-    assert all(c.file.path_type == "zarr" for c in ome_group.children)
-    paths = tuple(c.file.path for c in ome_group.children)
+    assert all(c.path_type == "zarr" for c in ome_group.children)
+    paths = tuple(c.path for c in ome_group.children)
     assert paths == ("nuclei", "cytoplasm")
 
 
@@ -370,8 +370,8 @@ def test_ome_zarr_group_series_list_only_accepts_strings():
     assert ome_group.kind is GroupKind.BF2RAW_OME
     assert len(ome_group.children) > 0
     assert tuple(c.child_type for c in ome_group.children) == ("multiscale", "multiscale")
-    assert all(c.file.path_type == "zarr" for c in ome_group.children)
-    paths = tuple(c.file.path for c in ome_group.children)
+    assert all(c.path_type == "zarr" for c in ome_group.children)
+    paths = tuple(c.path for c in ome_group.children)
     assert paths == ("../0", "../1")  # <3 bf2raw
 
 
@@ -393,8 +393,8 @@ def test_ome_zarr_group_series_list_only_accepts_strings_under_ome():
     assert ome_group.kind is GroupKind.BF2RAW_OME
     assert len(ome_group.children) > 0
     assert tuple(c.child_type for c in ome_group.children) == ("multiscale", "multiscale")
-    assert all(c.file.path_type == "zarr" for c in ome_group.children)
-    paths = tuple(c.file.path for c in ome_group.children)
+    assert all(c.path_type == "zarr" for c in ome_group.children)
+    paths = tuple(c.path for c in ome_group.children)
     assert paths == ("../0", "../1")  # <3 bf2raw
 
 
@@ -416,8 +416,8 @@ def test_ome_zarr_group_well_images_only_accept_mapping_entries_with_string_path
     assert ome_group.kind is GroupKind.WELL
     assert len(ome_group.children) > 0
     assert tuple(c.child_type for c in ome_group.children) == ("multiscale",)
-    assert all(c.file.path_type == "zarr" for c in ome_group.children)
-    paths = tuple(c.file.path for c in ome_group.children)
+    assert all(c.path_type == "zarr" for c in ome_group.children)
+    paths = tuple(c.path for c in ome_group.children)
     assert paths == ("image-0",)
 
 
@@ -441,8 +441,8 @@ def test_ome_zarr_group_well_images_only_accept_mapping_entries_with_string_path
     assert ome_group.kind is GroupKind.WELL
     assert len(ome_group.children) > 0
     assert tuple(c.child_type for c in ome_group.children) == ("multiscale",)
-    assert all(c.file.path_type == "zarr" for c in ome_group.children)
-    paths = tuple(c.file.path for c in ome_group.children)
+    assert all(c.path_type == "zarr" for c in ome_group.children)
+    paths = tuple(c.path for c in ome_group.children)
     assert paths == ("image-0",)
 
 
@@ -464,8 +464,8 @@ def test_ome_zarr_group_plate_wells_only_accept_mapping_entries_with_string_path
     assert ome_group.kind is GroupKind.PLATE
     assert len(ome_group.children) > 0
     assert tuple(c.child_type for c in ome_group.children) == ("well",)
-    assert all(c.file.path_type == "zarr" for c in ome_group.children)
-    paths = tuple(c.file.path for c in ome_group.children)
+    assert all(c.path_type == "zarr" for c in ome_group.children)
+    paths = tuple(c.path for c in ome_group.children)
     assert paths == ("A/1",)
 
 
@@ -489,8 +489,8 @@ def test_ome_zarr_group_plate_wells_only_accept_mapping_entries_with_string_path
     assert ome_group.kind is GroupKind.PLATE
     assert len(ome_group.children) > 0
     assert tuple(c.child_type for c in ome_group.children) == ("well",)
-    assert all(c.file.path_type == "zarr" for c in ome_group.children)
-    paths = tuple(c.file.path for c in ome_group.children)
+    assert all(c.path_type == "zarr" for c in ome_group.children)
+    paths = tuple(c.path for c in ome_group.children)
     assert paths == ("A/1",)
 
 
@@ -653,7 +653,7 @@ class TestFromSingleSceneChildren:
 
     @staticmethod
     def _child_paths(group: OmeZarrGroup):
-        return [(child.child_type, child.file.path) for child in group.children]
+        return [(child.child_type, child.path) for child in group.children]
 
     def test_without_multiscales_has_no_children(self):
         world = CoordinateSystem.fromkeys("yx")._as_ref("world")
@@ -733,3 +733,21 @@ class TestFromSingleSceneChildren:
 
         assert read.kind is GroupKind.SCENE
         assert self._child_paths(read) == self._child_paths(written)
+
+
+def test_child_ref_defaults_to_zarr_path_type():
+    child = ChildRef("multiscale", "tile_0")
+
+    assert (child.child_type, child.path, child.path_type) == ("multiscale", "tile_0", "zarr")
+    assert child == ChildRef(child_type="multiscale", path="tile_0", path_type="zarr")
+
+
+def test_child_ref_from_string_infers_path_type():
+    assert ChildRef.from_string("tile_0", "multiscale").path_type == "zarr"
+    assert ChildRef.from_string("meta/tile_0.json", "multiscale").path_type == "json"
+
+
+@pytest.mark.parametrize("path", ["", None, 3])
+def test_child_ref_rejects_empty_or_non_string_path(path):
+    with pytest.raises(ValueError, match="non-empty string"):
+        ChildRef("multiscale", path)

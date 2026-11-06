@@ -26,7 +26,6 @@ from clearscale._transforms import (
     ScaleTransform,
     TranslationTransform,
     TransformGraph,
-    FileRef,
     NodeRef,
     CoordinateSystem,
     OmeZarrAxes,
@@ -355,19 +354,19 @@ class ImageLabel:
     'colors' aside from rgba, and minimises risk of properties/colors key clashes, while round-tripping
     arbitrary metadata as-read."""
 
-    source: Optional[FileRef]
+    source: Optional[str]
+    """Path to the source image, relative to the label group. Usually '../../'."""
     labels: Dict[int, LabelEntry]
     """{label_pixel_value: LabelEntry}"""
 
     def __init__(
         self,
-        source: Optional[Union[FileRef, str]] = None,
+        source: Optional[str] = None,
         labels: Optional[Mapping[Any, LabelEntry]] = None,
     ):
-        resolved_source = (
-            None if source is None else (source if isinstance(source, FileRef) else FileRef.from_string(source))
-        )
-        object.__setattr__(self, "source", resolved_source)
+        if source is not None and (not isinstance(source, str) or not source):
+            raise ValueError(f"ImageLabel source must be a non-empty string path. Received: {source!r}")
+        object.__setattr__(self, "source", source)
 
         resolved_labels: Dict[int, LabelEntry] = {}
         for key, entry in (labels or {}).items():
@@ -402,7 +401,7 @@ class ImageLabel:
         if properties:
             d["properties"] = properties
         if self.source is not None:
-            d["source"] = {"image": self.source.path}
+            d["source"] = {"image": self.source}
         if version in ("0.4", "0.5"):
             d["version"] = version
         return d
@@ -451,7 +450,7 @@ class ImageLabel:
         if isinstance(raw_source, Mapping):
             image_path = raw_source.get("image")
             if isinstance(image_path, str) and image_path:
-                source = FileRef.from_string(image_path)
+                source = image_path
 
         return cls(source=source, labels=labels)
 
@@ -1050,7 +1049,7 @@ def build_dataset_dict(
     if version in PRE_TRANSFORMS_VERSIONS:
         dataset_transforms = [t.to_ome_zarr(version) for t in components]
     else:
-        dataset_path = _UnresolvedRef(name=None, file=FileRef.from_string(str(key)))
+        dataset_path = _UnresolvedRef.from_path(str(key))
         # The "single transform inside a list" requirement of 0.6 actually makes this more awkward
         single_t = TransformSequence(components) if len(components) > 1 else components[0]
         single_dict = single_t.bound(source=dataset_path, target=intrinsic_ref).to_ome_zarr(version)

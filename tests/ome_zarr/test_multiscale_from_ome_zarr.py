@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Affine, Multiscale, PixelSize, Shape, Scale, FileRef, Translation
+from clearscale import Affine, Multiscale, PixelSize, Shape, Scale, Translation
 from clearscale._services.ome_zarr import SYNTHETIC_EXTERNAL_NAME
 from clearscale._transforms import (
     OmeZarrAxes,
@@ -695,7 +695,7 @@ def test_from_ome_zarr_parses_valid_label_transform():
     expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
     dangling = TransformSequence(
         # equal to what _0_6_metadata_with_labels_transform_with produces
-        source=_UnresolvedRef(name="physical", file=FileRef.from_string("labels/nuclei")),
+        source=_UnresolvedRef.from_path("labels/nuclei", name="physical"),
         target=expected_base._intrinsic_ref,
         transforms=(ScaleTransform((2.0, 1.0)), TranslationTransform((0.0, 3.0))),
     )

@@ -1,5 +1,5 @@
 import pytest
-from clearscale import Multiscale, Scale, Shape, FileRef, ProjectionTo
+from clearscale import Multiscale, Scale, Shape, ProjectionTo
 from clearscale._transforms import (
     OmeZarrAxes,
     CoordinateSystem,
@@ -56,7 +56,7 @@ def test_resolving_transform_revalidates_endpoint_axes():
     world = _sys_ref("world", "zyx")
     transform = TranslationTransform(
         translation=(0, 0, 0),
-        source=_UnresolvedRef(file=FileRef.from_string("tile_0"), name="physical"),
+        source=_UnresolvedRef.from_path("tile_0", name="physical"),
         target=world,
     )
 
@@ -66,7 +66,7 @@ def test_resolving_transform_revalidates_endpoint_axes():
 
 def test_with_resolved_by_name_does_not_resolve_path_refs():
     world = CoordinateSystem.fromkeys("yx")._as_ref("world")
-    original_target = _UnresolvedRef(file=FileRef.from_string("tile_0"), name="world")
+    original_target = _UnresolvedRef.from_path("tile_0", name="world")
     transform = TranslationTransform(translation=(0, 0), source=_UnresolvedRef(name="world"), target=original_target)
 
     resolved = transform.with_resolved_by_name((world,))
@@ -295,3 +295,101 @@ def test_structural_signature_distinguishes_number_of_equal_edges():
 
     assert signature(graph(multiscales[0])) != signature(graph(*multiscales)), "one node != two (equal) nodes"
     assert signature(graph(multiscales[0], multiscales[1])) == signature(graph(multiscales[1], multiscales[0]))
+
+
+class TestUnresolvedRef:
+    def test_requires_name_or_path(self):
+        with pytest.raises(ValueError, match="at least one of: name, path"):
+            _UnresolvedRef(name=None)
+
+    @pytest.mark.parametrize("path", ["", 3])
+    def test_rejects_empty_or_non_string_path(self, path):
+        with pytest.raises(ValueError, match="non-empty string"):
+            _UnresolvedRef(name="world", path=path)
+
+    def test_from_path_infers_path_type(self):
+        assert _UnresolvedRef.from_path("a/b").path_type == "zarr"
+        assert _UnresolvedRef.from_path("a/b.json", name="world") == _UnresolvedRef(
+            name="world", path="a/b.json", path_type="json"
+        )
+
+    @pytest.mark.parametrize(
+        ("ref_dict", "expected"),
+        [
+            pytest.param({"name": "world"}, _UnresolvedRef(name="world"), id="name only"),
+            pytest.param({"path": "tile_0"}, _UnresolvedRef(name=None, path="tile_0"), id="path only"),
+            pytest.param(
+                {"path": "tile_0", "name": "world"}, _UnresolvedRef(name="world", path="tile_0"), id="name and path"
+            ),
+            pytest.param(
+                {"path": "meta.json", "name": "world"},
+                _UnresolvedRef(name="world", path="meta.json", path_type="json"),
+                id="json suffix is inferred for plain string paths",
+            ),
+            pytest.param(
+                {"path": {"type": "json", "path": "meta"}},
+                _UnresolvedRef(name=None, path="meta", path_type="json"),
+                id="explicit type wins over missing suffix",
+            ),
+            pytest.param(
+                {"path": {"type": "zarr", "path": "meta.json"}},
+                _UnresolvedRef(name=None, path="meta.json", path_type="zarr"),
+                id="explicit type wins over suffix",
+            ),
+        ],
+    )
+    def test_from_ome_zarr(self, ref_dict, expected):
+        assert _UnresolvedRef.from_ome_zarr(ref_dict) == expected
+
+    @pytest.mark.parametrize("ref_dict", [{}, {"name": 3}, {"path": 5}, {"name": ""}])
+    def test_from_ome_zarr_returns_none_if_nothing_usable_is_specified(self, ref_dict):
+        assert _UnresolvedRef.from_ome_zarr(ref_dict) is None
+
+    @pytest.mark.parametrize(
+        ("ref_dict", "match"),
+        [
+            pytest.param({"path": {"type": "csv", "path": "x"}}, "Invalid file reference type", id="unknown type"),
+            pytest.param({"path": {"path": "x"}}, "Invalid file reference type", id="missing type"),
+            pytest.param({"path": {"type": "zarr"}}, "Invalid file reference path", id="missing path"),
+            pytest.param({"path": {"type": "zarr", "path": 3}}, "Invalid file reference path", id="non-string path"),
+        ],
+    )
+    def test_from_ome_zarr_rejects_malformed_path_objects(self, ref_dict, match):
+        with pytest.raises(ValueError, match=match):
+            _UnresolvedRef.from_ome_zarr(ref_dict)
+
+    @pytest.mark.parametrize("ref_dict", [{"path": ""}, {"path": "", "name": "world"}])
+    def test_from_ome_zarr_rejects_empty_path(self, ref_dict):
+        with pytest.raises(ValueError):
+            _UnresolvedRef.from_ome_zarr(ref_dict)
+
+    def test_to_ome_zarr_writes_plain_string_path_up_to_0_6(self):
+        ref = _UnresolvedRef(name="world", path="tile_0")
+
+        assert ref.to_ome_zarr(version="0.6") == {"name": "world", "path": "tile_0"}
+        assert _UnresolvedRef(name=None, path="tile_0").to_ome_zarr(version="0.6") == {"path": "tile_0"}
+        assert _UnresolvedRef(name="world").to_ome_zarr(version="0.6") == {"name": "world"}
+
+    def test_to_ome_zarr_rejects_json_paths_before_rfc_8(self):
+        ref = _UnresolvedRef.from_path("meta.json", name="world")
+
+        with pytest.raises(ValueError, match="can only reference zarr paths"):
+            ref.to_ome_zarr(version="0.6")
+
+    def test_to_ome_zarr_writes_typed_path_objects_for_rfc_8(self):
+        ref = _UnresolvedRef.from_path("meta.json", name="world")
+
+        assert ref.to_ome_zarr(version="rfc-8") == {"name": "world", "path": {"type": "json", "path": "meta.json"}}
+
+    def test_to_ome_zarr_rejects_unknown_versions(self):
+        with pytest.raises(ValueError, match="RFC-8"):
+            _UnresolvedRef.from_path("tile_0").to_ome_zarr(version="0.7")
+
+    def test_node_ref_to_ome_zarr_writes_path_like_unresolved_ref(self):
+        ms = Multiscale({"s0": Scale(Shape(y=2, x=3))})
+        ref = ms._as_ref_to_intrinsic()
+
+        assert ref.to_ome_zarr(version="0.6") == {"name": ref.name}
+        assert ref.to_ome_zarr(version="0.6", path="tile_0") == {"name": ref.name, "path": "tile_0"}
+        with pytest.raises(ValueError, match="can only reference zarr paths"):
+            ref.to_ome_zarr(version="0.6", path="meta.json")

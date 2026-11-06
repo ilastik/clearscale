@@ -8,7 +8,7 @@ import logging
 
 from clearscale._multiscale import Multiscale
 from clearscale._scene import Scene
-from clearscale._transforms import FileRef
+from clearscale._transforms import _infer_path_type, PathType
 from clearscale._services.ome_zarr import (
     SUPPORTED_VERSIONS_WRITE,
     ImageLabel,
@@ -38,7 +38,7 @@ class GroupKind(str, Enum):
     which *might* exist, and if it exists, it *might* resolve to GroupKind.BF2RAW_OME and tell you which children exist.
     If it does exist, it will report the child paths relative to itself, i.e.  "../ms_0", "../ms_1", etc.
     You will need to strip the leading "../" to use with the parent `bf2raw_group` for example like 
-    `bf2raw_group[ bfw2raw_ome_group.children[0].file.path[3:] ]`.
+    `bf2raw_group[ bfw2raw_ome_group.children[0].path[3:] ]`.
     If it does not exist, or it does not specify children, this means there are an unknown number of multiscale children 
     at sequential number paths like `bf2raw_group["0"]`, `bf2raw_group["1"]`, `bf2raw_group["2"]`, etc."""
     BF2RAW_OME = "bioformats2raw-OME"
@@ -56,14 +56,22 @@ class GroupKind(str, Enum):
 @dataclass(frozen=True, slots=True)
 class ChildRef:
     child_type: Literal["label", "well", "multiscale"]
-    file: FileRef
+    path: str
+    """Path to the child, relative to the group whose metadata refers to it."""
+    path_type: PathType = "zarr"
+    """'zarr': The path points to a zarr object that should be opened like 'zarr.open(path)'.
+    'json': The path points to a file that should be read like 'json.loads(path)'."""
 
     def __post_init__(self):
         assert self.child_type in ("label", "well", "multiscale")
+        assert self.path_type in ("zarr", "json")
+        if not isinstance(self.path, str) or not self.path:
+            raise ValueError(f"Path must be a non-empty string: {self.path!r}")
 
     @classmethod
     def from_string(cls, path: str, child_type: Literal["label", "well", "multiscale"]):
-        return cls(file=FileRef.from_string(path), child_type=child_type)
+        """Constructor that infers `path_type` from the provided path"""
+        return cls(child_type=child_type, path=path, path_type=_infer_path_type(path))
 
 
 def _children_from_attrs(attrs: Mapping[str, Any]) -> Tuple[Tuple[ChildRef, ...], Optional[str]]:
@@ -246,7 +254,7 @@ class OmeZarrGroup:
             # If there is plate metadata, there are children, hence `and not children`.
             kind = GroupKind.BF2RAW
             maybe_subgroups = ("OME",)
-        elif "series" in ome_attrs and children and all(child.file.path.startswith("../") for child in children):
+        elif "series" in ome_attrs and children and all(child.path.startswith("../") for child in children):
             kind = GroupKind.BF2RAW_OME
         if multiscales:
             subgroups_dup = [str(PurePosixPath(next(iter(ms))).parent / "labels") for ms in multiscales]
@@ -315,7 +323,7 @@ class OmeZarrGroup:
         elif self.kind is GroupKind.SCENE:
             ome["scene"] = self.scenes[0].to_ome_zarr(version=version)
         elif self.kind is GroupKind.LABELS:
-            ome["labels"] = [child.file.path for child in self.children]
+            ome["labels"] = [child.path for child in self.children]
         elif self.kind is GroupKind.WELL:
             # missing: objects inside "images" MUST contain "acquisition" key if more than one specified in plate
             raise NotImplementedError(
