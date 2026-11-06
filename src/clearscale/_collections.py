@@ -54,12 +54,12 @@ class GroupKind(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ChildRef:
-    child_type: Literal["label", "well", "multiscale"]
+    child_type: Literal["label_multiscale", "well", "multiscale"]
     path: str
     """Path to the child, relative to the group whose metadata refers to it."""
 
     def __post_init__(self):
-        assert self.child_type in ("label", "well", "multiscale")
+        assert self.child_type in ("label_multiscale", "well", "multiscale")
         if not isinstance(self.path, str) or not self.path:
             raise ValueError(f"Path must be a non-empty string: {self.path!r}")
 
@@ -70,7 +70,7 @@ def _children_from_attrs(attrs: Mapping[str, Any]) -> Tuple[Tuple[ChildRef, ...]
 
     labels = attrs.get("labels")
     if isinstance(labels, list) and any(labels):
-        children.extend(ChildRef("label", path) for path in labels if isinstance(path, str) and path)
+        children.extend(ChildRef("label_multiscale", path) for path in labels if isinstance(path, str) and path)
 
     series = attrs.get("series")  # might be present in the "OME" subgroup of a bf2raw parent group
     if isinstance(series, list) and any(series):
@@ -150,7 +150,7 @@ class OmeZarrGroup:
                 detected_kind = GroupKind.PLATE
             if child_types == {"multiscale"}:
                 detected_kind = GroupKind.WELL
-            if child_types == {"label"}:
+            if child_types == {"label_multiscale"}:
                 detected_kind = GroupKind.LABELS
         elif self.multiscales or self.scenes or self.children:
             detected_kind = GroupKind.COLLECTION

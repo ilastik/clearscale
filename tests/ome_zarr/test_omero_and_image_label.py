@@ -167,6 +167,9 @@ def test_image_label_is_frozen_but_labels_dict_is_mutable():
 
 def test_image_label_bool_and_source_default():
     assert not ImageLabel()
+    assert ImageLabel().to_ome_zarr("0.5") == {
+        "version": "0.5"
+    }, "empty ImageLabel must still become a non-empty JSON (its presence marks the multiscale as a label image)"
     assert ImageLabel(source="../../")
     assert ImageLabel(labels={1: LabelEntry(properties={"class": "cell"})})
     assert ImageLabel().source is None, "absence of 'source' must not be filled in as '../../'"

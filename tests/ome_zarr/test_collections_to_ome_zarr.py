@@ -64,7 +64,7 @@ def test_ome_zarr_group_to_attrs_scene():
     ],
 )
 def test_ome_zarr_group_to_attrs_labels(version, expected):
-    children = (ChildRef("label", "labels/a"), ChildRef("label", "labels/b"))
+    children = (ChildRef("label_multiscale", "labels/a"), ChildRef("label_multiscale", "labels/b"))
     group = OmeZarrGroup(children=children)
     result = group.to_attrs(version)
     assert result == expected
@@ -108,7 +108,7 @@ def test_ome_zarr_group_to_attrs_multiple_multiscales_with_override(version, exp
     [
         {"multiscales": (Mock(spec=Multiscale),), "scenes": (Mock(spec=Scene),)},
         {"scenes": (Mock(spec=Scene), Mock(spec=Scene))},
-        {"children": (ChildRef("label", "label"), ChildRef("well", "well"))},
+        {"children": (ChildRef("label_multiscale", "label"), ChildRef("well", "well"))},
         {"multiscales": (Mock(spec=Multiscale),), "children": (ChildRef("well", "well"),)},
     ],
 )

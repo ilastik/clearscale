@@ -32,9 +32,9 @@ from clearscale._collections import OmeZarrGroup, GroupKind, ChildRef
             GroupKind.WELL,
             id="well-multiple-multiscales",
         ),
-        pytest.param({"children": (ChildRef("label", "child"),)}, GroupKind.LABELS, id="labels"),
+        pytest.param({"children": (ChildRef("label_multiscale", "child"),)}, GroupKind.LABELS, id="labels"),
         pytest.param(
-            {"children": (ChildRef("label", "child"), ChildRef("label", "child"))},
+            {"children": (ChildRef("label_multiscale", "child"), ChildRef("label_multiscale", "child"))},
             GroupKind.LABELS,
             id="labels-multiple-labels",
         ),
@@ -251,8 +251,8 @@ def test_ome_zarr_group_collects_labels_series_well_and_plate_paths_in_order():
     assert ome_group.kind is GroupKind.COLLECTION
     assert len(ome_group.children) > 0
     assert tuple(c.child_type for c in ome_group.children) == (
-        "label",
-        "label",
+        "label_multiscale",
+        "label_multiscale",
         "multiscale",
         "multiscale",
         "multiscale",
@@ -324,7 +324,7 @@ def test_ome_zarr_group_labels_list_only_accepts_strings():
     ome_group = OmeZarrGroup.from_group(group)
     assert ome_group.kind is GroupKind.LABELS
     assert len(ome_group.children) > 0
-    assert tuple(c.child_type for c in ome_group.children) == ("label", "label")
+    assert tuple(c.child_type for c in ome_group.children) == ("label_multiscale", "label_multiscale")
     paths = tuple(c.path for c in ome_group.children)
     assert paths == ("nuclei", "cytoplasm")
 
@@ -346,7 +346,7 @@ def test_ome_zarr_group_labels_list_only_accepts_strings_under_ome():
     ome_group = OmeZarrGroup.from_group(group)
     assert ome_group.kind is GroupKind.LABELS
     assert len(ome_group.children) > 0
-    assert tuple(c.child_type for c in ome_group.children) == ("label", "label")
+    assert tuple(c.child_type for c in ome_group.children) == ("label_multiscale", "label_multiscale")
     paths = tuple(c.path for c in ome_group.children)
     assert paths == ("nuclei", "cytoplasm")
 

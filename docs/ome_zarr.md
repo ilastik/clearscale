@@ -256,7 +256,7 @@ The simplest thing to do is to choose (or let the user choose) one of the refere
 You can access all paths recorded in the group metadata itself through `OmeZarrGroup.children`.
 
 `.children` contains `clearscale.ChildRef` instances.
-You can learn what kind of children (well, multiscale, label) from each child's `.child_type`, or you can just collect and display each child's `.path` to choose from.
+You can learn what kind of children (well, multiscale, label_multiscale) from each child's `.child_type`, or you can just collect and display each child's `.path` to choose from.
 Up to OME-Zarr version 0.6, these paths are always relative to the group you loaded the metadata from.
 
 Groups of kind `MULTISCALE`, `PLATE` or `BF2RAW` can have `OmeZarrGroup.maybe_subgroups`.
