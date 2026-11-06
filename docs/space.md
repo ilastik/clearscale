@@ -92,7 +92,6 @@ Things to know:
     Properties that you don't set are carried over from the Multiscale's own axes.
 * Names must be unique among the Multiscale's coordinate systems.
 * Like most methods in clearscale, `with_coordinate_system` returns a new object and leaves the original untouched.
-    The result is *spatially identical* to the original: it is the same space, now with extra knowledge about its surroundings.
 
 ## Deriving a new Multiscale
 

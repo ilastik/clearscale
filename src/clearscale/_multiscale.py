@@ -1410,12 +1410,12 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     _intrinsic_ref: NodeRef[CoordinateSystem]
     """The system in which the Scales' shape, pixel size, translation etc. are correct.
     
-    Ref instance identity matters for "manipulator" methods:
-    - filter_items, with_keys, drop_before, with_coordinate_system, copy return "the same space, viewed differently".
+    Ref instance identity mostly works semantically "correctly" in "manipulator" methods:
+    - filter_items, with_keys, drop_before, with_coordinate_system and copy return "the same space, viewed differently".
       They preserve `self._intrinsic_ref` and other NodeRefs inside the graph, maintaining identity.
-    - .from_* (and hence .derive) return "a new space". Fresh _intrinsic_ref (the result is not the same space).
+    - .from_* (and hence .derive) return "a new space". New _intrinsic_ref (the result is not the same space).
       as_derived_from reconnects the new space back to its origin, via an explicit SpatialRelation.
-    When adding a new method, decide which of these two is correct (there is no correct default).
+    
     """
     _zero_scale_axes_by_key: Mapping[str, Tuple[AxisKey, ...]]
     """Dataset scale axes that were read as 0.0 from loaded meta; kept for as-read round-trip."""
@@ -1555,16 +1555,15 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return hash((tuple(self._mapping.items()), sig))
 
     def copy(self) -> "Multiscale":
-        """Return a new Multiscale with the same Scales, coordinate-system identity, and metadata.
-
-        The result shares this Multiscale's coordinate systems - it is spatially identical with `self`.
+        """Return a new Multiscale with the same Scales, coordinate systems, and metadata.
         `.ome` is deep-copied, so mutating one's `.ome` does not affect the other.
-
-        For a spatially independent structural clone that shares nothing at all with `self`, use `copy.deepcopy(self)`.
         """
         return Multiscale(
             self._mapping,  # The Scale instances end up shared. Fine because they're frozen dataclasses.
             ome=copy.deepcopy(self.ome),
+            # If Ref instance identity ever matters, the docstring should point to copy.deepcopy(ms) as the right way
+            # to get a new Multiscale whose graph and refs aren't literally the instances of the source.
+            # (See _intrinsic_ref docstring)
             _transform_graph=self._transform_graph,
             _intrinsic_ref=self._intrinsic_ref,
             _zero_scale_axes_by_key=self._zero_scale_axes_by_key,
@@ -1829,9 +1828,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         ome_zarr_axes: Optional[OmeZarrAxesParam] = "infer",
     ) -> "Multiscale":
-        """Add a coordinate system to this Multiscale's spatial context.
-
-        The returned Multiscale is spatially identical with `self`, but additionally knows the new coordinate system."""
+        """Add a coordinate system to this Multiscale's spatial context."""
 
         if name == self._intrinsic_ref.name or name in self.coordinate_systems:
             raise ValueError(f"Coordinate system name {name!r} already exists on this Multiscale.")
@@ -1880,10 +1877,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         insertion with `Translation(z=z0, ...)`. For a maximum projection, this plane is a representative position.
         Affines must be invertible here to carry source axis properties back to the derived image.
 
-        The returned Multiscale loses spatial identity with `self` if `other` has different axis metadata (indicating
-        that it originates from a different space).
-        `other`, and its additional coordinate systems, may be renamed on transfer in case of clashes with existing
-        systems in `self`'s context, but otherwise maintain spatial identity.
+        Transferred coordinate systems are renamed if `self` already has a system of the same name.
         """
         relation = normalize_relations_param(reached_by)
         parent_axes = other.axes
@@ -2028,7 +2022,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Derive a new Multiscale from one of this Multiscale's own scale levels.
 
         Deriving keeps the new Multiscale in the spatial context of `self`. This means `.coordinate_systems` are
-        transferred, maintaining identity where possible, and `self` becomes a coordinate system on the child.
+        transferred, and `self` becomes a coordinate system on the child.
         If `self` follows the nifti-zarr convention, this is also transferred.
 
         `blueprint`: How to expand the Scale at `base_key` into the derived Multiscale's levels.
@@ -2230,7 +2224,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     def _with_items(self, items: Iterable[Tuple[ScaleKey, Scale]]) -> "Multiscale":
         """Shared cloner for "with_" methods.
-        These methods create alternative views of the same space, so self._intrinsic_ref and the graph are maintained (see _intrinsic_ref docstring).
 
         `_zero_scale_axes_by_key` is dropped: (1) We don't know correspondence of old to new items.
         (2) The property exists for clean read-write roundtrip. On modification, the normalisation to 1.0 should be ok.
