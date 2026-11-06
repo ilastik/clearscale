@@ -12,7 +12,6 @@ from typing import (
     Iterable,
     TypeVar,
     Union,
-    Literal,
     Any,
     List,
     Generic,
@@ -44,7 +43,6 @@ _RefT = TypeVar("_RefT")
 AxisDependencies = Tuple[AxisIndices, ...]
 """One entry per target axis (in target order), with the indices of the source axes it depends on."""
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
-PRE_COLLECTIONS_VERSIONS = PRE_TRANSFORMS_VERSIONS + ("0.6",)
 
 
 @dataclass(frozen=True, slots=True)
@@ -359,17 +357,6 @@ class TransformGraphNode(ABC):
         ...
 
 
-PathType = Literal["zarr", "json"]
-"""
-'zarr': A path that points to a zarr object that should be opened like 'zarr.open(path)'.
-'json': A path that points to a file that should be read like 'json.loads(path)'.
-"""
-
-
-def _infer_path_type(path: str) -> PathType:
-    return "json" if path.endswith(".json") else "zarr"
-
-
 @dataclass(frozen=True, slots=True)
 class NodeRef(Generic[TransformGraphNodeT]):
     """
@@ -412,10 +399,7 @@ class NodeRef(Generic[TransformGraphNodeT]):
         return f"NodeRef(name='{self.name}', owner={type(self.owner).__name__}<id={id(self.owner)}, axes={self.axes})>"
 
     def to_ome_zarr(self, *, version: str, path: Optional[str] = None) -> Dict[str, Any]:
-        if path and isinstance(path, str):
-            # Once we have a path, _UnresolvedRef *is* the direct model of ome-zarr's json schema for a NodeRef
-            return _UnresolvedRef.from_path(path, name=self.name).to_ome_zarr(version=version)
-        return {"name": self.name}
+        return _UnresolvedRef(name=self.name, path=path or None).to_ome_zarr(version=version)
 
     def to_signature(self, rename: Mapping["NodeRef", str]) -> "NodeSignature":
         """Return a value-comparable representation of self"""
@@ -432,25 +416,13 @@ class _UnresolvedRef:
     """name is required. Optional only to acommodate one specific case inside OME-Zarr 0.6
     dataset['coordinateTransformations'][]['input'], where name must be null/omitted."""
     path: Optional[str] = None
-    """
-    Path could be:
-    - a relative URI like 'scales/s0' in OME-Zarr versions up to 0.6 (before RFC-8)
-    - an absolute URI like 'https://...' or 'file:///C:/...'
-    - a relative path like './scales/s0' or '../'
-    """
-    path_type: PathType = "zarr"
+    """Path to the referenced zarr array or group, relative to the group whose metadata holds this reference."""
 
     def __post_init__(self):
         if not self.name and not self.path:
             raise ValueError("_UnresolvedRef requires at least one of: name, path")
         if self.path is not None and (not isinstance(self.path, str) or not self.path):
             raise ValueError(f"Path must be a non-empty string: {self.path!r}")
-        assert self.path_type in ("zarr", "json")
-
-    @classmethod
-    def from_path(cls, path: str, name: Optional[CoordinateSystemName] = None) -> "_UnresolvedRef":
-        """Constructor that infers `path_type` from the provided path"""
-        return cls(name=name, path=path, path_type=_infer_path_type(path) if isinstance(path, str) else "zarr")
 
     @classmethod
     def from_ome_zarr(cls, ref_dict: Mapping[str, Any]) -> Optional["_UnresolvedRef"]:
@@ -458,40 +430,23 @@ class _UnresolvedRef:
         path = ref_dict.get("path")
         name = ref_dict.get("name")
         name = name if isinstance(name, str) else None
-        path_type: PathType = "zarr"
-        if isinstance(path, MappingABC):
-            # RFC-8 style {"type": "zarr" | "json", "path": <str>}
-            declared_type = path.get("type")
-            if declared_type == "zarr":
-                path_type = "zarr"
-            elif declared_type == "json":
-                path_type = "json"
-            else:
-                raise ValueError(f"Invalid file reference type: {declared_type!r}")
-            path = path.get("path")
-            if not isinstance(path, str):
-                raise ValueError(f"Invalid file reference path: {path!r}")
-        elif isinstance(path, str):
-            path_type = _infer_path_type(path)
-        else:
-            path = None
+        if path is not None and not isinstance(path, str):
+            # Don't ignore a path we don't understand: A remaining name could silently resolve to the wrong node.
+            raise ValueError(f"Invalid transform endpoint: path must be a string. Received: {path!r}")
         if path is None and not name:
             return None
-        return cls(name=name, path=path, path_type=path_type)
+        return cls(name=name, path=path)
 
     def to_ome_zarr(self, *, version: str) -> Dict[str, Any]:
+        if version != "0.6":
+            raise ValueError(
+                f"Unsupported OME-Zarr version {version!r}. Transform endpoints can only be written to '0.6'."
+            )
         d: Dict[str, Any] = {}
         if self.name:
             d["name"] = self.name
         if self.path is not None:
-            if version in PRE_COLLECTIONS_VERSIONS:
-                if self.path_type != "zarr":
-                    raise ValueError(f"OME-Zarr version {version} can only reference zarr paths.")
-                d["path"] = self.path
-            elif version == "rfc-8":
-                d["path"] = {"type": self.path_type, "path": self.path}
-            else:
-                raise ValueError(f"Can only write RFC-8 style file references in OME-Zarr RFC-8. Received: {version}")
+            d["path"] = self.path
         return d
 
     def to_signature(self, rename: Mapping["NodeRef", str]) -> "_UnresolvedRef":

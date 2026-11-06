@@ -93,7 +93,7 @@ def test_with_resolved_does_not_resolve_by_name():
     transform = TranslationTransform(
         translation=(0, 0),
         source=_UnresolvedRef(name="world"),
-        target=_UnresolvedRef.from_path("tile_0", name="physical"),
+        target=_UnresolvedRef(name="physical", path="tile_0"),
     )
     scene = Scene(TransformGraph([transform], system_refs=(world,)), _multiscale_paths={})
     resolved = scene.with_resolved({"tile_0": multiscale})

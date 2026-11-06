@@ -8,7 +8,6 @@ import logging
 
 from clearscale._multiscale import Multiscale
 from clearscale._scene import Scene
-from clearscale._transforms import _infer_path_type, PathType
 from clearscale._services.ome_zarr import (
     SUPPORTED_VERSIONS_WRITE,
     ImageLabel,
@@ -58,20 +57,11 @@ class ChildRef:
     child_type: Literal["label", "well", "multiscale"]
     path: str
     """Path to the child, relative to the group whose metadata refers to it."""
-    path_type: PathType = "zarr"
-    """'zarr': The path points to a zarr object that should be opened like 'zarr.open(path)'.
-    'json': The path points to a file that should be read like 'json.loads(path)'."""
 
     def __post_init__(self):
         assert self.child_type in ("label", "well", "multiscale")
-        assert self.path_type in ("zarr", "json")
         if not isinstance(self.path, str) or not self.path:
             raise ValueError(f"Path must be a non-empty string: {self.path!r}")
-
-    @classmethod
-    def from_string(cls, path: str, child_type: Literal["label", "well", "multiscale"]):
-        """Constructor that infers `path_type` from the provided path"""
-        return cls(child_type=child_type, path=path, path_type=_infer_path_type(path))
 
 
 def _children_from_attrs(attrs: Mapping[str, Any]) -> Tuple[Tuple[ChildRef, ...], Optional[str]]:
@@ -80,14 +70,14 @@ def _children_from_attrs(attrs: Mapping[str, Any]) -> Tuple[Tuple[ChildRef, ...]
 
     labels = attrs.get("labels")
     if isinstance(labels, list) and any(labels):
-        children.extend(ChildRef.from_string(path, "label") for path in labels if isinstance(path, str) and path)
+        children.extend(ChildRef("label", path) for path in labels if isinstance(path, str) and path)
 
     series = attrs.get("series")  # might be present in the "OME" subgroup of a bf2raw parent group
     if isinstance(series, list) and any(series):
         children.extend(
-            ChildRef.from_string(
-                f"../{path}",  # the strings in the "OME" subgroup's "series" attribute refer relative to the bfw2raw parent group
+            ChildRef(
                 "multiscale",
+                f"../{path}",  # the strings in the "OME" subgroup's "series" attribute refer relative to the bfw2raw parent group
             )
             for path in series
             if isinstance(path, str) and path
@@ -101,7 +91,7 @@ def _children_from_attrs(attrs: Mapping[str, Any]) -> Tuple[Tuple[ChildRef, ...]
         images = well.get("images")
         if isinstance(images, list) and any(images):
             children.extend(
-                ChildRef.from_string(image["path"], "multiscale")
+                ChildRef("multiscale", image["path"])
                 for image in images
                 if isinstance(image, ABCMapping) and isinstance(image.get("path"), str) and image.get("path")
             )
@@ -114,7 +104,7 @@ def _children_from_attrs(attrs: Mapping[str, Any]) -> Tuple[Tuple[ChildRef, ...]
         wells = plate.get("wells")
         if isinstance(wells, list) and any(wells):
             children.extend(
-                ChildRef.from_string(well["path"], "well")
+                ChildRef("well", well["path"])
                 for well in wells
                 if isinstance(well, ABCMapping) and isinstance(well.get("path"), str) and well.get("path")
             )
@@ -183,7 +173,7 @@ class OmeZarrGroup:
         if isinstance(obj, Scene):
             # Like when reading, children are all the paths the scene points to (resolved or not), deduplicated
             paths = dict.fromkeys([*obj.multiscale_paths, *obj.unresolved_paths])
-            return cls(scenes=(obj,), children=tuple(ChildRef.from_string(path, "multiscale") for path in paths))
+            return cls(scenes=(obj,), children=tuple(ChildRef("multiscale", path) for path in paths))
         raise TypeError(f"Must be called with a Multiscale or Scene, not {obj!r}")
 
     @classmethod
@@ -227,7 +217,7 @@ class OmeZarrGroup:
             try:
                 scene = Scene.from_ome_zarr(scene_json)
                 scenes.append(scene)
-                scene_children.extend(ChildRef.from_string(path, "multiscale") for path in scene.unresolved_paths)
+                scene_children.extend(ChildRef("multiscale", path) for path in scene.unresolved_paths)
             except ValueError as e:
                 invalid.append(InvalidObject("scene", scene_json, str(e)))
             if not version and isinstance(scene_json.get("version"), str) and scene_json.get("version"):

@@ -660,7 +660,7 @@ class TestMultiscaleAsDerivedFrom:
     def test_only_ports_coordinate_systems(self):
         def _with_path_bound_edge(ms: Multiscale, path: str) -> Multiscale:
             """Attach a path-bound edge to `ms`, simulating a link to a label-Multiscale overlay."""
-            edge = IdentityTransform().bound(source=ms._intrinsic_ref, target=_UnresolvedRef.from_path(path, name=path))
+            edge = IdentityTransform().bound(source=ms._intrinsic_ref, target=_UnresolvedRef(name=path, path=path))
             graph = TransformGraph(transforms=ms._transform_graph.transforms + (edge,))
             return Multiscale(ms.items(), _transform_graph=graph, _intrinsic_ref=ms._intrinsic_ref)
 

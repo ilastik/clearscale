@@ -3,8 +3,6 @@
 from clearscale._transforms._base import (
     RelativePath,
     CoordinateSystemName,
-    PathType,
-    _infer_path_type,
     NodeRef,
     _UnresolvedRef,
     AnyRef,
@@ -17,7 +15,6 @@ from clearscale._transforms._base import (
     CoordinateSystem,
     TransformGraphNode,
     PRE_TRANSFORMS_VERSIONS,
-    PRE_COLLECTIONS_VERSIONS,
     OmeZarrAxis,
     OmeZarrAxes,
 )

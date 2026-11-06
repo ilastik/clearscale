@@ -458,7 +458,7 @@ class Scene:
         if isinstance(key, dict):  # Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]]
             if key["path"] in self._multiscale_paths:
                 return self._multiscale_paths[key["path"]]._as_ref(key["name"])
-            return _UnresolvedRef.from_path(key["path"], name=key["name"])
+            return _UnresolvedRef(name=key["name"], path=key["path"])
 
         if isinstance(key, (tuple, Multiscale)):
             return self._multiscale_key_to_ref(key)
