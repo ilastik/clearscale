@@ -649,37 +649,18 @@ class TestFromSingleSceneChildren:
     def test_without_multiscales_has_no_children(self):
         world = CoordinateSystem.fromkeys("yx")._as_ref("world")
         other = CoordinateSystem.fromkeys("yx")._as_ref("other")
-        scene = Scene._from_graph_edges([(world, TranslationTransform((1, 1)), other)])
+        scene = Scene._from_graph_edges([(world, TranslationTransform((1, 1)), other)], multiscale_paths={})
 
         group = OmeZarrGroup.from_single(scene)
 
         assert group.kind is GroupKind.SCENE
         assert group.children == ()
 
-    def test_rejects_scene_with_missing_paths(self):
-        tile_0, tile_1 = self._tile(), self._tile()
-        scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
-
-        with pytest.raises(ValueError, match=r"no path is known for 2 of its Multiscales.*with_multiscale_paths"):
-            OmeZarrGroup.from_single(scene)
-
-        with pytest.raises(ValueError, match="no path is known for 1 of its Multiscales"):
-            OmeZarrGroup.from_single(scene.with_multiscale_paths({"tile_0": tile_0}))
-
-    def test_rejects_scene_with_missing_paths_among_others(self):
-        tile_0, tile_1 = self._tile(), self._tile()
-        without_paths = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
-        with_paths = without_paths.with_multiscale_paths({"tile_0": tile_0, "tile_1": tile_1})
-
-        OmeZarrGroup(scenes=(with_paths, with_paths))  # should be fine
-
-        with pytest.raises(ValueError, match="no path is known"):
-            OmeZarrGroup(scenes=(with_paths, without_paths))
-
     def test_children_are_its_multiscale_paths(self):
         tile_0, tile_1 = self._tile(), self._tile()
-        scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
-        scene = scene.with_multiscale_paths({"tiles/0": tile_0, "tiles/1": tile_1})
+        scene = Scene._from_graph_edges(
+            [(tile_0, TranslationTransform((1, 1)), tile_1)], multiscale_paths={"tiles/0": tile_0, "tiles/1": tile_1}
+        )
 
         group = OmeZarrGroup.from_single(scene)
 
@@ -716,8 +697,9 @@ class TestFromSingleSceneChildren:
 
     def test_children_match_after_writing_and_reading(self):
         tile_0, tile_1 = self._tile(), self._tile()
-        scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
-        scene = scene.with_multiscale_paths({"tile_0": tile_0, "tile_1": tile_1})
+        scene = Scene._from_graph_edges(
+            [(tile_0, TranslationTransform((1, 1)), tile_1)], multiscale_paths={"tile_0": tile_0, "tile_1": tile_1}
+        )
         written = OmeZarrGroup.from_single(scene)
 
         read = OmeZarrGroup.from_attrs(written.to_attrs(version="0.6"), shape_source="singletons")

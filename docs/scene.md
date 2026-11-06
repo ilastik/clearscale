@@ -30,6 +30,7 @@ If you think of image operations as resampling new pixels out of an existing ima
 | Several results derived from the same original   | [`from_shared_coordinate_system`](#several-derivations-of-one-original) |
 
 In all of them, a `source` or `a` can be a Multiscale (meaning the space of its own data), or `(multiscale, "name")` to select one of the other coordinate systems it knows.
+Every Multiscale also needs a unique storage path relative to the group that stores the Scene.
 Applying a relation to the axes of the space it starts from must produce the axes of the space it ends in, otherwise the constructor raises.
 
 ### A pair: registration or provenance
@@ -38,9 +39,11 @@ Applying a relation to the axes of the space it starts from must produce the axe
 from clearscale import Scene, Translation
 
 scene = Scene.from_multiscale_pair(
-    a=raw,
-    b=atlas,
+    a=raw_ms,
+    b=atlas_ms,
     a_to_b=Translation(y=10.0, x=20.0),
+    a_path="raw",
+    b_path="atlas",
 )
 ```
 
@@ -53,9 +56,9 @@ It accepts a single relation or a list (applied first to last), or `None` if bot
 from clearscale import PixelOffset, Scene
 
 positions = [
-    (tile1, PixelOffset(y=0, x=0)),
-    (tile2, PixelOffset(y=0, x=1000)),
-    (tile3, PixelOffset(y=1000, x=0)),
+    (tile1, PixelOffset(y=0, x=0), "tiles/tile1"),
+    (tile2, PixelOffset(y=0, x=1000), "tiles/tile2"),
+    (tile3, PixelOffset(y=1000, x=0), "tiles/tile3"),
 ]
 
 scene = Scene.from_shared_coordinate_system(
@@ -63,9 +66,9 @@ scene = Scene.from_shared_coordinate_system(
     connections=[
         Scene.Connection(
           tile, 
-          to_shared=offset * tile["s0"].pixel_size
+          to_shared=offset * tile["s0"].pixel_size, path=path
         )
-        for tile, offset in positions
+        for tile, offset, path in positions
     ],
 )
 ```
@@ -92,14 +95,14 @@ from clearscale import Scene, Translation, ProjectionTo
 scene = Scene.from_shared_coordinate_system(
     coordinate_system="original",
     connections=[
-        Scene.Connection(original, to_shared=None),
+        Scene.Connection(original, to_shared=None, path="original"),
         # cells = a full segmentation image
-        Scene.Connection(cells, to_shared=None),
+        Scene.Connection(cells, to_shared=None, path="cells"),
         # nuclei = a segmentation image cropped from original, like:
         # nuclei.as_derived_from(original, reached_by=Translation(y=32.0, x=48.0))
-        Scene.Connection(nuclei, to_shared=Translation(y=32.0, x=48.0)),
+        Scene.Connection(nuclei, to_shared=Translation(y=32.0, x=48.0), path="nuclei"),
         # thumbnail = a representative slice extracted from the center of the stack (e.g. at 160um)
-        Scene.Connection(thumbnail_yx, to_shared=[ProjectionTo("zyx", Translation(z=160.0, y=0, x=0)]),
+        Scene.Connection(thumbnail_yx, to_shared=[ProjectionTo("zyx"), Translation(z=160.0, y=0, x=0)], path="thumbnail"),
     ],
 )
 ```
@@ -148,11 +151,11 @@ assert scene.is_fully_resolved
 `scene.multiscales` lists the Multiscales a Scene knows, in order of appearance.
 For a Scene you made yourself these are the ones you passed in; for one you read, they are the ones you have resolved so far.
 
-Writing needs to know the same paths, because Multiscales don't know where they are stored:
+`scene.multiscale_paths` is a read-only mapping from paths to resolved Multiscales.
+Writing uses the paths supplied during construction or read from metadata:
 
 ```python
-paths = {"raw": raw, "atlas": atlas}  # Each Multiscale's path within the Scene's group
-scene_metadata = scene.to_ome_zarr(version="0.6", multiscales_by_path=paths)
+scene_metadata = scene.to_ome_zarr(version="0.6")
 
 zarr_group.attrs.update({"ome": {"version": "0.6", "scene": scene_metadata}})
 ```

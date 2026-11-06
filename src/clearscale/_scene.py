@@ -51,27 +51,35 @@ Node = Union[Multiscale, NodeRef]
 class Scene:
     class Connection(NamedTuple):
         """One Multiscale's relation to the coordinate system shared by a Scene's Multiscales,
-        for `Scene.from_shared_coordinate_system`. Plain `(source, to_shared)` tuples work as well."""
+        for `Scene.from_shared_coordinate_system`. Plain `(source, to_shared, path)` tuples work as well."""
 
         source: MultiscaleSystemKey
         """The Multiscale (its own space), or `(multiscale, name)` for one of the other coordinate systems it knows."""
         to_shared: RelationsParam
         """How the shared coordinate system is reached from `source`, as for `Multiscale.with_coordinate_system`:
         `source --to_shared--> shared`. `None` means `source` is the same space as the shared one."""
+        path: str
+        """Where the Multiscale is stored, relative to the group that stores the Scene."""
 
     _internal_graph: TransformGraph
     _multiscale_paths: MultiscalesByPath
     """The storage path of every resolved Multiscale in the Scene."""
 
     def __post_init__(self):
-        if not isinstance(self._multiscale_paths, MappingABC):
-            raise TypeError(
-                f"_multiscale_paths must be a mapping like {{path: Multiscale}}. "
-                f"Received: {self._multiscale_paths!r}"
-            )
-        paths = dict(self._multiscale_paths)
-        self._require_max_one_path_per_multiscale_and_no_unrelated_paths(paths)
-        object.__setattr__(self, "_multiscale_paths", paths)
+        path_by_instance: Dict[int, RelativePath] = {}
+        for path, multiscale in self._multiscale_paths.items():
+            if not isinstance(path, str) or not path:
+                raise ValueError(f"Multiscale paths must be non-empty strings. Received: {path!r}")
+            if id(multiscale) in path_by_instance:
+                raise ValueError(
+                    "Each Multiscale instance can only be stored at one path. "
+                    "Received two paths for one instance: "
+                    f"{path_by_instance[id(multiscale)]!r} and {path!r}. "
+                    "Use `.copy()` if the second path is another Multiscale with the same exact metadata."
+                )
+            path_by_instance[id(multiscale)] = path
+        if any(id(ms) not in path_by_instance for ms in self.multiscales):
+            raise ValueError("Every resolved Multiscale in a Scene must have a path.")
 
     def __eq__(self, other):
         """Structural equality: Same coordinate systems and transforms between the same (equal) Multiscales.
@@ -99,8 +107,7 @@ class Scene:
 
     @property
     def multiscale_paths(self) -> Mapping[RelativePath, Multiscale]:
-        """The paths of this Scene's resolved Multiscales, relative to the OmeZarrGroup that stores the Scene.
-        Multiscales that have no path yet cannot be written (see `with_multiscale_paths`)."""
+        """The paths of this Scene's resolved Multiscales, relative to the OmeZarrGroup that stores the Scene."""
         return MappingProxyType(self._multiscale_paths)
 
     @functools.cached_property
@@ -150,7 +157,7 @@ class Scene:
         cls,
         *,
         coordinate_system: CoordinateSystemName,
-        connections: Iterable[Tuple[MultiscaleSystemKey, RelationsParam]],
+        connections: Iterable[Tuple[MultiscaleSystemKey, RelationsParam, RelativePath]],
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         ome_zarr_axes: Optional[OmeZarrAxesParam] = "infer",
     ) -> "Scene":
@@ -161,8 +168,8 @@ class Scene:
         Scene.from_shared_coordinate_system(
             coordinate_system="stage",
             connections=[
-                Scene.Connection(tile1, to_shared=tile1_to_stage),
-                Scene.Connection(tile2, to_shared=tile2_to_stage),
+                Scene.Connection(tile1, to_shared=tile1_to_stage, path="tiles/1"),
+                Scene.Connection(tile2, to_shared=tile2_to_stage, path="tiles/2"),
             ],
         )
         ```
@@ -171,6 +178,8 @@ class Scene:
         would be for that Multiscale alone: `ms --to_shared--> coordinate_system`.
         Each connection can use either the multiscale itself as a source like `Scene.Connection(ms, ...)`, or one of the
         multiscale's other coordinate systems like `Scene.Connection((ms, "deskewed"), ...)`.
+        Each connection supplies its Multiscale's storage path, relative to the group that stores the Scene.
+        Connections for different coordinate systems of the same Multiscale must use the same path.
         The axes of the shared system are defined by the connections, so they must all produce identical axes.
         The axis properties of the shared system (`unit`, `ome_zarr_axes`) are determined like in
         `Multiscale.with_coordinate_system`, inheriting blank fields from all connections.
@@ -190,11 +199,11 @@ class Scene:
         target_axes: Optional[Tuple[AxisKey, ...]] = None
         reconciled_axes: List[OmeZarrAxes] = []
         for i, entry in enumerate(entries):
-            if not isinstance(entry, tuple) or len(entry) != 2:
+            if not isinstance(entry, tuple) or len(entry) != 3:
                 raise TypeError(
-                    f"connections[{i}] must be a Scene.Connection or a (source, to_shared) tuple. Got: {entry!r}"
+                    f"connections[{i}] must be a Scene.Connection or a (source, to_shared, path) tuple. Got: {entry!r}"
                 )
-            key, relations_param = entry
+            key, relations_param, _path = entry
             ms_ref = cls._multiscale_key_to_ref(key)
             if ms_ref in source_refs:
                 raise ValueError(
@@ -242,7 +251,10 @@ class Scene:
             )
             for source, relation in zip(source_refs, relations)
         ]
-        return cls(_internal_graph=TransformGraph(transforms, system_refs=(shared,)), _multiscale_paths={})
+        paths = cls._to_dict_requiring_unique_path_keys(
+            (entry[2], ref.owner) for entry, ref in zip(entries, source_refs)
+        )
+        return cls(_internal_graph=TransformGraph(transforms, system_refs=(shared,)), _multiscale_paths=paths)
 
     @classmethod
     def from_multiscale_pair(
@@ -251,6 +263,8 @@ class Scene:
         a: MultiscaleSystemKey,
         b: MultiscaleSystemKey,
         a_to_b: RelationsParam,
+        a_path: RelativePath,
+        b_path: RelativePath,
     ) -> "Scene":
         """
         Relate two Multiscales to each other, e.g. an image to the atlas it was registered to.
@@ -264,6 +278,7 @@ class Scene:
 
         Applying `a_to_b` to the axes of `a` must produce the axes of `b`.
         `a` and `b` can also be one of the other coordinate systems of a Multiscale: `(multiscale, name)`.
+        `a_path` and `b_path` are their storage paths, relative to the group that stores the Scene.
         """
         a_ref = cls._multiscale_key_to_ref(a)
         b_ref = cls._multiscale_key_to_ref(b)
@@ -292,19 +307,22 @@ class Scene:
         transform = (relation_to_transform_canonic(relation, a_ref.axes) if relation else IdentityTransform()).bound(
             source=a_ref, target=b_ref
         )
-        return cls(_internal_graph=TransformGraph([transform]), _multiscale_paths={})
+        paths = cls._to_dict_requiring_unique_path_keys(((a_path, a_ref.owner), (b_path, b_ref.owner)))
+        return cls(_internal_graph=TransformGraph([transform]), _multiscale_paths=paths)
 
     @classmethod
     def _from_graph_edges(
         cls,
         source_transform_targets: Iterable[Tuple[Node, Transform, Node]],
+        *,
+        multiscale_paths: MultiscalesByPath,
     ) -> "Scene":
         """
         Basic low-level constructor by directly specifying graph edges (source->transform->target):
         Scene._from_graph_edges([
             (moving_ms1, AffineTransform(...), fixed_ms),
             (moving_ms2, AffineTransform(...), fixed_ms),
-        ])
+        ], multiscale_paths={"moving1": moving_ms1, "moving2": moving_ms2, "fixed": fixed_ms})
         """
 
         def node_to_ref(node: Node) -> NodeRef:
@@ -324,7 +342,7 @@ class Scene:
             target = node_to_ref(target_node)
             bound = transform.bound(source=source, target=target)
             transforms.append(bound)
-        return cls(_internal_graph=TransformGraph(transforms=transforms), _multiscale_paths={})
+        return cls(_internal_graph=TransformGraph(transforms=transforms), _multiscale_paths=multiscale_paths)
 
     @classmethod
     def from_ome_zarr(cls, scene_attrs: Mapping[str, Any]) -> "Scene":
@@ -360,38 +378,9 @@ class Scene:
         graph = replace(self._internal_graph, transforms=tuple(transforms))
         return replace(self, _internal_graph=graph, _multiscale_paths=paths)
 
-    def with_multiscale_paths(self, multiscale_paths: MultiscalesByPath) -> "Scene":
-        """
-        Record the paths at which this Scene's Multiscales are stored, relative to the group that stores the Scene.
-
-        Every Multiscale must be the specific instance that this Scene's transforms connect (not an equal copy).
-        Overrides already stored paths if a new path is provided for an instance that already has one.
-        Instances with no new path provided keep their existing path.
-        Two instances cannot have the same path (but e.g. paths can be swapped within one call).
-        """
-        if not isinstance(multiscale_paths, MappingABC):
-            raise TypeError(
-                f"multiscale_paths must be a mapping like {{path: Multiscale}}. Received: {multiscale_paths!r}"
-            )
-        new_paths = dict(multiscale_paths)
-        if not new_paths:
-            return self
-        # Validate first: Mistakes such as passing a copy should be reported as such, and not as a path clash.
-        self._require_max_one_path_per_multiscale_and_no_unrelated_paths(new_paths)
-        moved = {id(multiscale) for multiscale in new_paths.values()}
-        kept = {path: ms for path, ms in self._multiscale_paths.items() if id(ms) not in moved}
-        for path in new_paths:
-            if path in kept:
-                raise ValueError(
-                    f"Path {path!r} is already used by another Multiscale. "
-                    "To reuse paths, also give that Multiscale a new path in the same call."
-                )
-        return replace(self, _multiscale_paths={**kept, **new_paths})
-
     def to_ome_zarr(self, *, version: str) -> Dict:
         if version != "0.6":
             raise ValueError(f"Scenes can only be written in OME-Zarr version 0.6. Received: {version}")
-        self._require_paths_for_all_multiscales()
         return self._internal_graph.to_ome_zarr(version=version, nodes_by_path=self._multiscale_paths)
 
     def relation_from(
@@ -404,7 +393,7 @@ class Scene:
         Return the spatial relation that leads from the space `source` to the space `to`: `source --R--> to`.
         As for all relations, R says what you do with an image in `source`'s space to obtain `to`'s space.
         This is the same reading as for the relations the constructors accept:
-        `Scene.from_multiscale_pair(a=a, b=b, a_to_b=R).relation_from(a, to=b)` returns `R`, in canonical form
+        `Scene.from_multiscale_pair(a=a, b=b, a_to_b=R, a_path="a", b_path="b").relation_from(a, to=b)` returns `R`, in canonical form
         (e.g. a chain of two Translations comes out as one Translation).
 
         `source` and `to` select spaces as follows:
@@ -518,40 +507,17 @@ class Scene:
                 resolved_paths[old_ref.path] = multiscale
         return resolved_paths
 
-    def _require_max_one_path_per_multiscale_and_no_unrelated_paths(
-        self, paths: Mapping[RelativePath, Multiscale]
-    ) -> None:
-        owners = {id(ms): ms for ms in self.multiscales}
-        path_by_instance: Dict[int, RelativePath] = {}
-        for path, multiscale in paths.items():
+    @staticmethod
+    def _to_dict_requiring_unique_path_keys(
+        entries: Iterable[Tuple[RelativePath, Multiscale]],
+    ) -> Dict[RelativePath, Multiscale]:
+        """Because simply {path: ms for path, ms in zip(paths, multiscales)} would silently deduplicate equal paths
+        and only keep the first ms that specified that path."""
+        paths: Dict[RelativePath, Multiscale] = {}
+        for path, multiscale in entries:
             if not isinstance(path, str) or not path:
                 raise ValueError(f"Multiscale paths must be non-empty strings. Received: {path!r}")
-            if not isinstance(multiscale, Multiscale):
-                raise TypeError(f"Path {path!r} must map to a Multiscale. Received: {multiscale!r}")
-            if id(multiscale) not in owners:
-                raise ValueError(
-                    f"The Multiscale given for path {path !r} is not part of this Scene's graph. "
-                    "A Scene cannot hold Multiscales that none of its transforms connect. "
-                    "Paths must be given for the specific Multiscale instances passed on construction, "
-                    "not e.g. equal instances created by `Multiscale.copy()`."
-                )
-            if id(multiscale) in path_by_instance:
-                raise ValueError(
-                    "Each Multiscale instance can only be stored at one path. "
-                    "Received two paths for one instance: "
-                    f"{path_by_instance[id(multiscale)]!r} and {path!r}. "
-                    "Use `.copy()` if the second path is another Multiscale with the same exact metadata."
-                )
-            path_by_instance[id(multiscale)] = path
-
-    def _require_paths_for_all_multiscales(self) -> None:
-        """Raise unless all Multiscales have paths. Scenes without them are fine in memory, but cannot be written."""
-        unlocated = {id(ms) for ms in self.multiscales} - {
-            id(multiscale) for multiscale in self._multiscale_paths.values()
-        }
-        if unlocated:
-            raise ValueError(
-                f"Cannot write this Scene: no path is known for {len(unlocated)} of its Multiscales. "
-                "Use `Scene.with_multiscale_paths({path: multiscale})` to provide the paths where they are stored, "
-                "relative to the group that stores the Scene."
-            )
+            if path in paths and paths[path] is not multiscale:
+                raise ValueError(f"Path {path!r} is already used by another Multiscale.")
+            paths[path] = multiscale
+        return paths

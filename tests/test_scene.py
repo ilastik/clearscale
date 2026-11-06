@@ -38,7 +38,9 @@ def test_from_graph_edges_binds_between_multiscales():
     source = _multiscale(z=2, y=3, x=4)
     target = _multiscale(z=2, y=3, x=4)
 
-    scene = Scene._from_graph_edges([(source, ScaleTransform((2, 2, 2)), target)])
+    scene = Scene._from_graph_edges(
+        [(source, ScaleTransform((2, 2, 2)), target)], multiscale_paths={"source": source, "target": target}
+    )
 
     path = scene._transforms_between(source, target)
 
@@ -61,7 +63,8 @@ def test_from_graph_edges_binds_coordinate_system_refs():
                 ScaleTransform((2, 2, 2)),
                 world._as_ref("world"),
             ),
-        ]
+        ],
+        multiscale_paths={"image": image},
     )
 
     path = scene._transforms_between(image, "world")
@@ -80,7 +83,8 @@ def test_from_graph_edges_multiple_edges():
         [
             (moving, ScaleTransform((2, 2, 2)), world._as_ref("world")),
             (world._as_ref("world"), AffineTransform(((1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0))), fixed),
-        ]
+        ],
+        multiscale_paths={"moving": moving, "fixed": fixed},
     )
 
     path = scene._transforms_between(moving, fixed)
@@ -98,17 +102,17 @@ def test_from_graph_edges_rejects_coordinate_system_and_other_types():
     image = _multiscale(z=2, y=3, x=4)
 
     with pytest.raises(TypeError, match="Use CoordinateSystem._as_ref"):
-        Scene._from_graph_edges([("some_string", ScaleTransform((2, 2, 2)), world)])  # type: ignore[arg-type]
+        Scene._from_graph_edges([("some_string", ScaleTransform((2, 2, 2)), world)], multiscale_paths={})  # type: ignore[arg-type]
 
     with pytest.raises(TypeError, match="Use CoordinateSystem._as_ref"):
-        Scene._from_graph_edges([(world, ScaleTransform((2, 2, 2)), image)])  # type: ignore[arg-type]
+        Scene._from_graph_edges([(world, ScaleTransform((2, 2, 2)), image)], multiscale_paths={"image": image})  # type: ignore[arg-type]
 
     with pytest.raises(TypeError, match="Use CoordinateSystem._as_ref"):
-        Scene._from_graph_edges([(image, ScaleTransform((2, 2, 2)), world)])  # type: ignore[arg-type]
+        Scene._from_graph_edges([(image, ScaleTransform((2, 2, 2)), world)], multiscale_paths={"image": image})  # type: ignore[arg-type]
 
 
 def test_transforms_between_in_empty_scene():
-    scene = Scene._from_graph_edges([])
+    scene = Scene._from_graph_edges([], multiscale_paths={})
 
     assert scene._transforms_between("world", "world") is None
     assert scene._internal_graph.transforms == ()
@@ -141,7 +145,7 @@ def test_transforms_between_can_include_child_multiscale_graphs():
         source=multiscale._as_ref_to_intrinsic(),
         target=world,
     )
-    scene = Scene(TransformGraph([scene_transform], system_refs=(world,)), _multiscale_paths={})
+    scene = Scene(TransformGraph([scene_transform], system_refs=(world,)), _multiscale_paths={"multiscale": multiscale})
 
     without_children = scene._transforms_between((multiscale, "warped"), "world")
 
@@ -163,7 +167,7 @@ def test_transforms_between_with_children_through_axis_changing_child_system():
         source=multiscale._as_ref("preview"),
         target=world,
     )
-    scene = Scene(TransformGraph([scene_transform], system_refs=(world,)), _multiscale_paths={})
+    scene = Scene(TransformGraph([scene_transform], system_refs=(world,)), _multiscale_paths={"multiscale": multiscale})
 
     path = scene._transforms_between((multiscale, "preview"), "world", include_children=True)
 
@@ -185,195 +189,46 @@ def test_transforms_between_with_children_through_axis_changing_child_system():
     ],
 )
 def test_transforms_between_rejects_malformed_multiscale_system_key(key):
-    scene = Scene._from_graph_edges([])
+    scene = Scene._from_graph_edges([], multiscale_paths={})
 
     with pytest.raises(TypeError, match=r"must be tuple\(multiscale, system_name\)"):
         scene._transforms_between(key, "world")  # type: ignore[arg-type]
 
 
-class TestMultiscalePaths:
-    @staticmethod
-    def _two_tile_scene():
-        tile_0 = _multiscale(y=2, x=3)
-        tile_1 = _multiscale(y=2, x=3)
-        scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
-        return scene, tile_0, tile_1
+def test_multiscale_paths_is_read_only():
+    a, b = _multiscale(y=2, x=3), _multiscale(y=2, x=3)
+    scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="tiles/a", b_path="tiles/b")
+    with pytest.raises(TypeError):
+        scene.multiscale_paths["other"] = a  # type: ignore[index]
+    assert scene.multiscale_paths == {"tiles/a": a, "tiles/b": b}
+    assert scene.multiscale_paths["tiles/a"] is a
+    assert scene.multiscale_paths["tiles/b"] is b
 
-    def test_paths_can_be_added_and_retrieved(self):
-        scene, tile_0, tile_1 = self._two_tile_scene()
 
-        assert scene.multiscale_paths == {}, "empty by default"
-        assert scene.with_multiscale_paths({}) is scene, "passing nothing returns self"
+@pytest.mark.parametrize("resolve_separately", [False, True])
+def test_with_resolved_rejects_same_multiscale_for_two_paths(resolve_separately):
+    ms = _multiscale(y=2, x=3)
+    object.__setattr__(ms._intrinsic_ref, "name", "physical")
+    world = {"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}
+    scene = Scene.from_ome_zarr(
+        {
+            "coordinateSystems": [world],
+            "coordinateTransformations": [
+                {
+                    "type": "translation",
+                    "input": {"path": path, "name": "physical"},
+                    "output": {"name": "world"},
+                    "translation": [0, 0],
+                }
+                for path in ("tile_0", "tile_1")
+            ],
+        }
+    )
 
-        with_paths = scene.with_multiscale_paths({"tile_0": tile_0, "tile_1": tile_1})
-
-        assert with_paths is not scene, "should not modify original instance"
-        assert with_paths.multiscale_paths == {"tile_0": tile_0, "tile_1": tile_1}
-
-    def test_multiscale_paths_is_read_only(self):
-        scene, tile_0, _tile_1 = self._two_tile_scene()
-        with_paths = scene.with_multiscale_paths({"tile_0": tile_0})
-
-        with pytest.raises(TypeError):
-            with_paths.multiscale_paths["other"] = tile_0  # type: ignore[index]
-
-        assert with_paths.multiscale_paths == {"tile_0": tile_0}
-
-    def test_accepts_paths_for_only_some_multiscales(self):
-        scene, tile_0, _tile_1 = self._two_tile_scene()
-
-        with_paths = scene.with_multiscale_paths({"tile_0": tile_0})
-
-        assert with_paths.multiscale_paths == {"tile_0": tile_0}
-
-    def test_rejects_path_for_multiscale_outside_graph(self):
-        scene, _tile_0, _tile_1 = self._two_tile_scene()
-        stray = _multiscale(y=5, x=7)
-
-        with pytest.raises(ValueError, match="'stray' is not part of this Scene's graph"):
-            scene.with_multiscale_paths({"stray": stray})
-
-    def test_rejects_path_for_equal_but_not_identical_multiscale(self):
-        scene, tile_0, _tile_1 = self._two_tile_scene()
-        assert tile_0.copy() == tile_0
-
-        expected_message = "Paths must be given for the specific Multiscale instances passed on construction, not e.g. equal instances created by `Multiscale.copy"
-        with pytest.raises(ValueError, match=expected_message):
-            scene.with_multiscale_paths({"tile_0": tile_0.copy()})
-
-    def test_rejects_same_instance_at_two_paths(self):
-        scene, tile_0, _tile_1 = self._two_tile_scene()
-
-        with pytest.raises(ValueError, match="Received two paths for one instance: 'a' and 'b'"):
-            scene.with_multiscale_paths({"a": tile_0, "b": tile_0})
-
-    @pytest.mark.parametrize("path", ["", None, 3])
-    def test_rejects_non_string_or_empty_paths(self, path):
-        scene, tile_0, _tile_1 = self._two_tile_scene()
-
-        with pytest.raises(ValueError, match="non-empty strings"):
-            scene.with_multiscale_paths({path: tile_0})
-
-    def test_rejects_non_multiscale_path_values(self):
-        scene, _tile_0, _tile_1 = self._two_tile_scene()
-
-        with pytest.raises(TypeError, match="must map to a Multiscale"):
-            scene.with_multiscale_paths({"tile_0": "not a multiscale"})  # type: ignore[arg-type]
-
-    def test_with_resolved_rejects_same_multiscale_for_two_paths(self):
-        ms = _multiscale(y=2, x=3)
-        object.__setattr__(ms._intrinsic_ref, "name", "physical")
-        world = {"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}
-        scene = Scene.from_ome_zarr(
-            {
-                "coordinateSystems": [world],
-                "coordinateTransformations": [
-                    {
-                        "type": "translation",
-                        "input": {"path": path, "name": "physical"},
-                        "output": {"name": "world"},
-                        "translation": [0, 0],
-                    }
-                    for path in ("tile_0", "tile_1")
-                ],
-            }
-        )
-
-        with pytest.raises(ValueError, match="Received two paths for one instance: 'tile_0' and 'tile_1'"):
-            scene.with_resolved({"tile_0": ms, "tile_1": ms})
-
-    def test_with_multiscale_paths_keeps_paths_not_mentioned(self):
-        scene, tile_0, tile_1 = self._two_tile_scene()
-        scene = scene.with_multiscale_paths({"tile_0": tile_0})
-        scene = scene.with_multiscale_paths({"tile_1": tile_1})
-
-        assert scene.multiscale_paths == {"tile_0": tile_0, "tile_1": tile_1}
-
-    def test_with_multiscale_paths_overwrites_existing_path_of_same_instance(self):
-        scene, tile_0, tile_1 = self._two_tile_scene()
-        scene = scene.with_multiscale_paths({"old": tile_0, "tile_1": tile_1})
-
-        scene = scene.with_multiscale_paths({"new": tile_0})
-
-        assert scene.multiscale_paths == {"tile_1": tile_1, "new": tile_0}, "the old key must not linger"
-
-    def test_with_multiscale_paths_allows_swapping_paths(self):
-        scene, tile_0, tile_1 = self._two_tile_scene()
-        scene = scene.with_multiscale_paths({"a": tile_0, "b": tile_1})
-        swapped = scene.with_multiscale_paths({"a": tile_1, "b": tile_0})
-
-        assert swapped.multiscale_paths == {"a": tile_1, "b": tile_0}
-
-    def test_with_multiscale_paths_allows_moving_into_path_vacated_in_same_call(self):
-        scene, tile_0, tile_1 = self._two_tile_scene()
-        scene = scene.with_multiscale_paths({"a": tile_0, "b": tile_1})
-        moved = scene.with_multiscale_paths({"c": tile_0, "a": tile_1})
-
-        assert moved.multiscale_paths == {"c": tile_0, "a": tile_1}
-
-    def test_with_multiscale_paths_requires_mapping(self):
-        scene, tile_0, _tile_1 = self._two_tile_scene()
-
-        with pytest.raises(TypeError, match="must be a mapping"):
-            scene.with_multiscale_paths([("tile_0", tile_0)])  # type: ignore[arg-type]
-
-    def test_with_multiscale_paths_rejects_path_of_different_instance(self):
-        scene, tile_0, tile_1 = self._two_tile_scene()
-        scene = scene.with_multiscale_paths({"tile_0": tile_0})
-
-        with pytest.raises(ValueError, match="Path 'tile_0' is already used by another Multiscale"):
-            scene.with_multiscale_paths({"tile_0": tile_1})
-
-        assert scene.multiscale_paths == {"tile_0": tile_0}
-
-    def test_with_multiscale_paths_reports_copy_as_copy_even_if_instance_has_this_path(self):
-        scene, tile_0, _tile_1 = self._two_tile_scene()
-        scene = scene.with_multiscale_paths({"tile_0": tile_0})
-
-        with pytest.raises(ValueError, match="not part of this Scene's graph"):
-            scene.with_multiscale_paths({"tile_0": tile_0.copy()})
-
-    def test_with_multiscale_paths_overrides_paths_recorded_by_with_resolved(self):
-        ms = _multiscale(y=2, x=3)
-        object.__setattr__(ms._intrinsic_ref, "name", "physical")
-        scene = Scene.from_ome_zarr(
-            {
-                "coordinateSystems": [{"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}],
-                "coordinateTransformations": [
-                    {
-                        "type": "translation",
-                        "input": {"path": "tile_0", "name": "physical"},
-                        "output": {"name": "world"},
-                        "translation": [0, 0],
-                    }
-                ],
-            }
-        )
-        resolved = scene.with_resolved({"tile_0": ms})
-        assert resolved.multiscale_paths == {"tile_0": ms}
-
-        moved = resolved.with_multiscale_paths({"renamed": ms})
-
-        assert moved.multiscale_paths == {"renamed": ms}
-        assert moved.is_fully_resolved
-
-    def test_to_ome_zarr_requires_paths_for_all_graph_multiscales(self):
-        scene, tile_0, _tile_1 = self._two_tile_scene()
-
-        with pytest.raises(ValueError, match="no path is known for 2 of its Multiscales"):
-            scene.to_ome_zarr(version="0.6")
-
-        scene = scene.with_multiscale_paths({"tile_0": tile_0})
-
-        with pytest.raises(ValueError, match="no path is known for 1 of its Multiscales"):
-            scene.to_ome_zarr(version="0.6")
-
-    def test_to_ome_zarr_does_not_require_paths_for_coordinate_systems(self):
-        world = CoordinateSystem.fromkeys("yx")._as_ref("world")
-        other = CoordinateSystem.fromkeys("yx")._as_ref("other")
-        scene = Scene._from_graph_edges([(world, TranslationTransform((1, 1)), other)])
-
-        assert scene.to_ome_zarr(version="0.6")["coordinateTransformations"]
+    if resolve_separately:
+        scene = scene.with_resolved({"tile_0": ms})  # Just one should work
+    with pytest.raises(ValueError, match="Received two paths for one instance: 'tile_0' and 'tile_1'"):
+        scene.with_resolved({"tile_0": ms, "tile_1": ms})
 
 
 class TestMultiscalesProperty:
@@ -381,7 +236,10 @@ class TestMultiscalesProperty:
         tiles = [_multiscale(y=2, x=2), _multiscale(y=3, x=3), _multiscale(y=4, x=4)]
         stage = CoordinateSystem.fromkeys("yx")._as_ref("stage")
 
-        scene = Scene._from_graph_edges([(tile, IdentityTransform(), stage) for tile in tiles])
+        scene = Scene._from_graph_edges(
+            [(tile, IdentityTransform(), stage) for tile in tiles],
+            multiscale_paths={f"tile_{i}": tile for i, tile in enumerate(tiles)},
+        )
 
         assert len(scene.multiscales) == 3
         assert all(found is tile for found, tile in zip(scene.multiscales, tiles))
@@ -391,7 +249,10 @@ class TestMultiscalesProperty:
         assert tiles[0] == tiles[1]
         stage = CoordinateSystem.fromkeys("yx")._as_ref("stage")
 
-        scene = Scene._from_graph_edges([(tile, IdentityTransform(), stage) for tile in tiles])
+        scene = Scene._from_graph_edges(
+            [(tile, IdentityTransform(), stage) for tile in tiles],
+            multiscale_paths={f"tile_{i}": tile for i, tile in enumerate(tiles)},
+        )
 
         assert len(scene.multiscales) == 2
 
@@ -403,7 +264,8 @@ class TestMultiscalesProperty:
             [
                 (volume._as_ref_to_intrinsic(), ProjectAxisTransform(drops=(0,)), stage),
                 (volume._as_ref("preview"), IdentityTransform(), stage),
-            ]
+            ],
+            multiscale_paths={"volume": volume},
         )
 
         assert len(scene.multiscales) == 1
@@ -412,7 +274,7 @@ class TestMultiscalesProperty:
     def test_excludes_unresolved_multiscales(self):
         tile = _multiscale(y=2, x=2)
         stage = CoordinateSystem.fromkeys("yx")._as_ref("stage")
-        original = Scene._from_graph_edges([(tile, IdentityTransform(), stage)]).with_multiscale_paths({"tile": tile})
+        original = Scene._from_graph_edges([(tile, IdentityTransform(), stage)], multiscale_paths={"tile": tile})
         read_back = Scene.from_ome_zarr(original.to_ome_zarr(version="0.6"))
 
         assert read_back.multiscales == ()
@@ -442,8 +304,8 @@ class TestFromSharedCoordinateSystem:
             coordinate_system="stage",
             connections=[
                 # Accepts both the Scene.Connection NamedTuple helper and an equivalent bare tuple
-                Scene.Connection(tile1, to_shared=Translation(y=1.0, x=2.0)),
-                (tile2, Affine.from_factor(Factor(y=0.5, x=0.5))),
+                Scene.Connection(tile1, to_shared=Translation(y=1.0, x=2.0), path="tile1"),
+                (tile2, Affine.from_factor(Factor(y=0.5, x=0.5)), "tile2"),
             ],
         )
 
@@ -460,7 +322,7 @@ class TestFromSharedCoordinateSystem:
     def test_none_relation_is_identity(self):
         tile = _multiscale(y=2, x=3)
 
-        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(tile, None)])
+        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(tile, None, "tile")])
 
         path = scene._transforms_between(tile, "stage")
         assert path is not None and path[0].unbound() == IdentityTransform()
@@ -472,10 +334,13 @@ class TestFromSharedCoordinateSystem:
 
         from_named = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[Scene.Connection(tile1, relations[0]), Scene.Connection(tile2, relations[1])],
+            connections=[
+                Scene.Connection(tile1, relations[0], path="tile1"),
+                Scene.Connection(tile2, relations[1], path="tile2"),
+            ],
         )
         from_plain = Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=[(tile1, relations[0]), (tile2, relations[1])]
+            coordinate_system="stage", connections=[(tile1, relations[0], "tile1"), (tile2, relations[1], "tile2")]
         )
 
         assert from_named == from_plain
@@ -483,7 +348,7 @@ class TestFromSharedCoordinateSystem:
     def test_accepts_one_shot_iterables(self):
         tile1 = _multiscale(y=2, x=3)
         tile2 = _multiscale(y=2, x=3)
-        connections = [(tile1, None), (tile2, Translation(y=1.0, x=2.0))]
+        connections = [(tile1, None, "tile1"), (tile2, Translation(y=1.0, x=2.0), "tile2")]
 
         from_generator = Scene.from_shared_coordinate_system(
             coordinate_system="stage", connections=(connection for connection in connections)
@@ -496,7 +361,7 @@ class TestFromSharedCoordinateSystem:
         tile2 = _multiscale(y=2, x=3)  # blank unit, compatible
 
         scene = Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=[(tile1, None), (tile2, Translation(y=1.0, x=0.0))]
+            coordinate_system="stage", connections=[(tile1, None, "tile1"), (tile2, Translation(y=1.0, x=0.0), "tile2")]
         )
 
         assert self._system_ome_axes(scene, "stage") == {
@@ -512,7 +377,10 @@ class TestFromSharedCoordinateSystem:
 
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[(tile1, None), (tile2, Affine.from_unit_conversion(converted_unit, first_unit))],
+            connections=[
+                (tile1, None, "tile1"),
+                (tile2, Affine.from_unit_conversion(converted_unit, first_unit), "tile2"),
+            ],
             unit=first_unit,
         )
 
@@ -533,6 +401,7 @@ class TestFromSharedCoordinateSystem:
                         source_unit=Unit(y="micrometer", x="micrometer"),
                         target_unit=Unit(y="millimeter", x="millimeter"),
                     ),
+                    "tile",
                 )
             ],
             unit=Unit(y="millimeter", x="millimeter"),
@@ -544,7 +413,8 @@ class TestFromSharedCoordinateSystem:
         tile = _multiscale(y=2, x=3)
 
         scene = Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=[(tile, [ProjectionTo("zyx"), Translation(z=0.0, y=2.0, x=2.0)])]
+            coordinate_system="stage",
+            connections=[(tile, [ProjectionTo("zyx"), Translation(z=0.0, y=2.0, x=2.0)], "tile")],
         )
 
         axes = self._system_ome_axes(scene, "stage")
@@ -559,19 +429,21 @@ class TestFromSharedCoordinateSystem:
 
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[((volume, "preview"), Translation(y=1.0, x=1.0)), (flat, None)],
+            connections=[((volume, "preview"), Translation(y=1.0, x=1.0), "volume"), (flat, None, "flat")],
         )
 
         path = scene._transforms_between((volume, "preview"), "stage")
         assert path is not None and path[0].source == volume._as_ref("preview")
         assert self._system_ome_axes(scene, "stage").axes == ("y", "x")
+        assert scene.multiscale_paths["volume"] is volume
+        assert scene.multiscale_paths["flat"] is flat
 
     def test_same_multiscale_can_connect_via_different_systems(self):
         volume = _multiscale(z=2, y=3, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
 
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[(volume, ProjectionTo("yx")), ((volume, "preview"), None)],
+            connections=[(volume, ProjectionTo("yx"), "volume"), ((volume, "preview"), None, "volume")],
         )
 
         assert len(scene._internal_graph.transforms) == 2
@@ -582,21 +454,27 @@ class TestFromSharedCoordinateSystem:
         with pytest.raises(
             ValueError, match=r"connections\[1\] selects the same coordinate system as connections\[0\]"
         ):
-            Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(tile, None), (tile, None)])
+            Scene.from_shared_coordinate_system(
+                coordinate_system="stage", connections=[(tile, None, "tile"), (tile, None, "tile")]
+            )
 
     def test_rejects_connections_reaching_different_axes(self):
         volume = _multiscale(z=2, y=3, x=4)
         flat = _multiscale(y=3, x=4)
 
         with pytest.raises(ValueError, match=r"connections\[0\] reaches .*z.*connections\[1\] reaches .*y.*x"):
-            Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(volume, None), (flat, None)])
+            Scene.from_shared_coordinate_system(
+                coordinate_system="stage", connections=[(volume, None, "volume"), (flat, None, "flat")]
+            )
 
     def test_rejects_conflicting_axis_properties(self):
         um = _multiscale(unit=Unit(y="micrometer", x="micrometer"), y=2, x=3)
         mm = _multiscale(unit=Unit(y="millimeter", x="millimeter"), y=2, x=3)
 
         with pytest.raises(ValueError, match="Conflicting 'unit'"):
-            Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(um, None), (mm, None)])
+            Scene.from_shared_coordinate_system(
+                coordinate_system="stage", connections=[(um, None, "um"), (mm, None, "mm")]
+            )
 
     def test_rejects_conflicting_units_even_with_converting_affine_but_no_provided_unit(self):
         """
@@ -617,7 +495,7 @@ class TestFromSharedCoordinateSystem:
         ):
             Scene.from_shared_coordinate_system(
                 coordinate_system="stage",
-                connections=[(um, None), (mm, Affine.from_unit_conversion(converted_unit, first_unit))],
+                connections=[(um, None, "um"), (mm, Affine.from_unit_conversion(converted_unit, first_unit), "mm")],
             )
 
     @pytest.mark.parametrize("properties", [{"unit": {"x": "nm"}}, {"ome_zarr_axes": {"x": ome_zarr.Axis(unit="nm")}}])
@@ -627,7 +505,10 @@ class TestFromSharedCoordinateSystem:
         with pytest.raises(ValueError, match=r"connections\[1\] and coordinate system 'stage'.*no relation converts"):
             Scene.from_shared_coordinate_system(
                 coordinate_system="stage",
-                connections=[(converted, Affine.from_factor({"y": 1, "x": 1000})), (unconverted, None)],
+                connections=[
+                    (converted, Affine.from_factor({"y": 1, "x": 1000}), "converted"),
+                    (unconverted, None, "unconverted"),
+                ],
                 **properties,
             )
 
@@ -638,7 +519,8 @@ class TestFromSharedCoordinateSystem:
         )
         steps = [Translation(y=0, x=1), Translation(y=0, x=2)]
         scene = Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=[(blank, None), ((specified, "selected"), steps)]
+            coordinate_system="stage",
+            connections=[(blank, None, "blank"), ((specified, "selected"), steps, "specified")],
         )
         shared = ome_zarr.Axes(self._system_ome_axes(scene, "stage"))
         assert shared["x"].unit == "nm"
@@ -663,19 +545,21 @@ class TestFromSharedCoordinateSystem:
         tile = _multiscale(y=2, x=3)
 
         with pytest.raises(ValueError, match=r"connections\[0\] cannot be applied to axes \('y', 'x'\)"):
-            Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(tile, PermutationTo("zyx"))])
+            Scene.from_shared_coordinate_system(
+                coordinate_system="stage", connections=[(tile, PermutationTo("zyx"), "tile")]
+            )
 
     def test_rejects_unknown_system_name(self):
         tile = _multiscale(y=2, x=3)
 
         with pytest.raises(ValueError, match="does not specify a coordinate system named: 'nope'"):
-            Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[((tile, "nope"), None)])
+            Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[((tile, "nope"), None, "tile")])
 
     @pytest.mark.parametrize("name", ["", None, 5])
     def test_rejects_invalid_shared_system_name(self, name):
         with pytest.raises(ValueError, match="needs a name"):
             Scene.from_shared_coordinate_system(
-                coordinate_system=name, connections=[(_multiscale(y=2, x=3), None)]  # type: ignore[arg-type]
+                coordinate_system=name, connections=[(_multiscale(y=2, x=3), None, "tile")]  # type: ignore[arg-type]
             )
 
     def test_rejects_no_connections(self):
@@ -683,19 +567,67 @@ class TestFromSharedCoordinateSystem:
             Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[])
 
     @pytest.mark.parametrize(
-        "entry", [_multiscale(y=2, x=3), (_multiscale(y=2, x=3),), (_multiscale(y=2, x=3), None, None)]
+        "entry",
+        [
+            _multiscale(y=2, x=3),
+            (_multiscale(y=2, x=3),),
+            (_multiscale(y=2, x=3), None),
+            (_multiscale(y=2, x=3), None, "tile", None),
+        ],
     )
     def test_rejects_malformed_connections(self, entry):
         with pytest.raises(TypeError, match="must be a Scene.Connection or a"):
             Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[entry])  # type: ignore[list-item]
 
+    @pytest.mark.parametrize("named_source", [False, True])
+    def test_accepts_different_systems_of_one_instance_at_same_path(self, named_source):
+        ms = _multiscale(y=2, x=3).with_coordinate_system("first").with_coordinate_system("second")
+        source = (ms, "first") if named_source else ms
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=[(source, None, "tile"), ((ms, "second"), None, "tile")]
+        )
+        assert scene.multiscale_paths == {"tile": ms}
+        assert len(scene._internal_graph.transforms) == 2
+
+    @pytest.mark.parametrize("named_source", [False, True])
+    def test_rejects_same_instance_at_two_paths(self, named_source):
+        ms = _multiscale(y=2, x=3).with_coordinate_system("first").with_coordinate_system("second")
+        source = (ms, "first") if named_source else ms
+        with pytest.raises(ValueError, match="Received two paths for one instance: 'a' and 'b'"):
+            Scene.from_shared_coordinate_system(
+                coordinate_system="stage", connections=[(source, None, "a"), ((ms, "second"), None, "b")]
+            )
+
+    @pytest.mark.parametrize("equal_multiscales", [False, True])
+    def test_rejects_same_path_for_different_instances(self, equal_multiscales):
+        a = _multiscale(y=2, x=3)
+        b = a.copy() if equal_multiscales else _multiscale(y=4, x=5)
+        with pytest.raises(ValueError, match="Path 'tile' is already used by another Multiscale"):
+            Scene.from_shared_coordinate_system(
+                coordinate_system="stage", connections=[(a, None, "tile"), (b, None, "tile")]
+            )
+
+    @pytest.mark.parametrize("path", ["", None, 3, []])
+    def test_rejects_non_string_or_empty_paths(self, path):
+        with pytest.raises(ValueError, match="non-empty strings"):
+            Scene.from_shared_coordinate_system(
+                coordinate_system="stage", connections=[(_multiscale(y=2, x=3), None, path)]
+            )
+
 
 class TestSceneEquality:
+    def test_paths_do_not_affect_equality(self):
+        a, b = _multiscale(y=2, x=2), _multiscale(y=3, x=3)
+        first = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
+        second = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="tiles/0", b_path="tiles/1")
+        assert first == second
+        assert hash(first) == hash(second)
+
     @staticmethod
     def _stitched(*tiles: Multiscale, name: str = "stage", **kwargs) -> Scene:
         return Scene.from_shared_coordinate_system(
             coordinate_system=name,
-            connections=[(tile, Translation(y=0.0, x=4.0 * i)) for i, tile in enumerate(tiles)],
+            connections=[(tile, Translation(y=0.0, x=4.0 * i), f"tile_{i}") for i, tile in enumerate(tiles)],
             **kwargs,
         )
 
@@ -719,7 +651,10 @@ class TestSceneEquality:
 
         shifted = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[(tiles[0], Translation(y=0.0, x=0.0)), (tiles[1], Translation(y=0.0, x=5.0))],
+            connections=[
+                (tiles[0], Translation(y=0.0, x=0.0), "tile_0"),
+                (tiles[1], Translation(y=0.0, x=5.0), "tile_1"),
+            ],
         )
         assert scene != shifted
         assert scene != self._stitched(*tiles, name="world")
@@ -730,7 +665,7 @@ class TestSceneEquality:
 
     def test_differs_by_number_of_equal_multiscales(self):
         connect = lambda n: Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=[(_multiscale(y=2, x=2), None) for _ in range(n)]
+            coordinate_system="stage", connections=[(_multiscale(y=2, x=2), None, f"tile_{i}") for i in range(n)]
         )
 
         assert connect(1) != connect(2)
@@ -747,15 +682,17 @@ class TestSceneEquality:
             coordinate_system="stage", connections=connections
         )
 
-        assert connect((a, None), (b, Translation(y=1.0, x=0.0))) == connect((b, Translation(y=1.0, x=0.0)), (a, None))
+        assert connect((a, None, "a"), (b, Translation(y=1.0, x=0.0), "b")) == connect(
+            (b, Translation(y=1.0, x=0.0), "b"), (a, None, "a")
+        )
 
     def test_not_equal_to_other_types(self):
         assert self._stitched(_multiscale(y=2, x=2)) != "stage"
 
     def test_survives_ome_zarr_round_trip(self):
         tiles = [_multiscale(unit=Unit(y="micrometer", x="micrometer"), y=2, x=2), _multiscale(y=2, x=2)]
-        paths = {"a.zarr": tiles[0], "b.zarr": tiles[1]}
-        scene = self._stitched(*tiles).with_multiscale_paths(paths)
+        paths = {"tile_0": tiles[0], "tile_1": tiles[1]}
+        scene = self._stitched(*tiles)
 
         read_back = Scene.from_ome_zarr(scene.to_ome_zarr(version="0.6"))
 
@@ -768,7 +705,7 @@ class TestFromMultiscalePair:
         raw = _multiscale(y=4, x=4)
         atlas = _multiscale(y=4, x=4)
 
-        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=Translation(y=1.0, x=2.0))
+        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=Translation(y=1.0, x=2.0), a_path="a", b_path="b")
 
         path = scene._transforms_between(raw, atlas)
         assert path is not None and len(path) == 1
@@ -783,7 +720,7 @@ class TestFromMultiscalePair:
         raw = _multiscale(y=4, x=4)
         atlas = _multiscale(y=4, x=4)
 
-        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=None)
+        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=None, a_path="a", b_path="b")
 
         path = scene._transforms_between(raw, atlas)
         assert path is not None and path[0].unbound() == IdentityTransform()
@@ -796,6 +733,8 @@ class TestFromMultiscalePair:
             a=volume,
             b=flat,
             a_to_b=[ProjectionTo("yx"), Affine.from_factor(Factor(y=0.5, x=0.5)), Translation(y=1.0, x=1.0)],
+            a_path="a",
+            b_path="b",
         )
 
         path = scene._transforms_between(volume, flat)
@@ -805,7 +744,7 @@ class TestFromMultiscalePair:
         volume = _multiscale(z=2, y=4, x=4)
         flat = _multiscale(y=4, x=4)
 
-        scene = Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=ProjectionTo("yx"))
+        scene = Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=ProjectionTo("yx"), a_path="a", b_path="b")
 
         assert scene._transforms_between(volume, flat) is not None
         assert scene._transforms_between(flat, volume) is None
@@ -814,7 +753,7 @@ class TestFromMultiscalePair:
         flat = _multiscale(y=4, x=4)
         volume = _multiscale(z=2, y=4, x=4)
 
-        scene = Scene.from_multiscale_pair(a=flat, b=volume, a_to_b=ProjectionTo("zyx"))
+        scene = Scene.from_multiscale_pair(a=flat, b=volume, a_to_b=ProjectionTo("zyx"), a_path="a", b_path="b")
 
         assert scene._transforms_between(flat, volume) is not None
         assert scene._transforms_between(volume, flat) is not None
@@ -823,11 +762,15 @@ class TestFromMultiscalePair:
         volume = _multiscale(z=2, y=3, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
         flat = _multiscale(y=3, x=4).with_coordinate_system("shifted", reached_by=Translation(y=1.0, x=1.0))
 
-        scene = Scene.from_multiscale_pair(a=(volume, "preview"), b=(flat, "shifted"), a_to_b=None)
+        scene = Scene.from_multiscale_pair(
+            a=(volume, "preview"), b=(flat, "shifted"), a_to_b=None, a_path="a", b_path="b"
+        )
 
         path = scene._transforms_between((volume, "preview"), (flat, "shifted"))
         assert path is not None and len(path) == 1
         assert path[0].source == volume._as_ref("preview") and path[0].target == flat._as_ref("shifted")
+        assert scene.multiscale_paths["a"] is volume
+        assert scene.multiscale_paths["b"] is flat
         assert scene._transforms_between(volume, flat) is None, "intrinsic systems are not connected"
         children = scene._transforms_between(volume, flat, include_children=True)
         assert children is not None and len(children) == 3, "connected through the multiscales' own graphs"
@@ -837,13 +780,13 @@ class TestFromMultiscalePair:
         flat = _multiscale(y=4, x=4)
 
         with pytest.raises(ValueError, match=r"produces \('z', 'y', 'x'\), but `b` has axes \('y', 'x'\)"):
-            Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=None)
+            Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=None, a_path="a", b_path="b")
 
     def test_rejects_unit_mismatch_without_conversion(self):
         a = _multiscale(unit=Unit(x="um"), y=4, x=4)
         b = _multiscale(unit=Unit(x="nm"), y=4, x=4)
         with pytest.raises(ValueError, match=r"units of `a` and `b` differ.*no relation converts"):
-            Scene.from_multiscale_pair(a=a, b=b, a_to_b=None)
+            Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
 
     def test_forwards_selected_systems_and_normalized_relation_to_unit_validator(self, unit_validation_mock):
         a = _multiscale(unit=Unit(x="um"), y=4, x=4).with_coordinate_system(
@@ -853,7 +796,7 @@ class TestFromMultiscalePair:
             "selected", reached_by=Affine.from_factor({"y": 1, "x": 0.001}), unit={"x": "mm"}
         )
         steps = [Translation(y=0, x=1), Affine.from_factor({"y": 1, "x": 0.000001})]
-        Scene.from_multiscale_pair(a=(a, "selected"), b=(b, "selected"), a_to_b=steps)
+        Scene.from_multiscale_pair(a=(a, "selected"), b=(b, "selected"), a_to_b=steps, a_path="a", b_path="b")
         unit_validation_mock.assert_called_once_with(
             a.coordinate_system_ome_zarr_axes("selected"),
             b.coordinate_system_ome_zarr_axes("selected"),
@@ -865,17 +808,25 @@ class TestFromMultiscalePair:
     def test_reports_relations_that_cannot_be_applied(self):
         with pytest.raises(ValueError, match=r"`a_to_b` cannot be applied to the axes of `a` \('y', 'x'\)"):
             Scene.from_multiscale_pair(
-                a=_multiscale(y=2, x=2), b=_multiscale(z=2, y=2, x=2), a_to_b=PermutationTo("zyx")
+                a=_multiscale(y=2, x=2),
+                b=_multiscale(z=2, y=2, x=2),
+                a_to_b=PermutationTo("zyx"),
+                a_path="a",
+                b_path="b",
             )
 
     def test_rejects_relating_a_multiscale_to_itself(self):
         multiscale = _multiscale(z=2, y=3, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
 
         with pytest.raises(ValueError, match="same Multiscale"):
-            Scene.from_multiscale_pair(a=multiscale, b=(multiscale, "preview"), a_to_b=ProjectionTo("yx"))
+            Scene.from_multiscale_pair(
+                a=multiscale, b=(multiscale, "preview"), a_to_b=ProjectionTo("yx"), a_path="a", b_path="b"
+            )
 
     def test_accepts_equal_but_distinct_multiscales(self):
-        scene = Scene.from_multiscale_pair(a=_multiscale(y=2, x=2), b=_multiscale(y=2, x=2), a_to_b=None)
+        scene = Scene.from_multiscale_pair(
+            a=_multiscale(y=2, x=2), b=_multiscale(y=2, x=2), a_to_b=None, a_path="a", b_path="b"
+        )
 
         assert len(scene._internal_graph.transforms) == 1
 
@@ -883,17 +834,31 @@ class TestFromMultiscalePair:
         tile = _multiscale(y=2, x=2)
 
         with pytest.raises(ValueError, match="does not specify a coordinate system named: 'nope'"):
-            Scene.from_multiscale_pair(a=(tile, "nope"), b=_multiscale(y=2, x=2), a_to_b=None)
+            Scene.from_multiscale_pair(a=(tile, "nope"), b=_multiscale(y=2, x=2), a_to_b=None, a_path="a", b_path="b")
         with pytest.raises(TypeError, match="Expected a Multiscale"):
-            Scene.from_multiscale_pair(a="stage", b=tile, a_to_b=None)  # type: ignore[arg-type]
+            Scene.from_multiscale_pair(a="stage", b=tile, a_to_b=None, a_path="a", b_path="b")  # type: ignore[arg-type]
 
     def test_equality_depends_on_direction_and_relation(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=3, x=3)
-        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None)
+        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
 
-        assert scene == Scene.from_multiscale_pair(a=a, b=b, a_to_b=None)
-        assert scene != Scene.from_multiscale_pair(a=b, b=a, a_to_b=None)
-        assert scene != Scene.from_multiscale_pair(a=a, b=b, a_to_b=Translation(y=1.0, x=0.0))
+        assert scene == Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
+        assert scene != Scene.from_multiscale_pair(a=b, b=a, a_to_b=None, a_path="a", b_path="b")
+        assert scene != Scene.from_multiscale_pair(a=a, b=b, a_to_b=Translation(y=1.0, x=0.0), a_path="a", b_path="b")
+
+    @pytest.mark.parametrize("equal_multiscales", [False, True])
+    def test_rejects_same_path_for_different_instances(self, equal_multiscales):
+        a = _multiscale(y=2, x=3)
+        b = a.copy() if equal_multiscales else _multiscale(y=4, x=5)
+        with pytest.raises(ValueError, match="Path 'tile' is already used by another Multiscale"):
+            Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="tile", b_path="tile")
+
+    @pytest.mark.parametrize("path", ["", None, 3, []])
+    @pytest.mark.parametrize("parameter", ["a_path", "b_path"])
+    def test_rejects_non_string_or_empty_paths(self, path, parameter):
+        paths = {"a_path": "a", "b_path": "b", parameter: path}
+        with pytest.raises(ValueError, match="non-empty strings"):
+            Scene.from_multiscale_pair(a=_multiscale(y=2, x=3), b=_multiscale(y=2, x=3), a_to_b=None, **paths)
 
 
 class TestRelationBetween:
@@ -909,14 +874,18 @@ class TestRelationBetween:
     )
     def test_returns_the_relation_given_to_from_multiscale_pair(self, relation, a_axes, b_axes):
         a, b = _multiscale(**a_axes), _multiscale(**b_axes)
-        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=relation)
+        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=relation, a_path="a", b_path="b")
 
         assert scene.relation_from(a, to=b) == relation
 
     def test_reverse_direction_is_the_inverse_relation(self):
         a, b = _multiscale(y=8, x=8), _multiscale(y=4, x=4)
         scene = Scene.from_multiscale_pair(
-            a=a, b=b, a_to_b=[Affine.from_factor(Factor(y=0.5, x=0.5)), Translation(y=1.0, x=3.0)]
+            a=a,
+            b=b,
+            a_to_b=[Affine.from_factor(Factor(y=0.5, x=0.5)), Translation(y=1.0, x=3.0)],
+            a_path="a",
+            b_path="b",
         )
 
         assert scene.relation_from(a, to=b) == SpatialRelationSequence(
@@ -931,7 +900,8 @@ class TestRelationBetween:
     def test_returns_relation_from_shared_coordinate_system(self):
         tile1, tile2 = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
         scene = Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=[(tile1, None), (tile2, Translation(y=0.0, x=-4.0))]
+            coordinate_system="stage",
+            connections=[(tile1, None, "tile1"), (tile2, Translation(y=0.0, x=-4.0), "tile2")],
         )
 
         assert scene.relation_from(tile2, to="stage") == Translation(y=0.0, x=-4.0)
@@ -941,7 +911,9 @@ class TestRelationBetween:
     def test_can_select_other_coordinate_systems_of_multiscales(self):
         volume = _multiscale(z=2, y=4, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
         flat = _multiscale(y=4, x=4)
-        scene = Scene.from_multiscale_pair(a=(volume, "preview"), b=flat, a_to_b=Translation(y=1.0, x=1.0))
+        scene = Scene.from_multiscale_pair(
+            a=(volume, "preview"), b=flat, a_to_b=Translation(y=1.0, x=1.0), a_path="a", b_path="b"
+        )
 
         assert scene.relation_from((volume, "preview"), to=flat) == Translation(y=1.0, x=1.0)
         assert scene.relation_from(volume, to=flat) == SpatialRelationSequence(
@@ -950,14 +922,14 @@ class TestRelationBetween:
 
     def test_returns_none_for_the_same_space(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
-        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None)
+        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
 
         assert scene.relation_from(a, to=b) is None
         assert scene.relation_from(a, to=a) is None
 
     def test_dropped_axes_can_only_be_traced_forwards(self):
         volume, flat = _multiscale(z=2, y=4, x=4), _multiscale(y=4, x=4)
-        scene = Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=ProjectionTo("yx"))
+        scene = Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=ProjectionTo("yx"), a_path="a", b_path="b")
 
         assert scene.relation_from(volume, to=flat) == ProjectionTo("yx")
         with pytest.raises(ValueError, match="no \\(invertible\\) path"):
@@ -965,14 +937,14 @@ class TestRelationBetween:
 
     def test_rejects_unrelated_multiscales(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
-        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, None)])
+        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, None, "a")])
 
         with pytest.raises(ValueError, match="no \\(invertible\\) path"):
             scene.relation_from(a, to=b)
 
     def test_rejects_unknown_spaces(self):
         a = _multiscale(y=2, x=2)
-        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, None)])
+        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, None, "a")])
 
         with pytest.raises(ValueError, match="no coordinate system matching 'nowhere'"):
             scene.relation_from(a, to="nowhere")
@@ -980,10 +952,10 @@ class TestRelationBetween:
     def test_requires_resolved_spaces_and_works_after_resolving(self):
         tiles = [_multiscale(y=2, x=2), _multiscale(y=2, x=2)]
         scene = Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=[(tiles[0], None), (tiles[1], Translation(y=0.0, x=-4.0))]
+            coordinate_system="stage",
+            connections=[(tiles[0], None, "tile_0"), (tiles[1], Translation(y=0.0, x=-4.0), "tile_1")],
         )
-        paths = {"a.zarr": tiles[0], "b.zarr": tiles[1]}
-        scene = scene.with_multiscale_paths(paths)
+        paths = {"tile_0": tiles[0], "tile_1": tiles[1]}
         unresolved = Scene.from_ome_zarr(scene.to_ome_zarr(version="0.6"))
         name_of_unresolved_multiscale = tiles[1]._intrinsic_ref.name
 
@@ -993,7 +965,9 @@ class TestRelationBetween:
 
     def test_reports_connections_that_are_no_spatial_relation(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
-        scene = Scene._from_graph_edges([(a, CoordinatesTransform(path="coordinates"), b)])
+        scene = Scene._from_graph_edges(
+            [(a, CoordinatesTransform(path="coordinates"), b)], multiscale_paths={"a": a, "b": b}
+        )
 
         with pytest.raises(CannotConvertToSpatialRelationError):
             scene.relation_from(a, to=b)

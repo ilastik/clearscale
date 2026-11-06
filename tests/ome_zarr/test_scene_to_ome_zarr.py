@@ -29,11 +29,12 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
                 (a, TranslationTransform((1.0, 2.0)), world_ref),
                 (b, ScaleTransform((2.0, 2.0)), world_ref),
                 (world_ref, ScaleTransform((0.001, 0.001)), mm_ref),
-            ]
+            ],
+            multiscale_paths={"a": a, "b": b},
         )
         ms_by_path = {"a": a, "b": b}
 
-        result = scene.with_multiscale_paths(ms_by_path).to_ome_zarr(version="0.6")
+        result = scene.to_ome_zarr(version="0.6")
 
         names = {s["name"] for s in result["coordinateSystems"]}
         assert names == {"world", "mm"}
@@ -53,11 +54,11 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         tile_b = _multiscale(y=2, x=2)
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[(tile_a, None), (tile_b, Translation(y=0, x=4))],
+            connections=[(tile_a, None, "a.zarr"), (tile_b, Translation(y=0, x=4), "b.zarr")],
         )
         paths = {"a.zarr": tile_a, "b.zarr": tile_b}
 
-        result = scene.with_multiscale_paths(paths).to_ome_zarr(version="0.6")
+        result = scene.to_ome_zarr(version="0.6")
 
         assert [s["name"] for s in result["coordinateSystems"]] == ["stage"]
         assert [(t["type"], t["input"]["path"]) for t in result["coordinateTransformations"]] == [
@@ -72,9 +73,10 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
     def test_writes_and_reads_back_multiscale_pair(self):
         raw = _multiscale(y=4, x=4)
         atlas = _multiscale(y=2, x=2)
-        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=Affine.from_factor(Factor(y=0.5, x=0.5)))
+        scene = Scene.from_multiscale_pair(
+            a=raw, b=atlas, a_to_b=Affine.from_factor(Factor(y=0.5, x=0.5)), a_path="raw.zarr", b_path="atlas.zarr"
+        )
         paths = {"raw.zarr": raw, "atlas.zarr": atlas}
-        scene = scene.with_multiscale_paths(paths)
 
         result = scene.to_ome_zarr(version="0.6")
 
@@ -94,8 +96,9 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
     def test_writes_and_reads_back_through_ome_zarr_group(self):
         tile_0 = _multiscale(y=2, x=3)
         tile_1 = _multiscale(y=2, x=3)
-        scene = Scene._from_graph_edges([(tile_0, TranslationTransform((1, 1)), tile_1)])
-        scene = scene.with_multiscale_paths({"tile_0": tile_0, "tile_1": tile_1})
+        scene = Scene._from_graph_edges(
+            [(tile_0, TranslationTransform((1, 1)), tile_1)], multiscale_paths={"tile_0": tile_0, "tile_1": tile_1}
+        )
 
         attrs = OmeZarrGroup.from_single(scene).to_attrs(version="0.6")
 
@@ -152,14 +155,14 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         assert resolved.to_ome_zarr(version="0.6") == example
 
     def test_empty_scene_serializes_to_empty_dict(self):
-        scene = Scene._from_graph_edges([])
+        scene = Scene._from_graph_edges([], multiscale_paths={})
 
         assert scene.to_ome_zarr(version="0.6") == {}
 
     def test_rejects_versions_other_than_0_6(self):
         a = _multiscale(y=2, x=2)
         b = _multiscale(y=2, x=2)
-        scene = Scene._from_graph_edges([(a, TranslationTransform((1.0, 2.0)), b)])
+        scene = Scene._from_graph_edges([(a, TranslationTransform((1.0, 2.0)), b)], multiscale_paths={"a": a, "b": b})
 
         for version in ("0.4", "0.5"):
             with pytest.raises(ValueError, match="Scenes can only be written in OME-Zarr version 0.6"):
