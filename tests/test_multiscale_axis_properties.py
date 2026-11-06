@@ -643,32 +643,59 @@ class TestMultiscaleTransfer:
         assert result.ome_zarr_axes["c"].type == "label"
         assert result.ome_zarr_axes["x"].type == "space"
 
-    def test_as_derived_from_carries_properties_along_inverse_affine_dependencies(self):
+    @staticmethod
+    def _transfer_long_names(matrix, long_names, axes="zyx"):
+        """as_derived_from with an Affine, with long_names set on the source only. Returns derived long_names."""
+        source = Multiscale.from_single(
+            Scale(
+                Shape({a: 4 for a in axes}),
+                ome_zarr_axes={a: ome_zarr.Axis(type="space", long_name=n) for a, n in zip(axes, long_names)},
+            )
+        )
+        derived = Multiscale.from_single(Scale(Shape({a: 4 for a in axes})))
+        result = derived.as_derived_from(source, reached_by=Affine.from_array(matrix, axes))
+        return tuple(result.ome_zarr_axes[a].long_name for a in axes)
+
+    def test_as_derived_from_carries_affine_properties_only_where_mixed_axes_agree(self):
+        # z' = z + y, y' = y + x, x' = x: One mixed block. Neither the transpose nor the inverse of the Affine is
+        # exact here, so nothing carries over if the block disagrees...
+        triangular = ((1, 1, 0, 0), (0, 1, 1, 0), (0, 0, 1, 0))
+        assert self._transfer_long_names(triangular, ("shared", "shared", "different")) == (None, None, None)
+        # ... but it does if the block agrees
+        assert self._transfer_long_names(triangular, ("same", "same", "same")) == ("same", "same", "same")
+
+    def test_as_derived_from_does_not_mix_properties_across_unconnected_affine_blocks(self):
+        # y/x are mixed (a 45 degree rotation, unnormalised), z is on its own
+        rotation = ((1, 0, 0, 0), (0, 1, 1, 0), (0, -1, 1, 0))
+        assert self._transfer_long_names(rotation, ("depth", "plane", "plane")) == ("depth", "plane", "plane")
+        assert self._transfer_long_names(rotation, ("depth", "plane", "other")) == ("depth", None, None)
+
+    def test_as_derived_from_carries_properties_one_to_one_along_permuting_affines(self):
+        # y' = x, x' = y: Nothing is mixed, so each derived axis inherits from the source axis it maps to
+        permuting = ((0, 1, 0), (1, 0, 0))
+        assert self._transfer_long_names(permuting, ("rows", "columns"), axes="yx") == ("columns", "rows")
+
+    def test_singular_affine_can_carry_derivation_properties(self):
+        source = Multiscale.from_single(
+            Scale(Shape(y=4, x=4), ome_zarr_axes={a: ome_zarr.Axis(type="space", long_name="plane") for a in "yx"})
+        )
+        derived = Multiscale.from_single(Scale(Shape(y=4, x=4)))
+        singular = Affine.from_array(((1, 2, 0), (2, 4, 0)), "yx")
+        result = derived.as_derived_from(source, reached_by=singular)
+        assert [result.ome_zarr_axes[a].long_name for a in "yx"] == ["plane", "plane"]
+
+    def test_singular_affine_with_collapsed_axis_carries_nothing_for_that_axis(self):
+        # z is collapsed, so no target depends on it
         source = Multiscale.from_single(
             Scale(
                 Shape(z=4, y=4, x=4),
-                ome_zarr_axes={
-                    "z": ome_zarr.Axis(type="space", long_name="shared"),
-                    "y": ome_zarr.Axis(type="space", long_name="shared"),
-                    "x": ome_zarr.Axis(type="space", long_name="different"),
-                },
+                ome_zarr_axes={a: ome_zarr.Axis(type="space", long_name=a.upper()) for a in "zyx"},
             )
         )
         derived = Multiscale.from_single(Scale(Shape(z=4, y=4, x=4)))
-        reached_by = Affine.from_array(((1, 1, 0, 0), (0, 1, 1, 0), (0, 0, 1, 0)), "zyx")
-        assert reached_by.inverted()._axis_dependencies("zyx") == (("z", "y", "x"), ("y", "x"), ("x",))
-        # Only x can inherit long_name because the others' dependencies all mix different values
-        result = derived.as_derived_from(source, reached_by=reached_by)
-        assert result.ome_zarr_axes["z"].long_name is None
-        assert result.ome_zarr_axes["y"].long_name is None
-        assert result.ome_zarr_axes["x"].long_name == "different"
-
-    def test_singular_affine_can_add_a_system_but_cannot_carry_derivation_properties(self):
-        source = Multiscale.from_single(Scale(Shape(y=4, x=4)))
-        singular = Affine.from_array(((1, 2, 0), (2, 4, 0)), "yx")
-        assert source.with_coordinate_system("singular", reached_by=singular)
-        with pytest.raises(ValueError, match="as_derived_from.*must be invertible.*axis properties"):
-            source.as_derived_from(source, reached_by=singular)
+        collapsing = Affine.from_array(((0, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0)), "zyx")
+        result = derived.as_derived_from(source, reached_by=collapsing)
+        assert [result.ome_zarr_axes[a].long_name for a in "zyx"] == [None, "Y", "X"]
 
 
 def test_precomputed_axis_types_are_hardcoded():
