@@ -7,7 +7,7 @@ from clearscale.types import AxisKeyT
 from clearscale._services.units import is_same_unit
 
 from clearscale._affines import Affine
-from clearscale._services.axis_links import AxisKeyDependencies
+from clearscale._services.axis_links import AxisLinks
 from clearscale._spatial_relations import SpatialRelation, SpatialRelationSequence
 from clearscale._transforms._base import OmeZarrAxes, OmeZarrAxis
 
@@ -33,14 +33,14 @@ def normalize_ome_zarr_axes_param(ome_zarr_axes: Optional[OmeZarrAxesParam], key
 
 def reconcile_axis_prop_params(
     target_axes: Tuple[AxisKey, ...],
-    dependencies: AxisKeyDependencies,
+    links: AxisLinks,
     source_ome_axes: OmeZarrAxes,
     provided_ome_axes: Optional[OmeZarrAxesParam],
     provided_unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]],
 ) -> OmeZarrAxes:
     """
     Three-way merge of axis properties between
-    - carryover from source_ome_axes into the target_axes keys according to `dependencies`,
+    - carryover from source_ome_axes into the target_axes keys according to `links`,
     - provided_ome_axes and
     - provided_unit
     as required by any method that creates new coordinate systems and hence accepts the properties defining it.
@@ -59,10 +59,10 @@ def reconcile_axis_prop_params(
             f"{ {a: f'{slf!r} vs {oth!r}' for a, (slf, oth) in conflicts.items()} }. Only specify unit once."
         )
 
-    carried_ome_axes = source_ome_axes.with_axes_carried_over(target_axes, dependencies)
+    carried_ome_axes = source_ome_axes.with_axes_carried_over(target_axes, links)
     if provided_ome_axes == "infer":
         result = carried_ome_axes
-        inserted_axes = {axis for axis, deps in zip(target_axes, dependencies) if not deps}
+        inserted_axes = {axis for axis, link in zip(target_axes, links.links) if not link.sources}
         if inserted_axes:
             inserted_ome_axes = parsed_ome_axes.without_axes_except(inserted_axes)
             result = result.with_blanks_filled_from(inserted_ome_axes)
@@ -129,8 +129,8 @@ def require_matching_units_or_affine_relation(
         return
     implicit_target_axes = source_axes
     if relation:
-        dependencies = relation._axis_links(source_axes).sources
-        implicit_target_axes = source_axes.with_axes_carried_over(target_axes, dependencies)
+        links = relation._axis_links(source_axes)
+        implicit_target_axes = source_axes.with_axes_carried_over(tuple(target_axes), links)
     conflicts = implicit_target_axes.conflicts_with_unit(target_axes.get_unit())
     if not conflicts:
         return

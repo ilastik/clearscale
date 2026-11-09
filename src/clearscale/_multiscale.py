@@ -1835,9 +1835,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         source_axes = self.axes
         target_axes = relation.target_axes(source_axes) if relation else source_axes
         links = relation._axis_links(source_axes) if relation else AxisLinks.identity(source_axes)
-        target_ome_axes = reconcile_axis_prop_params(
-            target_axes, links.sources, self.ome_zarr_axes, ome_zarr_axes, unit
-        )
+        target_ome_axes = reconcile_axis_prop_params(target_axes, links, self.ome_zarr_axes, ome_zarr_axes, unit)
         require_matching_units_or_affine_relation(
             self.ome_zarr_axes,
             target_ome_axes,
@@ -1896,7 +1894,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             self.ome_zarr_axes, other.ome_zarr_axes, relation, source_label="this Multiscale", target_label="`other`"
         )
         links = relation._bidirectional_axis_links(self_axes) if relation else AxisLinks.identity(parent_axes)
-        carried_from_other = other.ome_zarr_axes.with_axes_carried_over(self_axes, links.sources)
+        carried_from_other = other.ome_zarr_axes.with_axes_carried_over(self_axes, links)
         merged_ome_axes = self.ome_zarr_axes.with_blanks_filled_from(carried_from_other)
         if merged_ome_axes == self.ome_zarr_axes:
             intrinsic_ref = self._intrinsic_ref

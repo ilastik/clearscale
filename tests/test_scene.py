@@ -476,27 +476,38 @@ class TestFromSharedCoordinateSystem:
                 coordinate_system="stage", connections=[(um, None, "um"), (mm, None, "mm")]
             )
 
-    def test_rejects_conflicting_units_even_with_converting_affine_but_no_provided_unit(self):
+    def test_unit_of_shared_system_comes_from_unscaled_connections_only(self):
         """
-        Without an explicit target unit for the shared system, we would need to check whether each mismatching source
-        has an Affine that might convert its units to the central consensus.
-        Finding the central consensus in itself could be impossible: if *all* multiscales relate with a converting Affine,
-        we would have no way to know what the conversion target unit was supposed to be.
-        The conversion target is only known to the Affine.from_unit_conversion call (not the resulting Affine).
+        A connection through a scaling Affine says nothing about the unit of the shared system on its own: Its source
+        is in the unit that the Affine converts *from*. The unscaled connection does state it, so there is no conflict.
+        (That the Affine converts correctly is not this check's business.)
         """
         first_unit = Unit(y="micrometer", x="um")
         converted_unit = Unit(y="millimeter", x="mm")
         um = _multiscale(unit=first_unit, y=2, x=3)
         mm = _multiscale(unit=converted_unit, y=2, x=3)
 
-        with pytest.raises(
-            ValueError,
-            match=r"Conflicting 'unit'.*Specify the shared coordinate system's conflicting axis properties explicitly using `ome_zarr_axes=` \(or `unit=` for units\)",
-        ):
-            Scene.from_shared_coordinate_system(
-                coordinate_system="stage",
-                connections=[(um, None, "um"), (mm, Affine.from_unit_conversion(converted_unit, first_unit), "mm")],
-            )
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage",
+            connections=[(um, None, "um"), (mm, Affine.from_unit_conversion(converted_unit, first_unit), "mm")],
+        )
+
+        assert ome_zarr.Axes(self._system_ome_axes(scene, "stage")).get_unit() == first_unit
+
+    def test_shared_system_has_no_unit_if_all_connections_scale(self):
+        """Nothing says what unit all of the connections convert to: That is only known to Affine.from_unit_conversion."""
+        mm = _multiscale(unit=Unit(y="millimeter", x="mm"), y=2, x=3)
+        cm = _multiscale(unit=Unit(y="centimeter", x="cm"), y=2, x=3)
+
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage",
+            connections=[
+                (mm, Affine.from_factor({"y": 1000, "x": 1000}), "mm"),
+                (cm, Affine.from_factor({"y": 10000, "x": 10000}), "cm"),
+            ],
+        )
+
+        assert ome_zarr.Axes(self._system_ome_axes(scene, "stage")).get_unit() == Unit(y="", x="")
 
     @pytest.mark.parametrize("properties", [{"unit": {"x": "nm"}}, {"ome_zarr_axes": {"x": ome_zarr.Axis(unit="nm")}}])
     def test_explicit_target_unit_does_not_hide_missing_conversion(self, properties):

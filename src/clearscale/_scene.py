@@ -230,9 +230,7 @@ class Scene:
             relations.append(relation)
             links = relation._axis_links(ms_ref.axes) if relation else AxisLinks.identity(ms_ref.axes)
             reconciled_axes.append(
-                reconcile_axis_prop_params(
-                    reached_axes, links.sources, cls._source_ome_zarr_axes(ms_ref), ome_zarr_axes, unit
-                )
+                reconcile_axis_prop_params(reached_axes, links, cls._source_ome_zarr_axes(ms_ref), ome_zarr_axes, unit)
             )
 
         shared_axes = merge_ome_zarr_axes(

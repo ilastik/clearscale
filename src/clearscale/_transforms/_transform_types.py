@@ -42,6 +42,7 @@ from clearscale._services.matrices import (
     is_identity_scale,
 )
 from clearscale._transforms._base import (
+    IDENTITY_TOLERANCE,
     AxisDependencies,
     _EndpointDimensionConstraints,
     IdentityTransform,
@@ -49,8 +50,6 @@ from clearscale._transforms._base import (
     Transform,
     TransformSequence,
 )
-
-IDENTITY_TOLERANCE = DEFAULT_SINGULARITY_TOLERANCE
 
 
 def _max_optional(*values: Optional[int]) -> Optional[int]:

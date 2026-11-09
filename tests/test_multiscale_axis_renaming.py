@@ -78,8 +78,9 @@ class TestWithCoordinateSystem:
         assert axes["Z"].unit == "um"
 
     def test_axis_depending_on_several_axes_keeps_properties_they_agree_on(self):
-        # Shearing y by x: y' now depends on y and x. Both are space axes in um, so the sheared y' is the same.
-        # (The long names differ, so the sheared y' has none.)
+        # Shearing y by x: y' now depends on y and x. Both are space axes, so the sheared y' is too.
+        # (The long names differ, so the sheared y' has none. And since it is mixed, nothing says the shear
+        # coefficient is not also a conversion, so it has no unit either.)
         source = Multiscale.from_single(
             Scale(
                 Shape(y=8, x=8),
@@ -90,7 +91,7 @@ class TestWithCoordinateSystem:
         shear = Affine.from_array(((1, 0.5, 0), (0, 1, 0)), "yx")
         axes = source.with_coordinate_system("sheared", reached_by=shear).coordinate_system_ome_zarr_axes("sheared")
         assert axes["y"].long_name is None, "should not carry over disagreeing property"
-        assert axes["y"] == Axis(name="y", type="space", unit="um")
+        assert axes["y"] == Axis(name="y", type="space"), "should not carry over unit because y mixes"
         assert axes["x"] == Axis(name="x", type="space", unit="um", long_name="cols")
 
     def test_renaming_does_not_change_original_instance(self):

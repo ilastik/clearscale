@@ -28,9 +28,9 @@ from clearscale._axis_values import (
     Unit,
 )
 from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscaleError
-from clearscale._services.matrices import AxisIndices
+from clearscale._services.matrices import DEFAULT_SINGULARITY_TOLERANCE, AxisIndices
 from clearscale._services.units import is_same_unit
-from clearscale._services.axis_links import AxisKeyDependencies
+from clearscale._services.axis_links import AxisLink, AxisLinks
 
 RelativePath = str  # 0.6: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]
@@ -43,6 +43,7 @@ _RefT = TypeVar("_RefT")
 AxisDependencies = Tuple[AxisIndices, ...]
 """One entry per target axis (in target order), with the indices of the source axes it depends on."""
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
+IDENTITY_TOLERANCE = DEFAULT_SINGULARITY_TOLERANCE
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,35 +248,35 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
         new_axes = self.__class__([(a, self[a] if a in self else inserts[a]) for a in axes])
         return new_axes
 
-    def with_axes_carried_over(self, target_axes: OrderedAxes, dependencies: AxisKeyDependencies) -> "OmeZarrAxes":
-        """Build axes for `target_axes` from `self`, sourcing properties according to `dependencies`
-        (see SpatialRelation._axis_dependencies).
-        Any target axes without dependencies is an insert (-> blank); with 1 dependency is default carryover;
-        with more is result of mixing (-> carry over only properties that agree between all sources)."""
+    def with_axes_carried_over(self, target_axes: OrderedAxes, links: AxisLinks) -> "OmeZarrAxes":
+        """Build axes for `target_axes` from `self`, sourcing properties according to `links`
+        (see SpatialRelation._axis_links).
+        - A target without sources is an insert (-> blank).
+        - An exact target *is* its source: It carries all properties, except for the unit if the scale is not +-1.
+          (A unit tells how large a step in the axis is, which scaling changes.)
+        - Any other target is the result of mixing. Its unit cannot be known, and one with untraced coupling (mixed with
+          axes that cannot be traced) carries nothing. Otherwise `discrete`, `type` and `long_name` are carried over if they
+          agree between all sources. A source without a value counts as disagreeing."""
         target_axes = tuple(target_axes)
-        assert len(dependencies) == len(target_axes), f"Received {dependencies!r} deps for {target_axes!r}."
+        assert links.target_axes == target_axes, f"Received links for {links.target_axes!r}, not {target_axes!r}."
 
-        def carry_forward(target: AxisKey, sources: Tuple[AxisKey, ...]) -> OmeZarrAxis:
-            if not sources:
+        def carry_forward(target: AxisKey, link: AxisLink) -> OmeZarrAxis:
+            if not link.sources:
                 return self._default(target)
-            source_props = [self[d] for d in sources]
+            if link.exact is not None:
+                source, scale = link.exact
+                unit_is_preserved = abs(abs(scale) - 1) <= IDENTITY_TOLERANCE
+                return replace(self[source], name=str(target), unit=self[source].unit if unit_is_preserved else None)
+            if link.has_untraced_coupling:
+                return self._default(target)
+            source_props = [self[d] for d in link.sources]
             agreed = {
                 field: (values.pop() if len(values := {getattr(src, field) for src in source_props}) == 1 else None)
                 for field in ("discrete", "type", "long_name")
             }
-            # unit separately: don't just check equality but alias matching
-            first_unit = source_props[0].unit
-            agreed["unit"] = (
-                first_unit
-                if all(
-                    first_unit is not None and src.unit is not None and is_same_unit(first_unit, src.unit)
-                    for src in source_props
-                )
-                else None
-            )
             return OmeZarrAxis(name=str(target), **agreed)
 
-        return self.__class__((axis, carry_forward(axis, deps)) for axis, deps in zip(target_axes, dependencies))
+        return self.__class__((axis, carry_forward(axis, link)) for axis, link in zip(target_axes, links.links))
 
     def with_unit_merged(self, unit: Unit) -> "OmeZarrAxes":
         """Override any .unit property on self.values with provided (only for axes where provided has non-empty string)"""

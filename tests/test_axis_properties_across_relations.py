@@ -1,6 +1,7 @@
 import pytest
 
 from clearscale import Affine, AxisRenaming, PermutationTo, ProjectionTo, Translation
+from clearscale._services.axis_links import AxisLinks
 from clearscale._services.axis_properties_across_relations import (
     require_matching_units_or_affine_relation,
     reconcile_axis_prop_params,
@@ -123,12 +124,19 @@ class TestUnitValidation:
 
 
 class TestReconcileAxisPropParams:
+    @staticmethod
+    def reconcile_by_dependencies(target_axes, dependencies, source, provided, unit):
+        """reconcile_axis_prop_params for relations that never scale.
+        Nothing beyond the dependencies (links.sources) is ever needed here."""
+        links = AxisLinks.from_dependencies(tuple(source.keys()), target_axes, dependencies)
+        return reconcile_axis_prop_params(target_axes, links, source, provided, unit)
+
     def test_accepts_unit_when_source_blank(self):
-        result = reconcile_axis_prop_params(("x",), (("x",),), _ome_axes_with_unit(x=None), "infer", {"x": "um"})
+        result = self.reconcile_by_dependencies(("x",), (("x",),), _ome_axes_with_unit(x=None), "infer", {"x": "um"})
         assert result["x"].unit == "um"
 
     def test_accepts_properties_and_units_for_inserted_axes(self):
-        result = reconcile_axis_prop_params(
+        result = self.reconcile_by_dependencies(
             ("c", "x"),
             ((), ("x",)),
             _ome_axes_with_unit(x="um"),
@@ -143,7 +151,7 @@ class TestReconcileAxisPropParams:
         )
 
     def test_ignores_excess_properties_and_units(self):
-        result = reconcile_axis_prop_params(
+        result = self.reconcile_by_dependencies(
             ("x",), (("x",),), _ome_axes_with_unit(x="um"), {"t": OmeZarrAxis(type="custom")}, {"z": "cm"}
         )
         assert result == OmeZarrAxes({"x": OmeZarrAxis(name="x", type="space", unit="um")})
@@ -157,13 +165,13 @@ class TestReconcileAxisPropParams:
                 "nonstandard": OmeZarrAxis(name="nonstandard"),
             }
         )
-        result = reconcile_axis_prop_params(
+        result = self.reconcile_by_dependencies(
             ("c", "t", "x", "nonstandard"), ((), ("t",), ("x",), ("nonstandard",)), source, provided, None
         )
         assert result == OmeZarrAxes({"c": OmeZarrAxis(name="c", type=expected_type), **source})
 
     def test_provided_unit_overrides_inherited_unit_in_infer_mode(self):
-        result = reconcile_axis_prop_params(("x",), (("x",),), _ome_axes_with_unit(x="um"), "infer", {"x": "nm"})
+        result = self.reconcile_by_dependencies(("x",), (("x",),), _ome_axes_with_unit(x="um"), "infer", {"x": "nm"})
         assert result["x"] == OmeZarrAxis(name="x", unit="nm")
 
     @pytest.mark.parametrize("provided_ome_axes", [None, "infer", {"X": OmeZarrAxis()}])
@@ -174,7 +182,7 @@ class TestReconcileAxisPropParams:
                 "x": OmeZarrAxis(name="x", type="space", unit="um", discrete=False, long_name="width"),
             }
         )
-        result = reconcile_axis_prop_params(("X",), (("x",),), source, provided_ome_axes, None)
+        result = self.reconcile_by_dependencies(("X",), (("x",),), source, provided_ome_axes, None)
         assert result == OmeZarrAxes(
             {"X": OmeZarrAxis(name="X", type="space", unit="um", discrete=False, long_name="width")}
         )
@@ -183,14 +191,14 @@ class TestReconcileAxisPropParams:
     def test_explicit_fields_override_and_blanks_inherit(self, provided_unit):
         source = OmeZarrAxes({"x": OmeZarrAxis(name="x", type="space", unit="um", discrete=False, long_name="width")})
         provided_ome_axes = {"x": OmeZarrAxis(type="custom", discrete=True)}
-        result = reconcile_axis_prop_params(("x",), (("x",),), source, provided_ome_axes, provided_unit)
+        result = self.reconcile_by_dependencies(("x",), (("x",),), source, provided_ome_axes, provided_unit)
         assert result["x"] == OmeZarrAxis(
             name="x", type="custom", unit="nm" if provided_unit else "um", discrete=True, long_name="width"
         )
 
     @pytest.mark.parametrize("unit", ["nanometer", "nm"])
     def test_accepts_equivalent_unit_parameters(self, unit):
-        result = reconcile_axis_prop_params(
+        result = self.reconcile_by_dependencies(
             ("x",),
             (("x",),),
             _ome_axes_with_unit(x=None),
@@ -201,6 +209,6 @@ class TestReconcileAxisPropParams:
 
     def test_rejects_conflicting_unit_parameters(self):
         with pytest.raises(ValueError, match="Conflicting unit between `unit` and `ome_zarr_axes`"):
-            reconcile_axis_prop_params(
+            self.reconcile_by_dependencies(
                 ("x",), (("x",),), _ome_axes_with_unit(x="um"), {"x": OmeZarrAxis(unit="um")}, {"x": "nm"}
             )

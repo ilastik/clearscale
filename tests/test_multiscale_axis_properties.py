@@ -16,6 +16,8 @@ from clearscale import (
     AxisRearrangementTo,
     Factor,
 )
+from clearscale._services.axis_links import AxisLinks
+from clearscale._spatial_relations import SpatialRelationSequence
 
 
 class TestOmeZarrAxis:
@@ -132,6 +134,19 @@ class TestOmeZarrAxes:
         axes = ome_zarr.Axes.fromkeys("yx").with_types_inferred()
         assert axes.with_types_inferred() == axes
 
+    @staticmethod
+    def _carried(source, target_axes, dependencies, scales=None, untraced=()):
+        """with_axes_carried_over, with links from the direct `dependencies`.
+        `untraced`: Indices of targets with untraced coupling. Only relevant in context of sequences: simulates a target
+        that mixes one of the sequence's original sources with an axis inserted partway along the sequence."""
+        links = AxisLinks.from_dependencies(tuple(source.keys()), target_axes, dependencies, scales)
+        if untraced:
+            links = replace(
+                links,
+                links=tuple(replace(l, has_untraced_coupling=i in untraced) for i, l in enumerate(links.links)),
+            )
+        return source.with_axes_carried_over(target_axes, links)
+
     def test_with_axes_carried_over_keeps_only_agreeing_values_for_mixed_sources(self):
         source = ome_zarr.Axes(
             {
@@ -139,7 +154,7 @@ class TestOmeZarrAxes:
                 "x": ome_zarr.Axis(name="x", type="space", discrete=True, long_name="columns"),
             }
         )
-        result = source.with_axes_carried_over(("mixed", "renamed", "inserted"), (("y", "x"), ("y",), ()))
+        result = self._carried(source, ("mixed", "renamed", "inserted"), (("y", "x"), ("y",), ()))
         assert result == ome_zarr.Axes(
             {
                 "mixed": ome_zarr.Axis(name="mixed", type="space"),
@@ -148,27 +163,41 @@ class TestOmeZarrAxes:
             }
         )
 
-    @pytest.mark.parametrize(
-        "first, second, expected",
-        [
-            ("um", "micrometer", "um"),
-            ("micrometer", "um", "micrometer"),
-            ("um", "nm", None),
-            ("um", None, None),
-            (None, "um", None),
-            (None, None, None),
-        ],
-    )
-    def test_with_axes_carried_over_recognises_unit_nicknames_from_mixed_sources(self, first, second, expected):
+    @pytest.mark.parametrize("first, second", [("um", "um"), ("um", "micrometer"), ("um", "nm"), ("um", None)])
+    def test_with_axes_carried_over_never_carries_units_to_mixed_targets(self, first, second):
+        # Even if the sources agree, mixing may scale: Nothing says the target is in the same unit.
         source = ome_zarr.Axes(
             {
                 "y": ome_zarr.Axis(name="y", type="space", unit=first),
                 "x": ome_zarr.Axis(name="x", type="space", unit=second),
             }
         )
-        result = source.with_axes_carried_over(("Y", "x"), (("y", "x"), ("x",)))
-        assert result["Y"] == ome_zarr.Axis(name="Y", type="space", unit=expected)
+        result = self._carried(source, ("Y", "x"), (("y", "x"), ("x",)))
+        assert result["Y"] == ome_zarr.Axis(name="Y", type="space")
         assert result["x"] == source["x"]
+
+    @pytest.mark.parametrize(
+        "scale, unit", [(1.0, "um"), (-1.0, "um"), (1.0 + 1e-15, "um"), (1000.0, None), (0.5, None)]
+    )
+    def test_with_axes_carried_over_carries_the_unit_of_exact_targets_only_if_the_scale_is_one(self, scale, unit):
+        source = ome_zarr.Axes({"x": ome_zarr.Axis(name="x", type="space", unit="um", long_name="width")})
+        result = self._carried(source, ("X",), (("x",),), scales=[scale])
+        assert result["X"] == ome_zarr.Axis(name="X", type="space", unit=unit, long_name="width")
+
+    def test_with_axes_carried_over_carries_nothing_to_mixed_targets_with_untraceable_axes(self):
+        source = ome_zarr.Axes({"y": ome_zarr.Axis(name="y", type="space", long_name="rows", unit="um")})
+        result = self._carried(source, ("Y",), (("y",),), scales=[None], untraced=(0,))
+        assert result["Y"] == ome_zarr.Axis(name="Y")
+
+    def test_with_axes_carried_over_carries_exact_targets_even_with_untraced_coupling(self):
+        source = ome_zarr.Axes({"y": ome_zarr.Axis(name="y", type="space", long_name="rows", unit="um")})
+        result = self._carried(source, ("Y",), (("y",),), untraced=(0,))
+        assert result["Y"] == ome_zarr.Axis(name="Y", type="space", long_name="rows", unit="um")
+
+    def test_with_axes_carried_over_rejects_incompatible_links(self):
+        source = ome_zarr.Axes({"x": ome_zarr.Axis(name="x")})
+        with pytest.raises(AssertionError, match="Received links for"):
+            source.with_axes_carried_over(("a",), AxisLinks.identity("x"))
 
 
 class TestScale:
@@ -657,11 +686,11 @@ class TestMultiscaleTransfer:
         return tuple(result.ome_zarr_axes[a].long_name for a in axes)
 
     def test_as_derived_from_carries_affine_properties_only_where_mixed_axes_agree(self):
-        # z' = z + y, y' = y + x, x' = x: One mixed block. Neither the transpose nor the inverse of the Affine is
-        # exact here, so nothing carries over if the block disagrees...
+        # z' = z + y, y' = y + x, x' = x: z and y are mixed, so nothing carries over if the block disagrees...
         triangular = ((1, 1, 0, 0), (0, 1, 1, 0), (0, 0, 1, 0))
-        assert self._transfer_long_names(triangular, ("shared", "shared", "different")) == (None, None, None)
-        # ... but it does if the block agrees
+        # ... except to x, which is exactly x', however much it also feeds the mixed y'.
+        assert self._transfer_long_names(triangular, ("shared", "shared", "different")) == (None, None, "different")
+        # If the block agrees, so does everything it is mixed with
         assert self._transfer_long_names(triangular, ("same", "same", "same")) == ("same", "same", "same")
 
     def test_as_derived_from_does_not_mix_properties_across_unconnected_affine_blocks(self):
@@ -935,3 +964,93 @@ class TestUnitSpellings:
 
         with pytest.raises(ValueError, match="Conflicting 'unit'"):
             Multiscale({"s0": first, "s1": second})
+
+
+class TestAxisPropertyCarryoverThroughAffines:
+    """What a relation proves about axes decides what carries over:
+    Unit only follows an axis that is exactly another one at scale +-1.
+    Other properties follow at any scale for one-to-one, or the agreement of all axes it is mixed with."""
+
+    @staticmethod
+    def _space_ms(axes, **props):
+        """Multiscale of space axes (some tests need valid ones), with the given Axis kwargs per axis."""
+        return Multiscale.from_single(
+            Scale(
+                Shape({a: 4 for a in axes}),
+                ome_zarr_axes={a: ome_zarr.Axis(**{"type": "space", **props.get(a, {})}) for a in axes},
+            )
+        )
+
+    @staticmethod
+    def _props(axes, *fields):
+        return {a: tuple(getattr(axes[a], f) for f in fields) for a in axes}
+
+    def test_with_coordinate_system_does_not_carry_units_through_scaling(self):
+        source = self._space_ms("yx", y={"unit": "micrometer"}, x={"unit": "micrometer"})
+        scaling = Affine.from_factor({"y": 1.0, "x": 1000.0})
+
+        result = source.with_coordinate_system("nm", reached_by=scaling)
+
+        axes = result.coordinate_system_ome_zarr_axes("nm")
+        assert self._props(axes, "type", "unit") == {"y": ("space", "micrometer"), "x": ("space", None)}
+
+    def test_with_coordinate_system_accepts_the_unit_of_a_scaled_axis_explicitly(self):
+        source = self._space_ms("yx", y={"unit": "micrometer"}, x={"unit": "micrometer"})
+        scaling = Affine.from_factor({"y": 1.0, "x": 1000.0})
+
+        result = source.with_coordinate_system("nm", reached_by=scaling, unit={"x": "nanometer"})
+
+        assert result.coordinate_system_ome_zarr_axes("nm")["x"].unit == "nanometer"
+
+    def test_as_derived_from_does_not_carry_units_back_through_scaling(self):
+        parent = self._space_ms("yx", y={"unit": "nanometer"}, x={"unit": "nanometer"})
+        child = Multiscale.from_single(Scale(Shape(y=4, x=4), ome_zarr_axes="infer"))
+        scaling = Affine.from_factor({"y": 1.0, "x": 1000.0})
+
+        result = child.as_derived_from(parent, reached_by=scaling)
+
+        assert self._props(result.ome_zarr_axes, "unit") == {"y": ("nanometer",), "x": (None,)}
+
+    def test_as_derived_from_carries_units_back_through_flips_and_swaps(self):
+        parent = self._space_ms("yx", y={"unit": "um"}, x={"unit": "nm"})
+        child = Multiscale.from_single(Scale(Shape(y=4, x=4), ome_zarr_axes="infer"))
+        flip_and_swap = Affine.from_array(((0, -1, 0), (1, 0, 0)), "yx")  # y' = -x, x' = y
+
+        result = child.as_derived_from(parent, reached_by=flip_and_swap)
+
+        assert self._props(result.ome_zarr_axes, "unit") == {"y": ("nm",), "x": ("um",)}
+
+    def test_shear_carries_everything_to_the_axis_that_stays_exact_and_only_agreement_to_the_other(self):
+        # x' = x + y, y' = y
+        source = self._space_ms("yx", y={"unit": "um", "long_name": "rows"}, x={"unit": "um", "long_name": "columns"})
+        shear = Affine.from_array(((1, 0, 0), (1, 1, 0)), "yx")
+
+        result = source.with_coordinate_system("sheared", reached_by=shear)
+
+        axes = result.coordinate_system_ome_zarr_axes("sheared")
+        assert self._props(axes, "type", "unit", "long_name") == {
+            "y": ("space", "um", "rows"),
+            "x": ("space", None, None),
+        }
+
+    def test_as_derived_from_does_not_label_an_axis_with_what_was_mixed_into_a_dropped_one(self):
+        parent = self._space_ms("zx", z={"long_name": "Depth"}, x={"long_name": "Left-Right"})
+        mixing = Affine.from_array(((1, 0, 0, 0), (1, 1, 0, 0), (0, 0, 1, 0)), "zyx")  # y' = z + y
+        child = self._space_ms("zyx")
+
+        plain_drop = child.as_derived_from(parent, reached_by=ProjectionTo("zx"))
+        mix_then_drop = child.as_derived_from(parent, reached_by=SpatialRelationSequence((mixing, ProjectionTo("zx"))))
+
+        expected = {"z": ("Depth",), "y": (None,), "x": ("Left-Right",)}
+        assert self._props(plain_drop.ome_zarr_axes, "long_name") == expected
+        assert self._props(mix_then_drop.ome_zarr_axes, "long_name") == expected
+
+    def test_with_coordinate_system_does_not_carry_properties_to_axes_mixed_with_an_inserted_one(self):
+        source = self._space_ms("yx", y={"long_name": "Anterior-Posterior"}, x={"long_name": "Left-Right"})
+        mixing = Affine.from_array(((1, 0, 0, 0), (1, 1, 0, 0), (0, 0, 1, 0)), "zyx")  # y' = z + y
+        relation = SpatialRelationSequence((ProjectionTo("zyx"), mixing))
+
+        result = source.with_coordinate_system("tilted", reached_by=relation)
+
+        axes = result.coordinate_system_ome_zarr_axes("tilted")
+        assert self._props(axes, "long_name") == {"z": (None,), "y": (None,), "x": ("Left-Right",)}
