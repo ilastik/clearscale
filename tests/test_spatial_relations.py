@@ -236,6 +236,15 @@ class TestAxisLinks:
         assert links.sources == ((), ("y",), ("x",))
         assert _exact(links) == [None, ("y", 1.0), ("x", 1.0)]
 
+    def test_axis_mixed_with_an_inserted_axis_has_untraced_coupling(self):
+        mixing = Affine.from_array(((1, 0, 0, 0), (1, 1, 0, 0), (0, 0, 1, 0)), "zyx")  # y' = z + y
+        sequence = SpatialRelationSequence((ProjectionTo("zyx"), mixing))
+
+        links = sequence._axis_links("yx")
+
+        assert links.sources == ((), ("y",), ("x",))
+        assert [link.has_untraced_coupling for link in links.links] == [False, True, False]
+
 
 class TestBidirectionalAxisLinks:
     """Main coverage in test_axis_links (TestReversed, TestComposedBefore)"""
@@ -288,5 +297,13 @@ class TestBidirectionalAxisLinks:
         mixing = Affine.from_array(((1, 0, 0, 0), (1, 1, 0, 0), (0, 0, 1, 0)), "abc")
         sequence = SpatialRelationSequence((mixing, ProjectionTo("ac")))
 
+        links = sequence._bidirectional_axis_links("abc")
+
         assert sequence._axis_links("abc").reversed().sources == (("a",), (), ("c",))
-        assert sequence._bidirectional_axis_links("abc").sources == (("a",), ("a",), ("c",))
+        assert links.sources == (("a",), ("a",), ("c",))
+        assert [link.has_untraced_coupling for link in links.links] == [
+            True,
+            True,
+            False,
+        ]  # b' is lost: agreement means nothing
+        assert [link.exact for link in links.links] == [("a", 1.0), None, ("c", 1.0)]  # but a is still exactly a

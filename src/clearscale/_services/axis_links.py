@@ -29,6 +29,13 @@ class AxisLink:
     contribute to other targets. Properties that scaling or mixing invalidate (e.g. unit) can only follow exact links.
     After .reversed(), it is the one axis that is exactly this one, with the scale inverted.
     """
+    has_untraced_coupling: bool = False
+    """
+    True if the target is also coupled to an axis that has no counterpart at the other end of
+    the chain of relations: One that was inserted along it (in forward links), or dropped along it (in reversed
+    links). Its properties are unknown, so agreement among `sources` does not establish agreement among everything the
+    target is coupled to. An `exact` link is not coupled to anything, so this is always False if exact is not None.
+    """
 
     def __post_init__(self):
         if self.exact is not None:
@@ -101,7 +108,9 @@ class AxisLinks:
         """Links of `self` followed by `later`, i.e. from `self.source_axes` to `later.target_axes`.
 
         Traced step by step, so the sources are an upper bound: Mixing that cancels out across steps is not detected.
-        A composed link is exact if it is in both steps, with the scales multiplied."""
+        A composed link is exact if it is in both steps, with the scales multiplied. It has untraced coupling if
+        either step has, or if it mixes an axis that `self` cannot trace (inserted in forward links, dropped in
+        reversed ones) with others."""
         if self.target_axes != later.source_axes:
             raise ValueError(
                 f"Cannot chain links: Target axes {self.target_axes!r} are not the source axes {later.source_axes!r}."
@@ -118,7 +127,12 @@ class AxisLinks:
                 if first_exact is not None:
                     source, first_scale = first_exact
                     exact = (source, first_scale * second_scale)
-            links.append(AxisLink(sources, exact))
+            is_already_untraced = any(first_by_middle[middle].has_untraced_coupling for middle in link.sources)
+            mixes_inserted_axis = len(link.sources) > 1 and any(
+                not first_by_middle[middle].sources for middle in link.sources
+            )
+            untraced = is_already_untraced or mixes_inserted_axis
+            links.append(AxisLink(sources, exact, untraced))
         return AxisLinks(self.source_axes, later.target_axes, tuple(links))
 
     def reversed(self) -> "AxisLinks":
@@ -143,7 +157,9 @@ class AxisLinks:
         transpose of forward sources (this is always accurate).
 
         A reversed `exact` is the target that is exactly this source, with the scale inverted, even if the same source
-        also contributes to other targets. (But only if there is only one such target.)"""
+        also contributes to other targets. (But only if there is only one such target.)
+        A source has untraced coupling if any target in its component does.
+        """
         components: List[Set[AxisKey]] = []
         for link in self.links:
             if not link.sources:
@@ -169,5 +185,8 @@ class AxisLinks:
                 if link.exact is not None and link.exact[0] == source
             ]
             exact = (partners[0][0], 1 / partners[0][1]) if len(partners) == 1 else None
-            links.append(AxisLink(sources, exact))
+            untraced = any(
+                link.has_untraced_coupling for link in self.links if link.sources and link.sources[0] in component
+            )
+            links.append(AxisLink(sources, exact, untraced))
         return AxisLinks(self.target_axes, self.source_axes, tuple(links))

@@ -264,3 +264,71 @@ class TestComposedBefore:
         chained = first.composed_before(second)
 
         assert chained.reversed() == second.reversed().composed_before(first.reversed())
+
+
+class TestUntracedCoupling:
+    """Mixing with axes that cannot be traced makes agreement among the traceable sources meaningless."""
+
+    @staticmethod
+    def _untraced(links: AxisLinks):
+        return [link.has_untraced_coupling for link in links.links]
+
+    def test_links_have_no_untraced_coupling_by_default(self):
+        assert not AxisLink(("a",)).has_untraced_coupling
+        assert self._untraced(AxisLinks.identity("ab")) == [False, False]
+        assert self._untraced(_links_for_linear({"x": {"a": 1, "b": 1}, "y": {"c": 1}})) == [False, False]
+
+    def test_mixing_with_an_inserted_axis_is_untraced(self):
+        # z is inserted, then y' = y + z
+        insert = AxisLinks.from_dependencies("yx", "zyx", ((), ("y",), ("x",)))
+        mix = _links_for_linear({"z": {"z": 1}, "y": {"z": 1, "y": 1}, "x": {"x": 1}}, source_axes="zyx")
+
+        chained = insert.composed_before(mix)
+
+        assert chained.sources == ((), ("y",), ("x",)), "dependencies are in original source axes: z does not exist"
+        assert self._untraced(chained) == [
+            False,
+            True,
+            False,
+        ], "flag indicates y mixes axes the sequence as a whole doesn't know"
+        assert _exact(chained) == [None, None, ("x", 1.0)]
+
+    def test_an_inserted_axis_on_its_own_is_not_untraced(self):
+        insert = AxisLinks.from_dependencies("yx", "zyx", ((), ("y",), ("x",)))
+        rename = AxisLinks.from_dependencies("zyx", "zyx", (("z",), ("y",), ("x",)))
+
+        assert self._untraced(insert.composed_before(rename)) == [False, False, False]
+
+    def test_mixing_two_traceable_axes_is_not_untraced(self):
+        first = AxisLinks.from_dependencies("ab", "ab", (("a",), ("b",)))
+        mix = _links_for_linear({"x": {"a": 1, "b": 1}, "y": {"b": 1}}, source_axes="ab")
+
+        assert self._untraced(first.composed_before(mix)) == [False, False]
+
+    def test_untraced_coupling_carries_through_later_steps(self):
+        insert = AxisLinks.from_dependencies("yx", "zyx", ((), ("y",), ("x",)))
+        mix = _links_for_linear({"z": {"z": 1}, "y": {"z": 1, "y": 1}, "x": {"x": 1}}, source_axes="zyx")
+        rename = AxisLinks.from_dependencies("zyx", "zYx", (("z",), ("y",), ("x",)))
+
+        assert self._untraced(insert.composed_before(mix).composed_before(rename)) == [False, True, False]
+
+    def test_reversed_links_have_untraced_coupling_if_their_component_does(self):
+        # y' = y + z with z inserted before: y feeds y', which has untraced coupling
+        links = AxisLinks(
+            ("y", "x"),
+            ("z", "y", "x"),
+            (AxisLink(()), AxisLink(("y",), has_untraced_coupling=True), AxisLink(("x",), ("x", 1.0))),
+        )
+
+        assert self._untraced(links.reversed()) == [True, False]
+
+    def test_dropping_a_mixed_target_afterwards_makes_its_sources_untraced(self):
+        # y' = z + y, then y' is dropped. Reversed, y is only linked to z'': What y' would have said is lost.
+        mix = _links_for_linear({"z": {"z": 1}, "y": {"z": 1, "y": 1}, "x": {"x": 1}}, source_axes="zyx")
+        drop = AxisLinks.from_dependencies("zyx", "zx", (("z",), ("x",)))
+
+        reverse = drop.reversed().composed_before(mix.reversed())
+
+        assert reverse.sources == (("z",), ("z",), ("x",))
+        assert _exact(reverse) == [("z", 1.0), None, ("x", 1.0)]
+        assert self._untraced(reverse) == [True, True, False]
