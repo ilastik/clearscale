@@ -2,15 +2,8 @@ from abc import abstractmethod, ABC
 from dataclasses import dataclass
 from typing import Tuple, Iterator, Mapping, Sequence, overload, Union, Optional, Dict
 
+from clearscale._services.axis_links import AxisKeyDependencies
 from clearscale.types import AxisKey, OrderedAxes
-
-AxisKeyDependencies = Tuple[Tuple[AxisKey, ...], ...]
-"""AxisKey counterpart to `Transform._axis_dependencies`, which uses axis indices.
-One tuple of source axes per target axis, in target axis order.
-() = target depends on nothing (is new insert)
-(s,) = target is s
-(a, b, ...) = target mixes source axes a, b, ...
-"""
 
 
 class SpatialRelation(ABC):
