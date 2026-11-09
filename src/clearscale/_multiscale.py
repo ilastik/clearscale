@@ -45,11 +45,9 @@ from clearscale._axis_values import (
     _axis_in,
 )
 from clearscale._errors import CannotConvertToSpatialRelationError, NoSuchCoordinateSystemError
-from clearscale._affines import Affine
+from clearscale._services.axis_links import AxisLinks
 from clearscale._spatial_relations import (
-    AxisKeyDependencies,
     SpatialRelation,
-    SpatialRelationSequence,
     normalize_relations_param,
     RelationsParam,
 )
@@ -1836,8 +1834,10 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         relation = normalize_relations_param(reached_by)
         source_axes = self.axes
         target_axes = relation.target_axes(source_axes) if relation else source_axes
-        dependencies = relation._axis_dependencies(source_axes) if relation else tuple((a,) for a in source_axes)
-        target_ome_axes = reconcile_axis_prop_params(target_axes, dependencies, self.ome_zarr_axes, ome_zarr_axes, unit)
+        links = relation._axis_links(source_axes) if relation else AxisLinks.identity(source_axes)
+        target_ome_axes = reconcile_axis_prop_params(
+            target_axes, links.sources, self.ome_zarr_axes, ome_zarr_axes, unit
+        )
         require_matching_units_or_affine_relation(
             self.ome_zarr_axes,
             target_ome_axes,
@@ -1895,10 +1895,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         require_matching_units_or_affine_relation(
             self.ome_zarr_axes, other.ome_zarr_axes, relation, source_label="this Multiscale", target_label="`other`"
         )
-        dependencies = (
-            self._bidirectional_axis_dependencies(relation, self_axes) if relation else tuple((a,) for a in parent_axes)
-        )
-        carried_from_other = other.ome_zarr_axes.with_axes_carried_over(self_axes, dependencies)
+        links = relation._bidirectional_axis_links(self_axes) if relation else AxisLinks.identity(parent_axes)
+        carried_from_other = other.ome_zarr_axes.with_axes_carried_over(self_axes, links.sources)
         merged_ome_axes = self.ome_zarr_axes.with_blanks_filled_from(carried_from_other)
         if merged_ome_axes == self.ome_zarr_axes:
             intrinsic_ref = self._intrinsic_ref
@@ -2236,60 +2234,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _intrinsic_ref=self._intrinsic_ref,
             _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
         )
-
-    @staticmethod
-    def _bidirectional_axis_dependencies(relation: SpatialRelation, source_axes: OrderedAxes) -> AxisKeyDependencies:
-        """Dependencies for axis property flow against a relation:
-        for each source axis, the target axes it may inherit from.
-        Properties should only be transferred if all target axes in this set agree on the property's value.
-
-        This requires bidirectional dependencies: Each target axis may mix multiple source axes, and each source axis
-        may be mixed into multiple target axes. A source that only flows into a single target can still be linked to
-        other targets if its own target mixes other sources that also flow into other targets.
-        In other words: Each source axis depends on every target axis in its connected component of the bipartite graph.
-        This is trivial for one-to-one relations (permutation etc. - just take the forward dependencies' transpose).
-        For Affine, neither the transpose nor the inverse is exact in general (each would over-carry or under-carry
-        properties in some cases). The bidirectional graph is conservative: It may forbid carryover in some cases where
-        it would be valid, but it never allows carryover when it shouldn't. It also does not require invertibility.
-
-        Helper for as_derived_from. If the same logic is needed elsewhere, move to
-        SpatialRelation._bidirectional_axis_dependencies(source_axes)."""
-        source_axes = tuple(source_axes)
-        if isinstance(relation, SpatialRelationSequence):
-            # SpatialRelationSequence._bidirectional_axis_dependencies(source_axes).
-            # Essentially the same folding as SpatialRelationSequence._axis_dependencies
-            axes = [source_axes]
-            for step in relation:
-                axes.append(step.target_axes(axes[-1]))
-            dependencies: AxisKeyDependencies = tuple((axis,) for axis in axes[-1])
-            for index in reversed(range(len(relation))):
-                by_axis = dict(zip(axes[index + 1], dependencies))
-                reverse = Multiscale._bidirectional_axis_dependencies(relation[index], axes[index])
-                dependencies = tuple(
-                    tuple(axis for axis in axes[-1] if any(axis in by_axis[a] for a in deps)) for deps in reverse
-                )
-            return dependencies
-        forward = relation._axis_dependencies(source_axes)
-        target_axes = relation.target_axes(source_axes)
-
-        # Sets of source axes that are mixed together: sources feeding the same target are in the same graph component.
-        # Less efficient but more readable than union-find :)
-        components: list[set[AxisKey]] = []
-        for deps in forward:
-            if not deps:
-                continue  # inserted axis, nothing to link
-            overlapping_components = [c for c in components if c & set(deps)]
-            merged = set(deps)
-            for c in overlapping_components:
-                merged |= c
-                components.remove(c)
-            components.append(merged)
-
-        result = []
-        for source in source_axes:
-            component = next((c for c in components if source in c), set())  # dropped axes: empty
-            result.append(tuple(target for target, deps in zip(target_axes, forward) if deps and deps[0] in component))
-        return tuple(result)
 
     @staticmethod
     def _replace_transform_ref(t: Transform, old: NodeRef, new: NodeRef) -> Transform:

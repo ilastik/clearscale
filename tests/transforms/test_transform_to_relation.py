@@ -337,8 +337,8 @@ def test_random_relation_chains_roundtrip_through_transforms(seed):
     assert_same_payloads(relation_to_transform_canonic(recovered, source), transform)
     if not mixes:
         # Same axis lineage, whichever way it is expressed. (For chains that mix axes, both sides are only
-        # upper bounds that may differ by numerical cancellation, see SpatialRelationSequence._axis_dependencies.)
-        assert recovered._axis_dependencies(source) == relation._axis_dependencies(source)
+        # upper bounds that may differ by numerical cancellation, see SpatialRelationSequence._axis_links.)
+        assert recovered._axis_links(source).sources == relation._axis_links(source).sources
 
 
 class TestRenaming:

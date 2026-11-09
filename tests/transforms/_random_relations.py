@@ -95,7 +95,7 @@ def random_relation_chain(seed: int, *, max_steps: int = 5) -> Tuple[Tuple[str, 
                     continue
             relation = AxisRenaming(dict(zip(chosen, new_names)))
             retired.update(chosen)
-        dependencies = cast(Tuple[Tuple[str, ...], ...], relation._axis_dependencies(axes))
+        dependencies = cast(Tuple[Tuple[str, ...], ...], relation._axis_links(axes).sources)
         descends_from_source = {
             target: len(deps) == 1 and descends_from_source[deps[0]]
             for target, deps in zip(relation.target_axes(axes), dependencies)
@@ -112,7 +112,7 @@ def chain_mixes_axes(relation: SpatialRelation, source_axes) -> bool:
     relations = relation.relations if isinstance(relation, SpatialRelationSequence) else (relation,)
     axes = tuple(source_axes)
     for step in relations:
-        if any(len(deps) > 1 for deps in step._axis_dependencies(axes)):
+        if any(len(deps) > 1 for deps in step._axis_links(axes).sources):
             return True
         axes = step.target_axes(axes)
     return False

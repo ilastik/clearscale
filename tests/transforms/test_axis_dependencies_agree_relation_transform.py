@@ -27,7 +27,7 @@ def transform_dependencies(transform, source_ndim) -> Tuple[Tuple[int, ...], ...
 
 
 def relation_dependencies_by_index(relation, source_axes) -> Tuple[Tuple[int, ...], ...]:
-    return tuple(tuple(source_axes.index(a) for a in deps) for deps in relation._axis_dependencies(source_axes))
+    return tuple(tuple(source_axes.index(a) for a in deps) for deps in relation._axis_links(source_axes).sources)
 
 
 @pytest.mark.parametrize(

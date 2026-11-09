@@ -19,7 +19,8 @@ from clearscale._axis_values import (
     Unit,
 )
 from clearscale._services.units import unit_conversion_factor
-from clearscale._spatial_relations import AxisKeyDependencies, SpatialRelation
+from clearscale._services.axis_links import AxisLinks
+from clearscale._spatial_relations import SpatialRelation
 from clearscale.types import FactorLike, HasPixelGrid, AxisKeyT
 from clearscale._services.matrices import (
     FloatMatrix,
@@ -459,14 +460,19 @@ class Affine(SpatialRelation):
         _require_identical_axes(source_axes, self.axes)
         return self.axes
 
-    def _axis_dependencies(self, source_axes: OrderedAxes) -> AxisKeyDependencies:
+    def _axis_links(self, source_axes: OrderedAxes) -> AxisLinks:
         """An Affine keeps its axis names, but its values may mix them. Since it operates in "push"/"forward" direction,
-        output axes depend on the non-zero coefficients in their linear rows."""
-        _ensure_compatible = self.target_axes(source_axes)
-        return tuple(
-            tuple(axis for axis, value in row.items() if abs(value) > DEFAULT_SINGULARITY_TOLERANCE)
-            for row in self.linear.values()
+        output axes depend on the non-zero coefficients in their linear rows, and are exact if there is only one.
+        Translation does not matter, it cannot change axis characteristics like scale."""
+        axes = self.axes
+        _require_identical_axes(source_axes, axes)
+        tolerance = DEFAULT_SINGULARITY_TOLERANCE
+        linear_vals = self.linear.values()
+        dependencies = tuple(
+            tuple(axis for axis, value in row.items() if abs(value) > tolerance) for row in linear_vals
         )
+        scales = [row[sources[0]] if len(sources) == 1 else None for row, sources in zip(linear_vals, dependencies)]
+        return AxisLinks.from_dependencies(axes, axes, dependencies, scales)
 
     def with_axes(self, axes: OrderedAxes) -> "Affine":
         """Order like axes. Drop axes, or insert new identity axes if necessary."""

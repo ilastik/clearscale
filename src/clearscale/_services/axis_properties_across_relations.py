@@ -7,7 +7,8 @@ from clearscale.types import AxisKeyT
 from clearscale._services.units import is_same_unit
 
 from clearscale._affines import Affine
-from clearscale._spatial_relations import AxisKeyDependencies, SpatialRelation, SpatialRelationSequence
+from clearscale._services.axis_links import AxisKeyDependencies
+from clearscale._spatial_relations import SpatialRelation, SpatialRelationSequence
 from clearscale._transforms._base import OmeZarrAxes, OmeZarrAxis
 
 OmeZarrAxesParam = Union[Literal["infer"], OmeZarrAxes, Mapping[AxisKeyT, OmeZarrAxis]]
@@ -128,7 +129,7 @@ def require_matching_units_or_affine_relation(
         return
     implicit_target_axes = source_axes
     if relation:
-        dependencies = relation._axis_dependencies(source_axes)
+        dependencies = relation._axis_links(source_axes).sources
         implicit_target_axes = source_axes.with_axes_carried_over(target_axes, dependencies)
     conflicts = implicit_target_axes.conflicts_with_unit(target_axes.get_unit())
     if not conflicts:

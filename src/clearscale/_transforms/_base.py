@@ -30,7 +30,7 @@ from clearscale._axis_values import (
 from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscaleError
 from clearscale._services.matrices import AxisIndices
 from clearscale._services.units import is_same_unit
-from clearscale._spatial_relations import AxisKeyDependencies
+from clearscale._services.axis_links import AxisKeyDependencies
 
 RelativePath = str  # 0.6: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]

@@ -126,21 +126,30 @@ def test_affine_in_relation_sequence_target_axes():
     assert relations.target_axes("zyx") == ("x", "y", "z")
 
 
-class TestAxisDependencies:
+def _exact(links):
+    return [link.exact for link in links.links]
+
+
+class TestAxisLinks:
     @pytest.mark.parametrize(
-        "relation, source, expected",
+        "relation, source, expected_sources, expected_exact",
         [
-            (PermutationTo("xyz"), "zyx", (("x",), ("y",), ("z",))),
-            (ProjectionTo("cyx"), "zyx", ((), ("y",), ("x",))),
-            (AxisRenaming(z="Z"), "zyx", (("z",), ("y",), ("x",))),
-            (AxisRenaming(y="x", x="y"), "yx", (("y",), ("x",))),
-            (AxisRearrangementTo("xcy"), "zyx", (("x",), (), ("y",))),
-            (Affine.from_factor(Factor(y=0.5, x=0.5)), "yx", (("y",), ("x",))),
-            (Translation(y=1.0, x=1.0), "yx", (("y",), ("x",))),
+            (PermutationTo("xyz"), "zyx", (("x",), ("y",), ("z",)), [("x", 1), ("y", 1), ("z", 1)]),
+            (ProjectionTo("cyx"), "zyx", ((), ("y",), ("x",)), [None, ("y", 1), ("x", 1)]),
+            (AxisRenaming(z="Z"), "zyx", (("z",), ("y",), ("x",)), [("z", 1), ("y", 1), ("x", 1)]),
+            (AxisRenaming(y="x", x="y"), "yx", (("y",), ("x",)), [("y", 1), ("x", 1)]),
+            (AxisRearrangementTo("xcy"), "zyx", (("x",), (), ("y",)), [("x", 1), None, ("y", 1)]),
+            (Affine.from_factor(Factor(y=0.5, x=0.5)), "yx", (("y",), ("x",)), [("y", 0.5), ("x", 0.5)]),
+            (Translation(y=1.0, x=1.0), "yx", (("y",), ("x",)), [("y", 1), ("x", 1)]),
         ],
     )
-    def test_single_relations(self, relation, source, expected):
-        assert relation._axis_dependencies(source) == expected
+    def test_single_relations(self, relation, source, expected_sources, expected_exact):
+        links = relation._axis_links(source)
+
+        assert links.source_axes == tuple(source)
+        assert links.target_axes == relation.target_axes(source)
+        assert links.sources == expected_sources
+        assert _exact(links) == expected_exact
 
     @pytest.mark.parametrize(
         "relation, source",
@@ -152,30 +161,132 @@ class TestAxisDependencies:
     )
     def test_reject_incompatible_source_axes(self, relation, source):
         with pytest.raises(ValueError):
-            relation._axis_dependencies(source)
-
-    def test_sequence_follows_axes_through_renamings(self):
-        sequence = SpatialRelationSequence((AxisRenaming(z="Z"), PermutationTo("yxZ"), AxisRenaming(Z="depth")))
-        assert sequence._axis_dependencies("zyx") == (("y",), ("x",), ("z",))
-
-    def test_sequence_does_not_carry_across_drop_and_reinsert(self):
-        # Z is dropped, and a *new* z is inserted. Net rename z->Z followed by Z->z would claim the new z descends from z.
-        sequence = SpatialRelationSequence((AxisRenaming(z="Z"), ProjectionTo("zyx")))
-        assert sequence._axis_dependencies("zyx") == ((), ("y",), ("x",))
+            relation._axis_links(source)
 
     @pytest.mark.parametrize(
-        "rows, expected",
+        "rows, sources, exact",
         [
-            (((2, 0, 0), (0, 3, 0)), (("y",), ("x",))),  # diagonal
-            (((0, 1, 0), (1, 0, 0)), (("x",), ("y",))),  # axes swapped by values: new y <- old x, new x <- old y
-            (((1, 0, 0), (-1, 1, 0)), (("y",), ("y", "x"))),
-            (((1, 2, 5), (0, 1, 7)), (("y", "x"), ("x",))),  # translation does not matter
+            (((2, 0, 0), (0, 3, 0)), (("y",), ("x",)), [("y", 2), ("x", 3)]),  # diagonal
+            (
+                ((0, 1, 0), (1, 0, 0)),
+                (("x",), ("y",)),
+                [("x", 1), ("y", 1)],
+            ),  # axes swapped: new y <- old x, new x <- old y
+            (((-1, 0, 0), (0, 1, 0)), (("y",), ("x",)), [("y", -1), ("x", 1)]),  # flip
+            (((1, 1, 0), (0, 1, 0)), (("y", "x"), ("x",)), [None, ("x", 1)]),  # x is mixed into y, but x stays exact
+            (((1, 0, 0), (-1, 1, 0)), (("y",), ("y", "x")), [("y", 1), None]),  # inverse shear
+            (((1, 1, 0), (-1, 1, 0)), (("y", "x"), ("y", "x")), [None, None]),  # rotation
+            (((0, 0, 0), (0, 1, 0)), ((), ("x",)), [None, ("x", 1)]),  # y collapsed
+            (((1, 1e-14, 0), (0, 4, 0)), (("y",), ("x",)), [("y", 1), ("x", 4)]),  # negligible coefficient
+            (((1, 1e-9, 0), (0, 1, 0)), (("y", "x"), ("x",)), [None, ("x", 1)]),  # small but non-negligible
+            (((1, 2, 5), (0, 1, 7)), (("y", "x"), ("x",)), [None, ("x", 1)]),  # translation does not matter
         ],
     )
-    def test_affine_follow_the_matrix_pattern(self, rows, expected):
-        assert Affine.from_array(rows, "yx")._axis_dependencies("yx") == expected
+    def test_affine_rows(self, rows, sources, exact):
+        links = Affine.from_array(rows, "yx")._axis_links("yx")
 
-    def test_affine_dependencies_use_the_forward_matrix(self):
+        assert links.source_axes == links.target_axes == ("y", "x")
+        assert links.sources == sources
+        assert _exact(links) == exact
+
+    def test_affine_links_use_the_forward_matrix(self):
         # The forward upper bidiagonal pattern differs from the full upper triangle of its inverse.
         affine = Affine.from_array(((1, 1, 0, 0), (0, 1, 1, 0), (0, 0, 1, 0)), "zyx")
-        assert affine._axis_dependencies("zyx") == (("z", "y"), ("y", "x"), ("x",))
+        links = affine._axis_links("zyx")
+        assert links.sources == (("z", "y"), ("y", "x"), ("x",))
+        assert _exact(links) == [None, None, ("x", 1)]
+
+    def test_sequence_follows_exact_scales_through_renamings_and_permutations(self):
+        sequence = SpatialRelationSequence(
+            (
+                AxisRenaming(z="Z"),
+                PermutationTo("yxZ"),
+                AxisRenaming(Z="depth"),
+                Affine.from_factor(Factor(y=2.0, x=3.0, depth=4.0)),
+            )
+        )
+
+        links = sequence._axis_links("zyx")
+
+        assert links.target_axes == ("y", "x", "depth")
+        assert links.sources == (("y",), ("x",), ("z",))
+        assert _exact(links) == [("y", 2.0), ("x", 3.0), ("z", 4.0)]
+
+    def test_sequence_multiplies_scales_and_cancels_inverse_ones(self):
+        sequence = SpatialRelationSequence(
+            (Affine.from_factor(Factor(y=1000.0, x=4.0)), Affine.from_array(((0.001, 0, 0), (0, -0.5, 0)), "yx"))
+        )
+
+        assert _exact(sequence._axis_links("yx")) == [("y", pytest.approx(1.0)), ("x", -2.0)]
+
+    def test_sequence_is_not_exact_across_a_mixing_step(self):
+        shear = Affine.from_array(((1, 1, 0), (0, 1, 0)), "yx")
+        sequence = SpatialRelationSequence((shear, Affine.from_factor(Factor(y=2.0, x=2.0))))
+
+        links = sequence._axis_links("yx")
+
+        assert links.sources == (("y", "x"), ("x",))
+        assert _exact(links) == [None, ("x", 2.0)]
+
+    def test_sequence_is_not_exact_across_drop_and_reinsert(self):
+        # Z is dropped, and a *new* z is inserted. Net rename z->Z followed by Z->z would claim the new z descends from z.
+        sequence = SpatialRelationSequence((AxisRenaming(z="Z"), ProjectionTo("zyx")))
+
+        links = sequence._axis_links("zyx")
+        assert links.sources == ((), ("y",), ("x",))
+        assert _exact(links) == [None, ("y", 1.0), ("x", 1.0)]
+
+
+class TestBidirectionalAxisLinks:
+    """Main coverage in test_axis_links (TestReversed, TestComposedBefore)"""
+
+    @pytest.mark.parametrize(
+        "relation, source_axes",
+        [
+            (PermutationTo("xyz"), "zyx"),
+            (ProjectionTo("cyx"), "zyx"),
+            (AxisRenaming(z="Z"), "zyx"),
+            (AxisRearrangementTo("xcy"), "zyx"),
+            (AxisRenaming(y="x", x="y"), "yx"),
+            (Translation(y=1.0, x=1.0), "yx"),
+            (Affine.from_factor(Factor(y=0.5, x=0.5)), "yx"),
+            (Affine.from_array(((1, 0, 0), (1, 1, 0)), "yx"), "yx"),
+        ],
+    )
+    def test_non_sequence_bidirectional_is_reversed_links(self, relation, source_axes):
+        assert relation._bidirectional_axis_links(source_axes) == relation._axis_links(source_axes).reversed()
+
+    def test_reject_incompatible_source_axes(self):
+        with pytest.raises(ValueError):
+            PermutationTo("xy")._bidirectional_axis_links("zyx")
+
+    def test_affine_couples_mixed_axes_but_keeps_the_exact_partner(self):
+        # y' = y, x' = y + x: y is exactly y', but x is mixed into x' with y, which also feeds y'
+        links = Affine.from_array(((1, 0, 0), (1, 1, 0)), "yx")._bidirectional_axis_links("yx")
+
+        assert links.sources == (("y", "x"), ("y", "x"))
+        assert _exact(links) == [("y", 1), None]
+
+    def test_singular_affine_is_supported(self):
+        links = Affine.from_array(((0, 0, 0), (0, 2, 0)), "yx")._bidirectional_axis_links("yx")
+
+        assert links.sources == ((), ("x",))
+        assert _exact(links) == [None, ("x", 0.5)]
+
+    def test_sequence_chains_the_steps_against_the_relation(self):
+        sequence = SpatialRelationSequence((AxisRenaming(y="Y"), Affine.from_factor(Factor(Y=2.0, x=3.0))))
+
+        links = sequence._bidirectional_axis_links("yx")
+
+        assert links.source_axes == ("Y", "x")
+        assert links.target_axes == ("y", "x")
+        assert links.sources == (("Y",), ("x",))
+        assert _exact(links) == [("Y", 0.5), ("x", pytest.approx(1 / 3))]
+
+    def test_sequence_traces_coupling_even_after_drop(self):
+        # b' = a + b couples a and b. Dropping b' afterwards does not undo that a and b could not be told apart.
+        mixing = Affine.from_array(((1, 0, 0, 0), (1, 1, 0, 0), (0, 0, 1, 0)), "abc")
+        sequence = SpatialRelationSequence((mixing, ProjectionTo("ac")))
+
+        assert sequence._axis_links("abc").reversed().sources == (("a",), (), ("c",))
+        assert sequence._bidirectional_axis_links("abc").sources == (("a",), ("a",), ("c",))

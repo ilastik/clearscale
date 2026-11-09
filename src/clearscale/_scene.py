@@ -15,6 +15,7 @@ from clearscale._services.axis_properties_across_relations import (
     require_matching_units_or_affine_relation,
 )
 from clearscale._axis_values import AxisKey
+from clearscale._services.axis_links import AxisLinks
 from clearscale._spatial_relations import RelationsParam, SpatialRelation, normalize_relations_param
 from clearscale.types import AxisKeyT
 from clearscale._transforms import (
@@ -227,10 +228,10 @@ class Scene:
                 )
             source_refs.append(ms_ref)
             relations.append(relation)
-            dependencies = relation._axis_dependencies(ms_ref.axes) if relation else tuple((a,) for a in ms_ref.axes)
+            links = relation._axis_links(ms_ref.axes) if relation else AxisLinks.identity(ms_ref.axes)
             reconciled_axes.append(
                 reconcile_axis_prop_params(
-                    reached_axes, dependencies, cls._source_ome_zarr_axes(ms_ref), ome_zarr_axes, unit
+                    reached_axes, links.sources, cls._source_ome_zarr_axes(ms_ref), ome_zarr_axes, unit
                 )
             )
 
