@@ -17,7 +17,9 @@ Planned future development ("deferred" features):
     * Transform -> SpatialRelation conversion
     * Composition, decomposition, matrix algebra with Linear/Affine (the algebra already exists in `matrices.py`, just needs to be extracted and used for Affine)
 * Other currently missing operator methods to complete axis-wise algebra (with semantically unambiguous operations)
-* Building metadata for entire zarr group hierarchies (-> HCS plates, bioformats2raw, OME-Zarr RFC-8 collections)
+* Building metadata for entire zarr group hierarchies (-> HCS plates, bioformats2raw, OME-Zarr RFC-8 collections).
+  Something like an OmeZarrLayout.
+* Optional deep-resolving OmeZarrGroup (to discover nested child Multiscales, and resolve Scene children, in one call)
 * Nicer `__str__` and `__repr__` for public classes at least...
 * More documentation :)
 
