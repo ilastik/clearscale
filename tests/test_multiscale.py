@@ -9,6 +9,7 @@ from clearscale import (
     Affine,
     Multiscale,
     PixelSize,
+    SameSpace,
     Scale,
     Shape,
     Translation,
@@ -710,11 +711,16 @@ class TestMultiscaleAsDerivedFrom:
 
         assert result._legacy_convention_global_t_scale == 0.9
 
-    def test_with_system_transferred_by_identity_does_not_retain_other(self):
+    @pytest.mark.parametrize(
+        "relation_kwargs",
+        [{}, {"reached_by": SameSpace()}, {"reached_by": []}],
+        ids=["default", "SameSpace", "empty list"],
+    )
+    def test_with_system_transferred_by_identity_does_not_retain_other(self, relation_kwargs):
         source_ms = _with_extra_system(_multiscale(), "world")
 
         derived_ms = _multiscale()
-        result = derived_ms.as_derived_from(source_ms)
+        result = derived_ms.as_derived_from(source_ms, **relation_kwargs)
 
         assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
@@ -1021,7 +1027,7 @@ class TestLosslessOmeZarrVersion:
     @pytest.mark.parametrize(
         "relation",
         [
-            None,
+            SameSpace(),
             Affine.from_factor({"y": 2.0, "x": 2.0}),
             Translation(y=-4.0, x=-2.0),
             [Affine.from_factor({"y": 2.0, "x": 2.0}), Translation(y=-4.0, x=-2.0)],

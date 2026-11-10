@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Affine, Factor, Multiscale, Scale, Scene, Shape, Translation, OmeZarrGroup
+from clearscale import Affine, Factor, Multiscale, SameSpace, Scale, Scene, Shape, Translation, OmeZarrGroup
 from clearscale._transforms import CoordinateSystem, ScaleTransform, TransformGraph, TranslationTransform
 
 from tests.ome_zarr.scene_examples import scene_stitching
@@ -54,7 +54,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         tile_b = _multiscale(y=2, x=2)
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[(tile_a, None, "a.zarr"), (tile_b, Translation(y=0, x=4), "b.zarr")],
+            connections=[(tile_a, SameSpace(), "a.zarr"), (tile_b, Translation(y=0, x=4), "b.zarr")],
         )
         paths = {"a.zarr": tile_a, "b.zarr": tile_b}
 

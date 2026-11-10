@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Affine, Multiscale, PixelSize, Shape, Scale, Translation
+from clearscale import Affine, Multiscale, PixelSize, SameSpace, Shape, Scale, Translation
 from clearscale._services.ome_zarr import SYNTHETIC_EXTERNAL_NAME
 from clearscale._transforms import (
     OmeZarrAxes,
@@ -621,7 +621,7 @@ def _0_6_metadata_with_coord_sys_transform_with(**updates):
 @pytest.mark.parametrize(
     "metadata, expected_relation",
     [
-        pytest.param(_0_6_metadata_with_coord_sys_transform_with(type="identity"), None, id="identity"),
+        pytest.param(_0_6_metadata_with_coord_sys_transform_with(type="identity"), SameSpace(), id="identity"),
         pytest.param(
             _0_6_metadata_with_coord_sys_transform_with(type="scale", scale=[0.5, 0.5]),
             Affine.from_factor({"y": 0.5, "x": 0.5}),

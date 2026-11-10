@@ -160,7 +160,7 @@ _EXACT_VALIDATION_POLICIES = (
 def require_consistent_axis_properties(
     source_axes: OmeZarrAxes,
     target_axes: OmeZarrAxes,
-    relation: Optional[SpatialRelation],
+    relation: SpatialRelation,
     *,
     source_label: str,
     target_label: str,
@@ -183,7 +183,7 @@ def require_consistent_axis_properties(
     Axes present on only one side (inserts, drops) never conflict.
     """
     source_keys = tuple(source_axes)
-    links = relation._axis_links(source_keys) if relation else AxisLinks.identity(source_keys)
+    links = relation._axis_links(source_keys)
     assert links.target_axes == tuple(
         target_axes
     ), f"Received links for {links.target_axes!r}, not {tuple(target_axes)!r}."

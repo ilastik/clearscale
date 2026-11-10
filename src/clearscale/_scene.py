@@ -15,11 +15,9 @@ from clearscale._services.axis_properties_across_relations import (
     require_consistent_axis_properties,
 )
 from clearscale._axis_values import AxisKey
-from clearscale._services.axis_links import AxisLinks
 from clearscale._spatial_relations import RelationsParam, SpatialRelation, normalize_relations_param
 from clearscale.types import AxisKeyT
 from clearscale._transforms import (
-    IdentityTransform,
     OmeZarrAxes,
     relation_to_transform_canonic,
     transform_to_relation,
@@ -58,7 +56,7 @@ class Scene:
         """The Multiscale (its own space), or `(multiscale, name)` for one of the other coordinate systems it knows."""
         to_shared: RelationsParam
         """How the shared coordinate system is reached from `source`, as for `Multiscale.with_coordinate_system`:
-        `source --to_shared--> shared`. `None` means `source` is the same space as the shared one."""
+        `source --to_shared--> shared`. Use `SameSpace()` if `source` is the same space as the shared one."""
         path: str
         """Where the Multiscale is stored, relative to the group that stores the Scene."""
 
@@ -201,7 +199,7 @@ class Scene:
             raise ValueError("Need at least one connection to a Multiscale.")
 
         source_refs: List[NodeRef[Multiscale]] = []
-        relations: List[Optional[SpatialRelation]] = []
+        relations: List[SpatialRelation] = []
         target_axes: Optional[Tuple[AxisKey, ...]] = None
         reconciled_axes: List[OmeZarrAxes] = []
         for i, entry in enumerate(entries):
@@ -218,7 +216,7 @@ class Scene:
                 )
             relation = normalize_relations_param(relations_param)
             try:
-                reached_axes = relation.target_axes(ms_ref.axes) if relation else ms_ref.axes
+                reached_axes = relation.target_axes(ms_ref.axes)
             except ValueError as e:
                 raise ValueError(f"connections[{i}] cannot be applied to axes {ms_ref.axes}: {e}") from e
             if target_axes is None:
@@ -230,7 +228,7 @@ class Scene:
                 )
             source_refs.append(ms_ref)
             relations.append(relation)
-            links = relation._axis_links(ms_ref.axes) if relation else AxisLinks.identity(ms_ref.axes)
+            links = relation._axis_links(ms_ref.axes)
             reconciled_axes.append(
                 reconcile_axis_prop_params(reached_axes, links, cls._source_ome_zarr_axes(ms_ref), ome_zarr_axes, unit)
             )
@@ -250,9 +248,7 @@ class Scene:
             )
         shared = CoordinateSystem(shared_axes)._as_ref(coordinate_system)
         transforms = [
-            (relation_to_transform_canonic(relation, source.axes) if relation else IdentityTransform()).bound(
-                source=source, target=shared
-            )
+            relation_to_transform_canonic(relation, source.axes).bound(source=source, target=shared)
             for source, relation in zip(source_refs, relations)
         ]
         paths = cls._to_dict_requiring_unique_path_keys(
@@ -278,7 +274,7 @@ class Scene:
         or
           `a.as_derived_from(b, reached_by=a_to_b)`.
         Spatial relations map coordinates from `a` to `b`: `Translation(p)` adds p to each coordinate,
-        while `ProjectionTo(axes)` drops or inserts axes. `None` means the same space.
+        while `ProjectionTo(axes)` drops or inserts axes. `SameSpace()` means the same space.
 
         Applying `a_to_b` to the axes of `a` must produce the axes of `b`.
         `a` and `b` can also be one of the other coordinate systems of a Multiscale: `(multiscale, name)`.
@@ -293,7 +289,7 @@ class Scene:
             )
         relation = normalize_relations_param(a_to_b)
         try:
-            reached_axes = relation.target_axes(a_ref.axes) if relation else a_ref.axes
+            reached_axes = relation.target_axes(a_ref.axes)
         except ValueError as e:
             raise ValueError(f"`a_to_b` cannot be applied to the axes of `a` {a_ref.axes}: {e}") from e
         if reached_axes != b_ref.axes:
@@ -308,9 +304,7 @@ class Scene:
             source_label="`a`",
             target_label="`b`",
         )
-        transform = (relation_to_transform_canonic(relation, a_ref.axes) if relation else IdentityTransform()).bound(
-            source=a_ref, target=b_ref
-        )
+        transform = relation_to_transform_canonic(relation, a_ref.axes).bound(source=a_ref, target=b_ref)
         paths = cls._to_dict_requiring_unique_path_keys(((a_path, a_ref.owner), (b_path, b_ref.owner)))
         return cls(_internal_graph=TransformGraph([transform]), _multiscale_paths=paths)
 

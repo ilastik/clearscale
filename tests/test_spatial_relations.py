@@ -1,8 +1,36 @@
 import pytest
 
-from clearscale import Affine, Factor, ProjectionTo, AxisRenaming, AxisRearrangementTo, Translation
+from clearscale import Affine, Factor, ProjectionTo, AxisRenaming, AxisRearrangementTo, SameSpace, Translation
 from clearscale._affines import Linear
-from clearscale._spatial_relations import SpatialRelationSequence, PermutationTo
+from clearscale._services.axis_links import AxisLinks
+from clearscale._spatial_relations import SpatialRelationSequence, PermutationTo, normalize_relations_param
+
+
+class SomeAxisKey:  # Axis keys can be any object that can convert to str
+    def __repr__(self):
+        return "x"
+
+
+@pytest.mark.parametrize("axes", ["x", "yx", "tczyx", ("a", "b"), (SomeAxisKey(),)])
+def test_same_space_keeps_any_axes(axes):
+    assert SameSpace().target_axes(axes) == tuple(axes)
+    assert SameSpace()._axis_links(axes) == AxisLinks.identity(axes)
+
+
+def test_same_space_instances_are_equal_and_hashable():
+    assert SameSpace() == SameSpace()
+    assert len({SameSpace(), SameSpace()}) == 1
+    assert SameSpace() != Translation(x=0.0)
+
+
+def test_normalize_relations_param_rejects_none():
+    with pytest.raises(TypeError, match=r"Expected a SpatialRelation.*received None.*Use `SameSpace\(\)`"):
+        normalize_relations_param(None)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("empty", [[], ()])
+def test_normalize_relations_param_turns_an_empty_sequence_into_same_space(empty):
+    assert normalize_relations_param(empty) == SameSpace()
 
 
 @pytest.mark.parametrize(

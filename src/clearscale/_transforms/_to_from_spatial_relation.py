@@ -11,6 +11,7 @@ from clearscale._spatial_relations import (
     normalize_relations_param,
     PermutationTo,
     ProjectionTo,
+    SameSpace,
     SpatialRelation,
     AxisRearrangementTo,
     SpatialRelationSequence,
@@ -45,6 +46,9 @@ def relation_to_transform(relation: SpatialRelation, source_axes: OrderedAxes) -
             steps.append(relation_to_transform(child, current_axes))
             current_axes = child.target_axes(current_axes)
         return TransformSequence(tuple(steps))
+
+    if isinstance(relation, SameSpace):
+        return IdentityTransform()
 
     if isinstance(relation, Translation):
         _ensure_compatible = relation.target_axes(source_axes)
@@ -312,4 +316,4 @@ def transform_to_relation(
     renames = {axis: target for axis, target in zip(final_axes, target_axes) if axis != target}
     if renames:
         relations.append(AxisRenaming(renames))
-    return normalize_relations_param(relations)
+    return normalize_relations_param(relations) if relations else None

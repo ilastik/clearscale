@@ -7,6 +7,7 @@ from clearscale._spatial_relations import (
     ProjectionTo,
     AxisRearrangementTo,
     AxisRenaming,
+    SameSpace,
     SpatialRelationSequence,
 )
 from clearscale._errors import CannotConvertToSpatialRelationError, NoSuchCoordinateSystemError
@@ -30,6 +31,7 @@ __all__ = [
     "ProjectionTo",
     "AxisRearrangementTo",
     "AxisRenaming",
+    "SameSpace",
     "SpatialRelationSequence",
     "CannotConvertToSpatialRelationError",
     "NoSuchCoordinateSystemError",

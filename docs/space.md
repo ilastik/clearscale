@@ -85,7 +85,7 @@ Things to know:
 
 * `reached_by` may be a single spatial relation or a list of them.
     Lists are applied in order, first to last.
-    Omit it if the new system is simply the same space under another name.
+    Omit it (same as `reached_by=cs.SameSpace()`) if the new system is simply the same space under another name.
 * Both new systems above are connected directly to the Multiscale's own space.
     You describe each one relative to the Multiscale, not relative to each other.
 * `unit` and/or `ome_zarr_axes` set the axis properties of the new system.

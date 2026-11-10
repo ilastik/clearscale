@@ -2,7 +2,7 @@ import copy
 
 import pytest
 from clearscale import ome_zarr
-from clearscale import Affine
+from clearscale import Affine, SameSpace
 from clearscale._affines import Linear
 from clearscale._axis_values import PixelSize, Shape, Unit, Translation
 from clearscale._multiscale import BlueprintShapes, Multiscale, Scale
@@ -121,7 +121,7 @@ class TestCoordinateSystemToLegacy:
         assert _global_scale_and_translation(result) == expected_global_scale_and_translation
 
     def test_does_not_serialize_compatible_coordinate_system_with_identity(self):
-        ms = _multiscale("yx").with_coordinate_system("world", reached_by=None)  # None = identity
+        ms = _multiscale("yx").with_coordinate_system("world", reached_by=SameSpace())
 
         result = ms.to_ome_zarr(version="0.4")
 
@@ -172,7 +172,7 @@ class TestLegacyGlobalTScale:
             },
             _legacy_convention_global_t_scale=0.5,
         )
-        ms = ms.with_coordinate_system("world", reached_by=None)  # None = identity
+        ms = ms.with_coordinate_system("world", reached_by=SameSpace())
 
         result = ms.to_ome_zarr(version="0.4")
 

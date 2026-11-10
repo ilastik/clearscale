@@ -45,8 +45,8 @@ from clearscale._axis_values import (
     _axis_in,
 )
 from clearscale._errors import CannotConvertToSpatialRelationError, NoSuchCoordinateSystemError
-from clearscale._services.axis_links import AxisLinks
 from clearscale._spatial_relations import (
+    SameSpace,
     SpatialRelation,
     normalize_relations_param,
     RelationsParam,
@@ -1822,7 +1822,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         self,
         name: str,
         *,
-        reached_by: RelationsParam = None,
+        reached_by: RelationsParam = SameSpace(),
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         ome_zarr_axes: Optional[OmeZarrAxesParam] = "infer",
     ) -> "Multiscale":
@@ -1830,6 +1830,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Add a coordinate system to this Multiscale's spatial context.
 
         `reached_by` describes how to reach the new system from this Multiscale's own space.
+        The default `SameSpace()` adds the same space under another name.
         Blank axis properties of the new system are carried over from this Multiscale's axes as far as the relation
         allows: Axes that it keeps carry everything, scaled axes everything but the unit (a scaling may or may not
         convert units), and mixed axes only the properties that all axes they are mixed with agree on, but not the unit.
@@ -1842,8 +1843,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         relation = normalize_relations_param(reached_by)
         source_axes = self.axes
-        target_axes = relation.target_axes(source_axes) if relation else source_axes
-        links = relation._axis_links(source_axes) if relation else AxisLinks.identity(source_axes)
+        target_axes = relation.target_axes(source_axes)
+        links = relation._axis_links(source_axes)
         target_ome_axes = reconcile_axis_prop_params(target_axes, links, self.ome_zarr_axes, ome_zarr_axes, unit)
         require_consistent_axis_properties(
             self.ome_zarr_axes,
@@ -1854,7 +1855,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         )
 
         target_ref = CoordinateSystem(target_ome_axes)._as_ref(name)
-        transform = (relation_to_transform_canonic(relation, source_axes) if relation else IdentityTransform()).bound(
+        transform = relation_to_transform_canonic(relation, source_axes).bound(
             source=self._intrinsic_ref, target=target_ref
         )
 
@@ -1872,7 +1873,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
         )
 
-    def as_derived_from(self, original: "Multiscale", *, reached_by: RelationsParam = None) -> "Multiscale":
+    def as_derived_from(self, original: "Multiscale", *, reached_by: RelationsParam = SameSpace()) -> "Multiscale":
         """
         Transfer `self` into the spatial context of `original`, carrying over axis properties, coordinate systems and
         serialization convention.
@@ -1880,6 +1881,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         `reached_by` describes how to reach `original` as a coordinate system:
         `self --reached_by--> original`, i.e. `self` is the relation's source and `original` its target.
         It does not describe how the image was derived.
+        The default `SameSpace()` says that `self` is in the same space as `original`.
 
         Blank axis properties of `self` are filled from `original`'s axes, against the direction of `reached_by`:
         Axes that the relation keeps carry everything, scaled axes everything but the unit (a scaling may or may not
@@ -1893,7 +1895,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         parent_axes = original.axes
         self_axes = self.axes
 
-        if not relation:
+        if isinstance(relation, SameSpace):
             if parent_axes != self_axes:
                 raise ValueError(
                     f"Cannot transfer coordinate systems from `other` with axes {parent_axes!r} to Multiscale with axes {self_axes!r}. Use `reached_by=AxisRearrangementTo(other.axes)` to reach the axes of `other`."
@@ -1905,7 +1907,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         require_consistent_axis_properties(
             self.ome_zarr_axes, original.ome_zarr_axes, relation, source_label="this Multiscale", target_label="`other`"
         )
-        links = relation._bidirectional_axis_links(self_axes) if relation else AxisLinks.identity(parent_axes)
+        links = relation._bidirectional_axis_links(self_axes)
         carried_from_other = original.ome_zarr_axes.with_axes_carried_over(self_axes, links)
         merged_ome_axes = self.ome_zarr_axes.with_blanks_filled_from(carried_from_other)
         if merged_ome_axes == self.ome_zarr_axes:
@@ -1950,7 +1952,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         other_unique = self._find_or_make_unique_ref(
             original._intrinsic_ref.owner, original._intrinsic_ref.name, existing_refs
         )
-        reached_by_t = (relation_to_transform_canonic(relation, self_axes) if relation else IdentityTransform()).bound(
+        reached_by_t = relation_to_transform_canonic(relation, self_axes).bound(
             source=intrinsic_ref, target=other_unique
         )
         existing_refs.append(other_unique)
@@ -1997,7 +1999,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     existing_refs.append(resolved_ref)
                     to_merge_list.append(edge)
 
-        if relation and reached_by_t not in transform_graph.transforms + tuple(to_merge_list):
+        if not isinstance(relation, SameSpace) and reached_by_t not in transform_graph.transforms + tuple(
+            to_merge_list
+        ):
             to_merge_list.append(reached_by_t)
         if not to_merge_list and unchanged_t_scale and intrinsic_ref == self._intrinsic_ref:
             return self

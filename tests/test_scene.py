@@ -8,6 +8,7 @@ from clearscale import (
     Multiscale,
     PermutationTo,
     ProjectionTo,
+    SameSpace,
     Scale,
     Scene,
     Shape,
@@ -197,7 +198,7 @@ def test_transforms_between_rejects_malformed_multiscale_system_key(key):
 
 def test_multiscale_paths_is_read_only():
     a, b = _multiscale(y=2, x=3), _multiscale(y=2, x=3)
-    scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="tiles/a", b_path="tiles/b")
+    scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=SameSpace(), a_path="tiles/a", b_path="tiles/b")
     with pytest.raises(TypeError):
         scene.multiscale_paths["other"] = a  # type: ignore[index]
     assert scene.multiscale_paths == {"tiles/a": a, "tiles/b": b}
@@ -319,10 +320,12 @@ class TestFromSharedCoordinateSystem:
         assert len(scene._transforms_between(tile1, tile2) or []) == 2
         assert scene.is_fully_resolved
 
-    def test_none_relation_is_identity(self):
+    def test_same_space_relation_is_identity_transform(self):
         tile = _multiscale(y=2, x=3)
 
-        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(tile, None, "tile")])
+        scene = Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=[(tile, SameSpace(), "tile")]
+        )
 
         path = scene._transforms_between(tile, "stage")
         assert path is not None and path[0].unbound() == IdentityTransform()
@@ -348,7 +351,7 @@ class TestFromSharedCoordinateSystem:
     def test_accepts_one_shot_iterables(self):
         tile1 = _multiscale(y=2, x=3)
         tile2 = _multiscale(y=2, x=3)
-        connections = [(tile1, None, "tile1"), (tile2, Translation(y=1.0, x=2.0), "tile2")]
+        connections = [(tile1, SameSpace(), "tile1"), (tile2, Translation(y=1.0, x=2.0), "tile2")]
 
         from_generator = Scene.from_shared_coordinate_system(
             coordinate_system="stage", connections=(connection for connection in connections)
@@ -361,7 +364,8 @@ class TestFromSharedCoordinateSystem:
         tile2 = _multiscale(y=2, x=3)  # blank unit, compatible
 
         scene = Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=[(tile1, None, "tile1"), (tile2, Translation(y=1.0, x=0.0), "tile2")]
+            coordinate_system="stage",
+            connections=[(tile1, SameSpace(), "tile1"), (tile2, Translation(y=1.0, x=0.0), "tile2")],
         )
 
         assert self._system_ome_axes(scene, "stage") == {
@@ -378,7 +382,7 @@ class TestFromSharedCoordinateSystem:
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
             connections=[
-                (tile1, None, "tile1"),
+                (tile1, SameSpace(), "tile1"),
                 (tile2, Affine.from_unit_conversion(converted_unit, first_unit), "tile2"),
             ],
             unit=first_unit,
@@ -429,7 +433,7 @@ class TestFromSharedCoordinateSystem:
 
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[((volume, "preview"), Translation(y=1.0, x=1.0), "volume"), (flat, None, "flat")],
+            connections=[((volume, "preview"), Translation(y=1.0, x=1.0), "volume"), (flat, SameSpace(), "flat")],
         )
 
         path = scene._transforms_between((volume, "preview"), "stage")
@@ -443,7 +447,7 @@ class TestFromSharedCoordinateSystem:
 
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[(volume, ProjectionTo("yx"), "volume"), ((volume, "preview"), None, "volume")],
+            connections=[(volume, ProjectionTo("yx"), "volume"), ((volume, "preview"), SameSpace(), "volume")],
         )
 
         assert len(scene._internal_graph.transforms) == 2
@@ -455,7 +459,7 @@ class TestFromSharedCoordinateSystem:
             ValueError, match=r"connections\[1\] selects the same coordinate system as connections\[0\]"
         ):
             Scene.from_shared_coordinate_system(
-                coordinate_system="stage", connections=[(tile, None, "tile"), (tile, None, "tile")]
+                coordinate_system="stage", connections=[(tile, SameSpace(), "tile"), (tile, SameSpace(), "tile")]
             )
 
     def test_rejects_connections_reaching_different_axes(self):
@@ -464,7 +468,7 @@ class TestFromSharedCoordinateSystem:
 
         with pytest.raises(ValueError, match=r"connections\[0\] reaches .*z.*connections\[1\] reaches .*y.*x"):
             Scene.from_shared_coordinate_system(
-                coordinate_system="stage", connections=[(volume, None, "volume"), (flat, None, "flat")]
+                coordinate_system="stage", connections=[(volume, SameSpace(), "volume"), (flat, SameSpace(), "flat")]
             )
 
     def test_rejects_conflicting_axis_properties(self):
@@ -473,7 +477,7 @@ class TestFromSharedCoordinateSystem:
 
         with pytest.raises(ValueError, match="Conflicting 'unit'"):
             Scene.from_shared_coordinate_system(
-                coordinate_system="stage", connections=[(um, None, "um"), (mm, None, "mm")]
+                coordinate_system="stage", connections=[(um, SameSpace(), "um"), (mm, SameSpace(), "mm")]
             )
 
     def test_unit_of_shared_system_comes_from_unscaled_connections_only(self):
@@ -489,7 +493,7 @@ class TestFromSharedCoordinateSystem:
 
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[(um, None, "um"), (mm, Affine.from_unit_conversion(converted_unit, first_unit), "mm")],
+            connections=[(um, SameSpace(), "um"), (mm, Affine.from_unit_conversion(converted_unit, first_unit), "mm")],
         )
 
         assert ome_zarr.Axes(self._system_ome_axes(scene, "stage")).get_unit() == first_unit
@@ -518,7 +522,7 @@ class TestFromSharedCoordinateSystem:
                 coordinate_system="stage",
                 connections=[
                     (converted, Affine.from_factor({"y": 1, "x": 1000}), "converted"),
-                    (unconverted, None, "unconverted"),
+                    (unconverted, SameSpace(), "unconverted"),
                 ],
                 **properties,
             )
@@ -531,7 +535,7 @@ class TestFromSharedCoordinateSystem:
         steps = [Translation(y=0, x=1), Translation(y=0, x=2)]
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[(blank, None, "blank"), ((specified, "selected"), steps, "specified")],
+            connections=[(blank, SameSpace(), "blank"), ((specified, "selected"), steps, "specified")],
         )
         shared = ome_zarr.Axes(self._system_ome_axes(scene, "stage"))
         assert shared["x"].unit == "nm"
@@ -539,7 +543,7 @@ class TestFromSharedCoordinateSystem:
             mock.call(
                 blank.ome_zarr_axes,
                 shared,
-                None,
+                SameSpace(),
                 source_label="connections[0]",
                 target_label="coordinate system 'stage'",
             ),
@@ -564,13 +568,15 @@ class TestFromSharedCoordinateSystem:
         tile = _multiscale(y=2, x=3)
 
         with pytest.raises(ValueError, match="does not specify a coordinate system named: 'nope'"):
-            Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[((tile, "nope"), None, "tile")])
+            Scene.from_shared_coordinate_system(
+                coordinate_system="stage", connections=[((tile, "nope"), SameSpace(), "tile")]
+            )
 
     @pytest.mark.parametrize("name", ["", None, 5])
     def test_rejects_invalid_shared_system_name(self, name):
         with pytest.raises(ValueError, match="needs a name"):
             Scene.from_shared_coordinate_system(
-                coordinate_system=name, connections=[(_multiscale(y=2, x=3), None, "tile")]  # type: ignore[arg-type]
+                coordinate_system=name, connections=[(_multiscale(y=2, x=3), SameSpace(), "tile")]  # type: ignore[arg-type]
             )
 
     def test_rejects_no_connections(self):
@@ -582,8 +588,8 @@ class TestFromSharedCoordinateSystem:
         [
             _multiscale(y=2, x=3),
             (_multiscale(y=2, x=3),),
-            (_multiscale(y=2, x=3), None),
-            (_multiscale(y=2, x=3), None, "tile", None),
+            (_multiscale(y=2, x=3), SameSpace()),
+            (_multiscale(y=2, x=3), SameSpace(), "tile", None),
         ],
     )
     def test_rejects_malformed_connections(self, entry):
@@ -595,7 +601,8 @@ class TestFromSharedCoordinateSystem:
         ms = _multiscale(y=2, x=3).with_coordinate_system("first").with_coordinate_system("second")
         source = (ms, "first") if named_source else ms
         scene = Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=[(source, None, "tile"), ((ms, "second"), None, "tile")]
+            coordinate_system="stage",
+            connections=[(source, SameSpace(), "tile"), ((ms, "second"), SameSpace(), "tile")],
         )
         assert scene.multiscale_paths == {"tile": ms}
         assert len(scene._internal_graph.transforms) == 2
@@ -606,7 +613,7 @@ class TestFromSharedCoordinateSystem:
         source = (ms, "first") if named_source else ms
         with pytest.raises(ValueError, match="Received two paths for one instance: 'a' and 'b'"):
             Scene.from_shared_coordinate_system(
-                coordinate_system="stage", connections=[(source, None, "a"), ((ms, "second"), None, "b")]
+                coordinate_system="stage", connections=[(source, SameSpace(), "a"), ((ms, "second"), SameSpace(), "b")]
             )
 
     @pytest.mark.parametrize("equal_multiscales", [False, True])
@@ -615,24 +622,24 @@ class TestFromSharedCoordinateSystem:
         b = a.copy() if equal_multiscales else _multiscale(y=4, x=5)
         with pytest.raises(ValueError, match="Path 'tile' is already used by another Multiscale"):
             Scene.from_shared_coordinate_system(
-                coordinate_system="stage", connections=[(a, None, "tile"), (b, None, "tile")]
+                coordinate_system="stage", connections=[(a, SameSpace(), "tile"), (b, SameSpace(), "tile")]
             )
 
     @pytest.mark.parametrize("path", ["", None, 3, []])
     def test_rejects_non_string_or_empty_paths(self, path):
         with pytest.raises(ValueError, match="non-empty strings"):
             Scene.from_shared_coordinate_system(
-                coordinate_system="stage", connections=[(_multiscale(y=2, x=3), None, path)]
+                coordinate_system="stage", connections=[(_multiscale(y=2, x=3), SameSpace(), path)]
             )
 
 
 class TestSceneEquality:
     def test_includes_paths(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=3, x=3)
-        first = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
-        second = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="tiles/0", b_path="tiles/1")
+        first = Scene.from_multiscale_pair(a=a, b=b, a_to_b=SameSpace(), a_path="a", b_path="b")
+        second = Scene.from_multiscale_pair(a=a, b=b, a_to_b=SameSpace(), a_path="tiles/0", b_path="tiles/1")
         assert first != second
-        assert first == Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
+        assert first == Scene.from_multiscale_pair(a=a, b=b, a_to_b=SameSpace(), a_path="a", b_path="b")
 
     def test_differs_if_equal_multiscales_at_different_paths_are_transformed_differently(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
@@ -697,7 +704,7 @@ class TestSceneEquality:
 
     def test_differs_by_number_of_equal_multiscales(self):
         connect = lambda n: Scene.from_shared_coordinate_system(
-            coordinate_system="stage", connections=[(_multiscale(y=2, x=2), None, f"tile_{i}") for i in range(n)]
+            coordinate_system="stage", connections=[(_multiscale(y=2, x=2), SameSpace(), f"tile_{i}") for i in range(n)]
         )
 
         assert connect(1) != connect(2)
@@ -714,8 +721,8 @@ class TestSceneEquality:
             coordinate_system="stage", connections=connections
         )
 
-        assert connect((a, None, "a"), (b, Translation(y=1.0, x=0.0), "b")) == connect(
-            (b, Translation(y=1.0, x=0.0), "b"), (a, None, "a")
+        assert connect((a, SameSpace(), "a"), (b, Translation(y=1.0, x=0.0), "b")) == connect(
+            (b, Translation(y=1.0, x=0.0), "b"), (a, SameSpace(), "a")
         )
 
     def test_not_equal_to_other_types(self):
@@ -748,11 +755,11 @@ class TestFromMultiscalePair:
         assert inverse is not None and inverse[0].unbound() == TranslationTransform((-1.0, -2.0))
         assert scene.is_fully_resolved
 
-    def test_none_relation_is_identity(self):
+    def test_same_space_relation_is_identity_transform(self):
         raw = _multiscale(y=4, x=4)
         atlas = _multiscale(y=4, x=4)
 
-        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=None, a_path="a", b_path="b")
+        scene = Scene.from_multiscale_pair(a=raw, b=atlas, a_to_b=SameSpace(), a_path="a", b_path="b")
 
         path = scene._transforms_between(raw, atlas)
         assert path is not None and path[0].unbound() == IdentityTransform()
@@ -795,7 +802,7 @@ class TestFromMultiscalePair:
         flat = _multiscale(y=3, x=4).with_coordinate_system("shifted", reached_by=Translation(y=1.0, x=1.0))
 
         scene = Scene.from_multiscale_pair(
-            a=(volume, "preview"), b=(flat, "shifted"), a_to_b=None, a_path="a", b_path="b"
+            a=(volume, "preview"), b=(flat, "shifted"), a_to_b=SameSpace(), a_path="a", b_path="b"
         )
 
         path = scene._transforms_between((volume, "preview"), (flat, "shifted"))
@@ -812,13 +819,13 @@ class TestFromMultiscalePair:
         flat = _multiscale(y=4, x=4)
 
         with pytest.raises(ValueError, match=r"produces \('z', 'y', 'x'\), but `b` has axes \('y', 'x'\)"):
-            Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=None, a_path="a", b_path="b")
+            Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=SameSpace(), a_path="a", b_path="b")
 
     def test_rejects_unit_mismatch_without_conversion(self):
         a = _multiscale(unit=Unit(x="um"), y=4, x=4)
         b = _multiscale(unit=Unit(x="nm"), y=4, x=4)
         with pytest.raises(ValueError, match=r"units of `a` and `b` differ.*no relation converts"):
-            Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
+            Scene.from_multiscale_pair(a=a, b=b, a_to_b=SameSpace(), a_path="a", b_path="b")
 
     def test_forwards_selected_systems_and_normalized_relation_to_unit_validator(self, unit_validation_mock):
         a = _multiscale(unit=Unit(x="um"), y=4, x=4).with_coordinate_system(
@@ -857,7 +864,7 @@ class TestFromMultiscalePair:
 
     def test_accepts_equal_but_distinct_multiscales(self):
         scene = Scene.from_multiscale_pair(
-            a=_multiscale(y=2, x=2), b=_multiscale(y=2, x=2), a_to_b=None, a_path="a", b_path="b"
+            a=_multiscale(y=2, x=2), b=_multiscale(y=2, x=2), a_to_b=SameSpace(), a_path="a", b_path="b"
         )
 
         assert len(scene._internal_graph.transforms) == 1
@@ -866,16 +873,18 @@ class TestFromMultiscalePair:
         tile = _multiscale(y=2, x=2)
 
         with pytest.raises(ValueError, match="does not specify a coordinate system named: 'nope'"):
-            Scene.from_multiscale_pair(a=(tile, "nope"), b=_multiscale(y=2, x=2), a_to_b=None, a_path="a", b_path="b")
+            Scene.from_multiscale_pair(
+                a=(tile, "nope"), b=_multiscale(y=2, x=2), a_to_b=SameSpace(), a_path="a", b_path="b"
+            )
         with pytest.raises(TypeError, match="Expected a Multiscale"):
-            Scene.from_multiscale_pair(a="stage", b=tile, a_to_b=None, a_path="a", b_path="b")  # type: ignore[arg-type]
+            Scene.from_multiscale_pair(a="stage", b=tile, a_to_b=SameSpace(), a_path="a", b_path="b")  # type: ignore[arg-type]
 
     def test_equality_depends_on_direction_and_relation(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=3, x=3)
-        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
+        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=SameSpace(), a_path="a", b_path="b")
 
-        assert scene == Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
-        assert scene != Scene.from_multiscale_pair(a=b, b=a, a_to_b=None, a_path="a", b_path="b")
+        assert scene == Scene.from_multiscale_pair(a=a, b=b, a_to_b=SameSpace(), a_path="a", b_path="b")
+        assert scene != Scene.from_multiscale_pair(a=b, b=a, a_to_b=SameSpace(), a_path="a", b_path="b")
         assert scene != Scene.from_multiscale_pair(a=a, b=b, a_to_b=Translation(y=1.0, x=0.0), a_path="a", b_path="b")
 
     @pytest.mark.parametrize("equal_multiscales", [False, True])
@@ -883,14 +892,14 @@ class TestFromMultiscalePair:
         a = _multiscale(y=2, x=3)
         b = a.copy() if equal_multiscales else _multiscale(y=4, x=5)
         with pytest.raises(ValueError, match="Path 'tile' is already used by another Multiscale"):
-            Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="tile", b_path="tile")
+            Scene.from_multiscale_pair(a=a, b=b, a_to_b=SameSpace(), a_path="tile", b_path="tile")
 
     @pytest.mark.parametrize("path", ["", None, 3, []])
     @pytest.mark.parametrize("parameter", ["a_path", "b_path"])
     def test_rejects_non_string_or_empty_paths(self, path, parameter):
         paths = {"a_path": "a", "b_path": "b", parameter: path}
         with pytest.raises(ValueError, match="non-empty strings"):
-            Scene.from_multiscale_pair(a=_multiscale(y=2, x=3), b=_multiscale(y=2, x=3), a_to_b=None, **paths)
+            Scene.from_multiscale_pair(a=_multiscale(y=2, x=3), b=_multiscale(y=2, x=3), a_to_b=SameSpace(), **paths)
 
 
 class TestRelationBetween:
@@ -933,7 +942,7 @@ class TestRelationBetween:
         tile1, tile2 = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[(tile1, None, "tile1"), (tile2, Translation(y=0.0, x=-4.0), "tile2")],
+            connections=[(tile1, SameSpace(), "tile1"), (tile2, Translation(y=0.0, x=-4.0), "tile2")],
         )
 
         assert scene.relation_from(tile2, to="stage") == Translation(y=0.0, x=-4.0)
@@ -954,7 +963,7 @@ class TestRelationBetween:
 
     def test_returns_none_for_the_same_space(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
-        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
+        scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=SameSpace(), a_path="a", b_path="b")
 
         assert scene.relation_from(a, to=b) is None
         assert scene.relation_from(a, to=a) is None
@@ -969,14 +978,14 @@ class TestRelationBetween:
 
     def test_rejects_unrelated_multiscales(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
-        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, None, "a")])
+        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, SameSpace(), "a")])
 
         with pytest.raises(ValueError, match="no \\(invertible\\) path"):
             scene.relation_from(a, to=b)
 
     def test_rejects_unknown_spaces(self):
         a = _multiscale(y=2, x=2)
-        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, None, "a")])
+        scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, SameSpace(), "a")])
 
         with pytest.raises(ValueError, match="no coordinate system matching 'nowhere'"):
             scene.relation_from(a, to="nowhere")
@@ -985,7 +994,7 @@ class TestRelationBetween:
         tiles = [_multiscale(y=2, x=2), _multiscale(y=2, x=2)]
         scene = Scene.from_shared_coordinate_system(
             coordinate_system="stage",
-            connections=[(tiles[0], None, "tile_0"), (tiles[1], Translation(y=0.0, x=-4.0), "tile_1")],
+            connections=[(tiles[0], SameSpace(), "tile_0"), (tiles[1], Translation(y=0.0, x=-4.0), "tile_1")],
         )
         paths = {"tile_0": tiles[0], "tile_1": tiles[1]}
         unresolved = Scene.from_ome_zarr(scene.to_ome_zarr(version="0.6"))

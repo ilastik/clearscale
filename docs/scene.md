@@ -54,7 +54,7 @@ scene = cs.Scene.from_multiscale_pair(
 ```
 
 `a_to_b` maps raw coordinates to atlas coordinates: here, add `(10, 20)`.
-It accepts a single relation or a list (applied first to last), or `None` if both are the same space.
+It accepts a single relation or a list (applied first to last), or `cs.SameSpace()` if both are the same space.
 
 `a_path` and `b_path` are required: The Multiscales' paths within the Scene.
 
@@ -109,9 +109,9 @@ import clearscale as cs
 scene = cs.Scene.from_shared_coordinate_system(
     coordinate_system="original",
     connections=[
-        cs.Scene.Connection(original, to_shared=None, path="original"),
+        cs.Scene.Connection(original, to_shared=cs.SameSpace(), path="original"),
         # cells = a full segmentation image
-        cs.Scene.Connection(cells, to_shared=None, path="cells"),
+        cs.Scene.Connection(cells, to_shared=cs.SameSpace(), path="cells"),
         # nuclei = a segmentation image cropped from original, like:
         # nuclei.as_derived_from(original, reached_by=Translation(y=32.0, x=48.0))
         cs.Scene.Connection(nuclei, to_shared=cs.Translation(y=32.0, x=48.0), path="nuclei"),

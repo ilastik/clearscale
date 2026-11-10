@@ -2,7 +2,7 @@ import pytest
 
 from clearscale._axis_values import Shape
 from clearscale._multiscale import Multiscale, Scale
-from clearscale._spatial_relations import ProjectionTo
+from clearscale._spatial_relations import ProjectionTo, SameSpace
 from clearscale._transforms import (
     CoordinateSystem,
     IdentityTransform,
@@ -62,7 +62,7 @@ SOURCE_VARIANTS = {
 
 
 DERIVED_BY_VARIANTS = {
-    "none": (None, "zyx"),
+    "same_space": (SameSpace(), "zyx"),
     "insert": (ProjectionTo("zyx"), "tczyx"),
     "drop": (ProjectionTo("zyx"), "yx"),
 }

@@ -32,6 +32,22 @@ class SpatialRelation(ABC):
 
 
 @dataclass(frozen=True, slots=True)
+class SameSpace(SpatialRelation):
+    """The identity relation: The target is the same space as the source. Every coordinate maps to itself, and the
+    axes stay as they are.
+
+    Use it where a relation is expected and the two spaces only differ by name, e.g.
+    `ms.with_coordinate_system("same", reached_by=SameSpace())`.
+    It works with any source axes. All `SameSpace` instances are equal."""
+
+    def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
+        return tuple(source_axes)
+
+    def _axis_links(self, source_axes: OrderedAxes) -> AxisLinks:
+        return AxisLinks.identity(source_axes)
+
+
+@dataclass(frozen=True, slots=True)
 class PermutationTo(SpatialRelation):
     _order: Tuple[AxisKey, ...]
 
@@ -254,24 +270,28 @@ class SpatialRelationSequence(SpatialRelation, Sequence[SpatialRelation]):
         return self.relations[index]
 
 
-RelationsParam = Union[SpatialRelation, Sequence[SpatialRelation], None]
-"""What public APIs accept to describe a relation: One SpatialRelation, a chain of them (applied first to last),
-or None (no change)."""
+RelationsParam = Union[SpatialRelation, Sequence[SpatialRelation]]
+"""What public APIs accept to describe a relation: One SpatialRelation, or a chain of them (applied first to last).
+An empty chain is the same as `SameSpace()`."""
 
 
-def normalize_relations_param(relations: RelationsParam) -> Optional[SpatialRelation]:
+def normalize_relations_param(relations: RelationsParam) -> SpatialRelation:
     """
-    Normalize the ergonomic `Union[SpatialRelation, Sequence[SpatialRelation], None]` accepted by
-    public APIs (`Multiscale.derive`, `Multiscale.with_coordinate_system`, ...) into a single
-    SpatialRelation (a `SpatialRelationSequence` for more than one hop), or None.
+    Normalize the ergonomic `Union[SpatialRelation, Sequence[SpatialRelation]]` accepted by
+    public APIs (`Multiscale.with_coordinate_system`, `Multiscale.as_derived_from`, ...) into a single
+    SpatialRelation (a `SpatialRelationSequence` for more than one hop).
+    An empty sequence results in `SameSpace()`.
     """
-    if relations is None:
-        return None
     if isinstance(relations, SpatialRelation):
         return relations
+    if relations is None:
+        raise TypeError(
+            "Expected a SpatialRelation or a sequence of them, but received None. "
+            "Use `SameSpace()` if the target space is the same as the source space."
+        )
     relations = tuple(relations)
     if not relations:
-        return None
+        return SameSpace()
     if not all(isinstance(r, SpatialRelation) for r in relations):
         raise ValueError(
             f"Relations must be expressed using SpatialRelations like `Affine`, `Translation` or `AxisRearrangementTo`. Received {relations!r}"

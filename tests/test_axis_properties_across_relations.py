@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale import Affine, AxisRenaming, PermutationTo, ProjectionTo, Translation
+from clearscale import Affine, AxisRenaming, PermutationTo, ProjectionTo, SameSpace, Translation
 from clearscale._services.axis_links import AxisLinks
 from clearscale._services.axis_properties_across_relations import (
     require_consistent_axis_properties,
@@ -34,7 +34,7 @@ class TestUnitValidation:
         require_consistent_axis_properties(
             _ome_axes_with_unit(x=source),
             _ome_axes_with_unit(x=target),
-            None,
+            SameSpace(),
             source_label="source",
             target_label="target",
         )
@@ -219,7 +219,7 @@ class TestUnitValidation:
             target_label="target",
         )
 
-    @pytest.mark.parametrize("relation", [None, Translation(x=1), PermutationTo("x"), ProjectionTo("x")])
+    @pytest.mark.parametrize("relation", [SameSpace(), Translation(x=1), PermutationTo("x"), ProjectionTo("x")])
     def test_rejects_differing_units_without_affine(self, relation):
         with pytest.raises(
             ValueError, match=r"source and target differ.*'x': 'um' vs 'nm'.*State the conversion explicitly.*Affine"
@@ -247,7 +247,7 @@ class TestUnitValidation:
             require_consistent_axis_properties(
                 _ome_axes_with_unit(y="nanometer", x="nanometer"),
                 _ome_axes_with_unit(y="um", x="um"),
-                None,
+                SameSpace(),
                 source_label="source",
                 target_label="target",
             )
@@ -276,7 +276,7 @@ class TestTypeValidation:
         require_consistent_axis_properties(
             self._ome_axes_with_type(x=source),
             self._ome_axes_with_type(x=target),
-            None,
+            SameSpace(),
             source_label="a",
             target_label="b",
         )
@@ -284,7 +284,7 @@ class TestTypeValidation:
     @pytest.mark.parametrize(
         "relation",
         [
-            None,
+            SameSpace(),
             Translation(x=1),
             Affine.identity("x"),
             Affine.from_factor({"x": 1000}),  # scaling does not change the type
@@ -345,7 +345,7 @@ class TestTypeValidation:
         axes_a = OmeZarrAxes({"x": OmeZarrAxis(name="x", type="space", unit="um")})
         axes_b = OmeZarrAxes({"x": OmeZarrAxis(name="x", type="time", unit="nm")})
         with pytest.raises(ValueError, match="units of a and b differ"):
-            require_consistent_axis_properties(axes_a, axes_b, None, source_label="a", target_label="b")
+            require_consistent_axis_properties(axes_a, axes_b, SameSpace(), source_label="a", target_label="b")
 
 
 class TestReconcileAxisPropParams:
