@@ -1465,7 +1465,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         """
         Multiscales can be constructed from a `scale_key : Scale` mapping, but this should be avoided.
         Multiscale objects should reflect either metadata read from a file (`.from_ome_zarr`, `.from_precomputed`),
-        or expand a single Scale according to a scaling blueprint (`.from_shapes`, `.from_factors`).
+        expand a single Scale according to a scaling blueprint (`.from_single`),
+        or derive from an existing Multiscale (`.derive`).
         """
         super().__init__(*args, **kwargs)
         for key, scale in self._mapping.items():
