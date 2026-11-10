@@ -1,3 +1,4 @@
+import logging
 from unittest import mock
 
 import pytest
@@ -16,7 +17,6 @@ from clearscale import (
     Unit,
     ome_zarr,
 )
-from clearscale._errors import CannotConvertToSpatialRelationError
 from clearscale._spatial_relations import SpatialRelationSequence
 from clearscale._transforms import (
     CoordinateSystem,
@@ -961,27 +961,25 @@ class TestRelationBetween:
             (ProjectionTo("yx"), Translation(y=1.0, x=1.0))
         ), "should follow connections within child Multiscales"
 
-    def test_returns_none_for_the_same_space(self):
+    def test_returns_same_space_for_the_same_space(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
         scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=SameSpace(), a_path="a", b_path="b")
 
-        assert scene.relation_from(a, to=b) is None
-        assert scene.relation_from(a, to=a) is None
+        assert scene.relation_from(a, to=b) == SameSpace()
+        assert scene.relation_from(a, to=a) == SameSpace()
 
     def test_dropped_axes_can_only_be_traced_forwards(self):
         volume, flat = _multiscale(z=2, y=4, x=4), _multiscale(y=4, x=4)
         scene = Scene.from_multiscale_pair(a=volume, b=flat, a_to_b=ProjectionTo("yx"), a_path="a", b_path="b")
 
         assert scene.relation_from(volume, to=flat) == ProjectionTo("yx")
-        with pytest.raises(ValueError, match="no \\(invertible\\) path"):
-            scene.relation_from(flat, to=volume)
+        assert scene.relation_from(flat, to=volume) is None
 
-    def test_rejects_unrelated_multiscales(self):
+    def test_unrelated_multiscales_have_no_relation(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
         scene = Scene.from_shared_coordinate_system(coordinate_system="stage", connections=[(a, SameSpace(), "a")])
 
-        with pytest.raises(ValueError, match="no \\(invertible\\) path"):
-            scene.relation_from(a, to=b)
+        assert scene.relation_from(a, to=b) is None
 
     def test_rejects_unknown_spaces(self):
         a = _multiscale(y=2, x=2)
@@ -1004,11 +1002,12 @@ class TestRelationBetween:
             unresolved.relation_from(name_of_unresolved_multiscale, to="stage")
         assert unresolved.with_resolved(paths).relation_from(tiles[1], to="stage") == Translation(y=0.0, x=-4.0)
 
-    def test_reports_connections_that_are_no_spatial_relation(self):
+    def test_connections_that_are_no_spatial_relation_have_no_relation(self, caplog):
         a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
         scene = Scene._from_graph_edges(
             [(a, CoordinatesTransform(path="coordinates"), b)], multiscale_paths={"a": a, "b": b}
         )
 
-        with pytest.raises(CannotConvertToSpatialRelationError):
-            scene.relation_from(a, to=b)
+        with caplog.at_level(logging.DEBUG, logger="clearscale"):
+            assert scene.relation_from(a, to=b) is None
+        assert "CoordinatesTransform has no SpatialRelation equivalent" in caplog.text, "the reason is logged"

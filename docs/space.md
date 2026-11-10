@@ -181,15 +181,15 @@ relation = result.relation_to_coordinate_system("stage")
 # e.g. SpatialRelationSequence((ProjectionTo("zyx"), Translation(z=100.0, y=250.0, x=250.0)))
 ```
 
-* The result is a single relation, a list-like sequence of relations, or `None`, if the other space is the same space under another name.
+* The result is a single relation, a list-like sequence of relations, or `cs.SameSpace()` if the other space is the same space under another name.
 * It describes the same transformation as the one that was specified, but in canonical form: Relations may be merged or reordered (renamings come last), and values may differ by floating point rounding.
 * Units and other axis properties of the other coordinate system are not part of a relation. Use `coordinate_system_ome_zarr_axes(name)` for these.
-* `CannotConvertToSpatialRelationError` is also raised for connections that no relation expresses, such as displacement fields read from OME-Zarr metadata written by other tools. Rotations, shears and flips are expressed as `Affine`.
-* `NoSuchCoordinateSystemError` is raised for names that are not in `coordinate_systems` (including the Multiscale's own space).
+* The result is `None` if no relation expresses the connection, such as displacement fields read from OME-Zarr metadata written by other tools. Rotations, shears and flips are expressed as `Affine`. `None` is not a relation, so it cannot be passed back to `reached_by`.
+* Names that are not in `coordinate_systems` (including the Multiscale's own space) raise `ValueError`.
 
 Tools other than clearscale may write connections in the opposite direction (`"stage" -> multiscale`).
 In this case, `relation_to_coordinate_system` returns the inverse of the stored connection for invertible connections like `Translation`.
-If the connection is not invertible, `relation_to_coordinate_system` raises `CannotConvertToSpatialRelationError`.
+If the connection is not invertible, `relation_to_coordinate_system` returns `None`.
 To retrieve the original as written, or retrieve non-invertible connections, use the opposite counterpart `relation_from_coordinate_system`.
 
 ## Spatial relation vs coordinate transformation

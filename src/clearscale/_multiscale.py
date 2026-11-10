@@ -2063,16 +2063,17 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Use to retrieve the `reached_by` relation in `with_coordinate_system(name, reached_by=relation)` or
         `as_derived_from(other, reached_by=relation)`.
 
-        Returns None if `name` is the same space as this Multiscale's own (only under another name).
+        Returns `SameSpace()` if `name` is the same space as this Multiscale's own (only under another name).
         Otherwise returns one SpatialRelation, or a SpatialRelationSequence of them. The result is in
         canonical form: It describes the same transformation as what was originally specified, but may be
         structured differently (merged, reordered; renamings last) and may differ by floating point rounding.
         The target's units and other axis properties are not part of a relation, see `coordinate_system_ome_zarr_axes`.
 
-        Raises NoSuchCoordinateSystemError if `name` is not one of `self.coordinate_systems`, and
-        CannotConvertToSpatialRelationError if no relation expresses the connection (it cannot be inverted
-        to this direction, or it consists of transformations that have no SpatialRelation equivalent, such as
-        displacement fields). `relation_from_coordinate_system` is the other direction.
+        Returns None if no relation expresses the connection in this direction: It cannot be inverted to this
+        direction (`relation_from_coordinate_system` is the other direction), or it consists of transformations that
+        have no SpatialRelation equivalent, such as displacement fields. Rotations, shears and flips are expressed as
+        `Affine`.
+        Raises ValueError if `name` is not one of `self.coordinate_systems`.
         """
         return self._relation_with_coordinate_system(name, towards_system=True)
 
@@ -2085,8 +2086,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Connections that cannot be retrieved with `relation_to_coordinate_system` because they lose information in
         the `name -> self` direction, may be retrievable here.
 
-        Returns None if `name` is the same space as this Multiscale's own (only under another name).
-        See `relation_to_coordinate_system` for the canonical form of the result, and the raised errors.
+        See `relation_to_coordinate_system` for the canonical form of the result, and when it is `SameSpace()`
+        or None.
+        Raises ValueError if `name` is not one of `self.coordinate_systems`.
         """
         return self._relation_with_coordinate_system(name, towards_system=False)
 
@@ -2219,20 +2221,19 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         source, target = (self._intrinsic_ref, satellite) if towards_system else (satellite, self._intrinsic_ref)
         path = self._transform_graph.path_between(source, target)
         if path is None:
-            # No path in this direction, probably non-invertible
-            stored_path = self._transform_graph.path_between(target, source)
-            if stored_path:
-                stored = stored_path[0] if len(stored_path) == 1 else TransformSequence(tuple(stored_path))
-                # Prefer to raise "no SpatialRelation equivalent" if that's the real problem
-                transform_to_relation(stored, target.owner.axes, source.owner.axes)
-            raise CannotConvertToSpatialRelationError(
-                f"the transformation between this Multiscale and {name!r} cannot be inverted. It can only be "
-                f"expressed as a relation {'from' if towards_system else 'to'} {name!r}"
+            logger.debug(
+                f"No relation {'to' if towards_system else 'from'} {name!r}: The stored transformation cannot be "
+                f"inverted to this direction."
             )
+            return None
         assert path, "source and target are different systems, so there is at least one transform"
         # could assert len(path) == 1 (anything else is invalid); "else" is technically unreachable here
         transform = path[0] if len(path) == 1 else TransformSequence(tuple(path))
-        return transform_to_relation(transform, source.owner.axes, target.owner.axes)
+        try:
+            return transform_to_relation(transform, source.owner.axes, target.owner.axes)
+        except CannotConvertToSpatialRelationError as e:
+            logger.debug(f"No relation {'to' if towards_system else 'from'} {name!r}: {e}")
+            return None
 
     def _with_items(self, items: Iterable[Tuple[ScaleKey, Scale]]) -> "Multiscale":
         """Shared cloner for "with_" methods.

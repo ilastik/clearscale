@@ -1,3 +1,4 @@
+import logging
 import math
 from typing import Tuple, cast
 
@@ -7,13 +8,12 @@ from clearscale import (
     Affine,
     AxisRearrangementTo,
     AxisRenaming,
-    CannotConvertToSpatialRelationError,
     Factor,
     Multiscale,
-    NoSuchCoordinateSystemError,
     PermutationTo,
     PixelSize,
     ProjectionTo,
+    SameSpace,
     Scale,
     Shape,
     Translation,
@@ -71,10 +71,10 @@ def test_relation_to_coordinate_system_inverts_with_coordinate_system(relation):
     assert rebuilt == original
 
 
-def test_relation_to_coordinate_system_is_none_for_the_same_space_under_another_name():
+def test_relation_to_coordinate_system_is_same_space_for_the_same_space_under_another_name():
     ms = _volume().with_coordinate_system("same")
-    assert ms.relation_to_coordinate_system("same") is None
-    assert ms.relation_from_coordinate_system("same") is None
+    assert ms.relation_to_coordinate_system("same") == SameSpace()
+    assert ms.relation_from_coordinate_system("same") == SameSpace()
 
 
 def test_with_coordinate_system_reached_by_non_canonical_sequence_returns_canonical_equivalent():
@@ -125,8 +125,7 @@ def test_derivation_that_drops_axes_only_has_the_to_direction():
     derived = _plane("tzyx").as_derived_from(volume, reached_by=ProjectionTo("zyx"))
     (name,) = derived.coordinate_systems
     assert derived.relation_to_coordinate_system(name) == ProjectionTo("zyx")
-    with pytest.raises(CannotConvertToSpatialRelationError, match="cannot be inverted"):
-        derived.relation_from_coordinate_system(name)
+    assert derived.relation_from_coordinate_system(name) is None
 
 
 def test_with_coordinate_system_is_retrievable_in_both_directions_when_invertible():
@@ -138,19 +137,18 @@ def test_with_coordinate_system_is_retrievable_in_both_directions_when_invertibl
 def test_with_coordinate_system_that_drops_axes_only_has_the_to_direction():
     ms = _volume().with_coordinate_system("plane", reached_by=ProjectionTo("yx"))
     assert ms.relation_to_coordinate_system("plane") == ProjectionTo("yx")
-    with pytest.raises(CannotConvertToSpatialRelationError, match="cannot be inverted"):
-        ms.relation_from_coordinate_system("plane")
+    assert ms.relation_from_coordinate_system("plane") is None
 
 
 @pytest.mark.parametrize("retrieve", ["relation_to_coordinate_system", "relation_from_coordinate_system"])
 def test_unknown_names_and_the_multiscales_own_system_raise(retrieve):
     ms = _volume().with_coordinate_system("other")
-    with pytest.raises(NoSuchCoordinateSystemError):
+    with pytest.raises(ValueError, match="does not specify a coordinate system named: 'other'"):
         getattr(_volume(), retrieve)("other")  # new instance, no connection to `ms`
 
     own_name = ms._intrinsic_ref.name
     for name in ("nope", own_name):
-        with pytest.raises(NoSuchCoordinateSystemError):
+        with pytest.raises(ValueError, match="does not specify a coordinate system"):
             getattr(ms, retrieve)(name)
 
 
@@ -172,14 +170,12 @@ def test_rotations_from_other_tools_are_retrievable_as_affine_relations():
     assert [v for row in from_system.to_tuples() for v in row] == pytest.approx([cos, sin, 0.0, -sin, cos, 0.0])
 
 
-def test_connections_without_relation_equivalent_raise_conversion_error():
+def test_connections_without_relation_equivalent_have_no_relation_in_either_direction(caplog):
     displaced = _with_connection(_plane("yx"), "displaced", DisplacementsTransform(path="field"))
-    expected_error = "DisplacementsTransform has no SpatialRelation equivalent"
-    with pytest.raises(CannotConvertToSpatialRelationError, match=expected_error):
-        displaced.relation_to_coordinate_system("displaced")
-    with pytest.raises(CannotConvertToSpatialRelationError, match=expected_error):
-        # Raise the more informative "no SpatialRelation equivalent", not "cannot be inverted"
-        displaced.relation_from_coordinate_system("displaced")
+    with caplog.at_level(logging.DEBUG, logger="clearscale"):
+        assert displaced.relation_to_coordinate_system("displaced") is None
+        assert displaced.relation_from_coordinate_system("displaced") is None
+    assert "DisplacementsTransform has no SpatialRelation equivalent" in caplog.text, "reason should be logged"
 
 
 def test_legacy_global_transforms_are_retrievable_through_their_synthetic_system():
@@ -208,8 +204,7 @@ def test_system_carried_over_a_dropping_derivation_is_retrievable_to_but_not_fro
     assert result_tzyx.relation_to_coordinate_system("stage") == SpatialRelationSequence(
         (ProjectionTo("zyx"), Translation(z=100.0, y=250.0, x=250.0))
     )
-    with pytest.raises(CannotConvertToSpatialRelationError, match="cannot be inverted"):
-        result_tzyx.relation_from_coordinate_system("stage")
+    assert result_tzyx.relation_from_coordinate_system("stage") is None
 
 
 def test_system_carried_over_an_invertible_derivation_is_retrievable_in_both_directions():

@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from clearscale import Affine, AxisRenaming, Factor, Multiscale, Scale, Shape, Translation
+from clearscale import Affine, AxisRenaming, Factor, Multiscale, SameSpace, Scale, Shape, Translation
 from clearscale._errors import CannotConvertToSpatialRelationError
 from clearscale._spatial_relations import (
     AxisRearrangementTo,
@@ -170,16 +170,16 @@ class TestRoundtrip:
 
 
 class TestEdgeCases:
-    def test_identity_is_none(self):
-        assert transform_to_relation(IdentityTransform(), "zyx", "zyx") is None
-        assert transform_to_relation(ScaleTransform((1.0, 1.0)), "yx", "yx") is None
-        assert transform_to_relation(MapAxisTransform((0, 1)), "yx", "yx") is None
-        assert transform_to_relation(TransformSequence((IdentityTransform(),)), "yx", "yx") is None
+    def test_identity_is_same_space(self):
+        assert transform_to_relation(IdentityTransform(), "zyx", "zyx") == SameSpace()
+        assert transform_to_relation(ScaleTransform((1.0, 1.0)), "yx", "yx") == SameSpace()
+        assert transform_to_relation(MapAxisTransform((0, 1)), "yx", "yx") == SameSpace()
+        assert transform_to_relation(TransformSequence((IdentityTransform(),)), "yx", "yx") == SameSpace()
         assert (
             transform_to_relation(
                 BijectionTransform(forward=IdentityTransform(), inverse=ScaleTransform((3.0,))), "yx", "yx"
             )
-            is None
+            == SameSpace()
         ), "should unwrap bijection.forward"
 
     def test_non_canonical_inputs_are_canonicalized(self):
@@ -329,7 +329,7 @@ def test_random_relation_chains_roundtrip_through_transforms(seed):
         # Chains that don't mix axes always convert back.
         assert mixes, "chains that don't mix axes must always convert"
         return
-    if recovered is None:
+    if recovered == SameSpace():
         assert isinstance(transform, IdentityTransform)
         assert target == source
         return

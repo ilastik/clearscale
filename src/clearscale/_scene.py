@@ -1,11 +1,12 @@
 import functools
+import logging
 from types import MappingProxyType
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, replace
 from typing import Any, Dict, Iterable, Mapping, NamedTuple, Union, Tuple, Literal
 from typing import Optional, List
 
-from clearscale._errors import MismatchingMultiscaleError
+from clearscale._errors import CannotConvertToSpatialRelationError, MismatchingMultiscaleError
 from clearscale._axis_values import Unit
 from clearscale._multiscale import Multiscale
 from clearscale._services.axis_properties_across_relations import (
@@ -15,7 +16,7 @@ from clearscale._services.axis_properties_across_relations import (
     require_consistent_axis_properties,
 )
 from clearscale._axis_values import AxisKey
-from clearscale._spatial_relations import RelationsParam, SpatialRelation, normalize_relations_param
+from clearscale._spatial_relations import RelationsParam, SameSpace, SpatialRelation, normalize_relations_param
 from clearscale.types import AxisKeyT
 from clearscale._transforms import (
     OmeZarrAxes,
@@ -44,6 +45,8 @@ _AnyCoordinateSystemKey = Union[
     Dict[Literal["path", "name"], Union[RelativePath, CoordinateSystemName]],
 ]
 Node = Union[Multiscale, NodeRef]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -399,12 +402,13 @@ class Scene:
         - a Multiscale selects the space of its own data, and `(multiscale, name)` selects one of its other
           coordinate systems
 
-        Returns None if the two spaces are the same.
+        Returns `SameSpace()` if the two spaces are the same.
+        Returns None if no relation expresses the connection: There is no way to get from `source` to `to`
+        (e.g. spaces reached by dropping axes can't be traced backwards, or the two are not connected at all), or the
+        connection cannot be expressed as spatial relations, which can happen for Scenes read from OME-Zarr that
+        contain e.g. displacement fields.
         Raises ValueError if either space can't be found or isn't resolved yet (see `with_resolved`: the axes of
-        spaces of unresolved Multiscales are unknown), or if there is no way to get from `source` to `to`
-        (e.g. spaces reached by dropping axes can't be traced backwards).
-        Raises CannotConvertToSpatialRelationError if the connection between them cannot be expressed as spatial
-        relations, which can happen for Scenes read from OME-Zarr that contain e.g. displacement fields.
+        spaces of unresolved Multiscales are unknown).
         """
         # include_children: Could add optional kwarg if anyone specifically needs to exclude transforms between child
         # multiscales and the additional coordinate systems they define internally. For now kept out of the API.
@@ -424,11 +428,16 @@ class Scene:
         graph = self._full_graph if include_children else self._internal_graph
         path = graph.path_between(source_ref, target_ref)
         if path is None:
-            raise ValueError(f"{source!r} cannot be related to {to!r}: There is no (invertible) path between them.")
-        if not path:
+            logger.debug(f"No relation from {source!r} to {to!r}: There is no (invertible) path between them.")
             return None
+        if not path:
+            return SameSpace()
         transform = path[0] if len(path) == 1 else TransformSequence(tuple(path))
-        return transform_to_relation(transform, source_ref.axes, target_ref.axes)
+        try:
+            return transform_to_relation(transform, source_ref.axes, target_ref.axes)
+        except CannotConvertToSpatialRelationError as e:
+            logger.debug(f"No relation from {source!r} to {to!r}: {e}")
+            return None
 
     def _transforms_between(
         self, source: _AnyCoordinateSystemKey, target: _AnyCoordinateSystemKey, include_children=False

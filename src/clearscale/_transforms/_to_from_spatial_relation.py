@@ -266,9 +266,7 @@ def _flatten_atomic(transform: Transform) -> Tuple[Transform, ...]:
     return () if isinstance(transform, IdentityTransform) else (transform,)
 
 
-def transform_to_relation(
-    transform: Transform, source_axes: OrderedAxes, target_axes: OrderedAxes
-) -> Optional[SpatialRelation]:
+def transform_to_relation(transform: Transform, source_axes: OrderedAxes, target_axes: OrderedAxes) -> SpatialRelation:
     """
     Express `transform` as the SpatialRelation(s) that describe how an image with `source_axes` is turned into one
     with `target_axes`. Inverse of `relation_to_transform_canonic`:
@@ -278,7 +276,7 @@ def transform_to_relation(
     Axes are passed in explicitly: transforms only know positions, and may be unbound (or bound to systems whose
     axes need not be consulted). Axis correspondence is traced by position through the whole chain, and names are
     taken only from the two ends. Axes that have different names at the two ends are renamed in a final
-    AxisRenaming step. Returns None if the transform is an identity (and `source_axes == target_axes`).
+    AxisRenaming step. Returns `SameSpace()` if the transform is an identity (and `source_axes == target_axes`).
 
     Raises CannotConvertToSpatialRelationError if there is no faithful relation, which callers may expect and handle:
     transform types that don't map axes one-to-one (after canonicalization, and apart from the values of
@@ -316,4 +314,4 @@ def transform_to_relation(
     renames = {axis: target for axis, target in zip(final_axes, target_axes) if axis != target}
     if renames:
         relations.append(AxisRenaming(renames))
-    return normalize_relations_param(relations) if relations else None
+    return normalize_relations_param(relations)

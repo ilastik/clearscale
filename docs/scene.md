@@ -136,11 +136,11 @@ The relations are returned in canonical form: relations that can be merged are m
 For the chain above, `volume` to `cropped` is a `ProjectionTo`, then a `Translation`: When there are several relations, they come back as a sequence that you can iterate, index, and pass to anything that accepts relations.
 
 * `source` and `to` can be a name of one of the Scene's coordinate systems, a Multiscale, or `(multiscale, "name")`.
-* If both are the same space, the result is `None`.
-* If there is no way to get from one to the other, it raises `ValueError`.
-  This includes spaces reached by dropping axes, which can't be traced backwards: `relation_from(projection, to=volume)` fails while `relation_from(volume, to=projection)` works.
-  It also raises if a space belongs to a Multiscale that is not resolved yet, because its axes are unknown (see below).
-* If the connection has no spatial relation equivalent, e.g. a coordinate lookup or a displacement field that was read from a file, it raises `CannotConvertToSpatialRelationError`.
+* If both are the same space, the result is `cs.SameSpace()` (the identity-relation).
+* If no relation expresses the connection, the result is `None`.
+  This includes spaces that are not connected, and spaces reached by dropping axes, which can't be traced backwards: `relation_from(max_projection, to=volume)` is `None` while `relation_from(volume, to=max_projection)` works.
+  It also includes connections with no spatial relation equivalent, e.g. a coordinate lookup or a displacement field that was read from a file.
+* It raises `ValueError` if a space can't be found, or if it belongs to a Multiscale that is not resolved yet, because its axes are unknown (see below).
 
 ## Reading and writing
 
