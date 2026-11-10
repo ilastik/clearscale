@@ -27,7 +27,7 @@ The absolute minimum requirements for writing OME-Zarr:
 # Assuming you have numpy and zarr-python 3.* installed
 import numpy as np
 import zarr
-from clearscale import OmeZarrGroup, Multiscale, Scale
+import clearscale as cs
 
 # You have some array
 image = np.random.random((128, 1024, 1024)).astype(np.float32)
@@ -44,10 +44,10 @@ group.create_array(array_path, data=image)
 
 # 2. Metadata: Scale -> Multiscale -> Group -> attrs
 group.attrs.update(
-    OmeZarrGroup
+    cs.OmeZarrGroup
     .from_single(
-        Multiscale.from_single(
-            scale=Scale.from_lists("zyx"), 
+        cs.Multiscale.from_single(
+            scale=cs.Scale.from_lists("zyx"), 
             scale_key=array_path
         )
     )
@@ -67,14 +67,14 @@ This provides full flexibility for data processing, but it comes at the risk of 
 You can mitigate this by coupling data processing to the metadata, for example by using the generated metadata as the parameter for image scaling and data writing:
 
 ```python
-from clearscale import Shape, PixelSize, Unit, BlueprintShapes, Scale, Multiscale, OmeZarrGroup
+import clearscale as cs
 
 # 1. Define operation plan as metadata
-shape = Shape(zip("tzyx", my_data.shape))
-scaling_blueprint = BlueprintShapes.downscale_powers_of_2_xyz(
+shape = cs.Shape(zip("tzyx", my_data.shape))
+scaling_blueprint = cs.BlueprintShapes.downscale_powers_of_2_xyz(
     base_shape=shape,
     rounding="ceil",
-    limit_all=Shape(z=8, y=128, x=128),
+    limit_all=cs.Shape(z=8, y=128, x=128),
 )
 
 # 2. Scale data according to the blueprint.
@@ -86,12 +86,12 @@ for scale_key, target_shape in scaling_blueprint.items():
     zarr_group.create_array(scale_key, data=scaled_data)
 
 # 3. Write metadata: Scale -> Multiscale -> Group -> attrs
-pixel_size = PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
-unit       = Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
-base       = Scale(shape, pixel_size, unit)
+pixel_size = cs.PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
+unit       = cs.Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
+base       = cs.Scale(shape, pixel_size, unit)
 
-ms         = Multiscale.from_single(base, blueprint=scaling_blueprint)
-group_meta = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
+ms         = cs.Multiscale.from_single(base, blueprint=scaling_blueprint)
+group_meta = cs.OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 zarr_group.attrs.update(group_meta)
 ```
 
@@ -150,7 +150,7 @@ import numpy as np
 import zarr
 from skimage.transform import pyramid_gaussian
 
-from clearscale import BlueprintShapes, Scale, Shape, OmeZarrGroup, Multiscale
+import clearscale as cs
 
 # 1. Generate a pyramid
 image = np.random.random((128, 1024, 1024)).astype(np.float32)
@@ -165,12 +165,12 @@ for i, level in enumerate(pyramid):
     scaled_shapes.append(
         (
             scale_key,
-            Shape(zip("zyx", level.shape))
+            cs.Shape(zip("zyx", level.shape))
         )
     )
 
 # 3. Describe the full-resolution image
-base = Scale.from_lists(
+base = cs.Scale.from_lists(
     keys="zyx",
     shape=image.shape,
     pixel_size=[25, 240, 240],
@@ -178,11 +178,11 @@ base = Scale.from_lists(
 )
 
 # 4. Use the recorded scale shapes as a blueprint to expand a Multiscale
-blueprint = BlueprintShapes(scaled_shapes)
-multiscale = Multiscale.from_single(base, blueprint=blueprint)
+blueprint = cs.BlueprintShapes(scaled_shapes)
+multiscale = cs.Multiscale.from_single(base, blueprint=blueprint)
 
 # 5. Save OME-Zarr metadata
-group_meta = OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5")
+group_meta = cs.OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5")
 group.attrs.update(group_meta)
 ```
 
@@ -191,7 +191,7 @@ group.attrs.update(group_meta)
 ```python
 from pathlib import Path
 import zarr  # This example assumes zarr-python 3.* is installed (plus fsspec, requests and aiohttp for https reading)
-import clearscale as clear
+import clearscale as cs
 
 URL = "https://s3.embl.de/i2k-2020/platy-raw.ome.zarr"
 SCALE_KEY = "s6"
@@ -200,8 +200,8 @@ LOCAL_PATH = Path(f"demo-output/platy-raw-{SCALE_KEY}.ome.zarr")
 # 1. Discover what's on the server
 remote_group = zarr.open_group(URL)
 
-remote_meta = clear.OmeZarrGroup.from_group(remote_group)
-assert remote_meta.kind is clear.GroupKind.MULTISCALE, "This tells us there is exactly one Multiscale in this group"
+remote_meta = cs.OmeZarrGroup.from_group(remote_group)
+assert remote_meta.kind is cs.GroupKind.MULTISCALE, "This tells us there is exactly one Multiscale in this group"
 assert remote_meta.version == "0.4", "OME-Zarr version is a property of the group, not of individual Multiscales"
 
 remote_multiscale = remote_meta.multiscales[0]
@@ -218,7 +218,7 @@ local_array = local_group.create_array(SCALE_KEY, data=source_array)
 local_multiscale = remote_multiscale.derive(SCALE_KEY)
 
 # 4. Write the new metadata to the downloaded store
-local_group_meta = clear.OmeZarrGroup.from_single(local_multiscale)
+local_group_meta = cs.OmeZarrGroup.from_single(local_multiscale)
 local_group.attrs.update(local_group_meta.to_attrs(version="0.4"))
 ```
 

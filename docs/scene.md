@@ -42,12 +42,12 @@ Applying a relation to the axes of the space it starts from must produce the axe
 ### A pair: registration or provenance
 
 ```python
-from clearscale import Scene, Translation
+import clearscale as cs
 
-scene = Scene.from_multiscale_pair(
+scene = cs.Scene.from_multiscale_pair(
     a=raw_ms,
     b=atlas_ms,
-    a_to_b=Translation(y=10.0, x=20.0),
+    a_to_b=cs.Translation(y=10.0, x=20.0),
     a_path="raw",
     b_path="atlas",
 )
@@ -61,18 +61,18 @@ It accepts a single relation or a list (applied first to last), or `None` if bot
 ### Shared space: tiles
 
 ```python
-from clearscale import PixelOffset, Scene
+import clearscale as cs
 
 positions = [
-    (tile1, PixelOffset(y=0, x=0), "tiles/tile1"),
-    (tile2, PixelOffset(y=0, x=1000), "tiles/tile2"),
-    (tile3, PixelOffset(y=1000, x=0), "tiles/tile3"),
+    (tile1, cs.PixelOffset(y=0, x=0), "tiles/tile1"),
+    (tile2, cs.PixelOffset(y=0, x=1000), "tiles/tile2"),
+    (tile3, cs.PixelOffset(y=1000, x=0), "tiles/tile3"),
 ]
 
-scene = Scene.from_shared_coordinate_system(
+scene = cs.Scene.from_shared_coordinate_system(
     coordinate_system="stage",
     connections=[
-        Scene.Connection(
+        cs.Scene.Connection(
             tile,
             to_shared=offset * tile["s0"].pixel_size,
             path=path,
@@ -104,19 +104,23 @@ Express them with `from_shared_coordinate_system`, using the original's space as
 The relation is the same one passed to `as_derived_from`: `result --R--> original`.
 
 ```python
-from clearscale import Scene, Translation, ProjectionTo
+import clearscale as cs
 
-scene = Scene.from_shared_coordinate_system(
+scene = cs.Scene.from_shared_coordinate_system(
     coordinate_system="original",
     connections=[
-        Scene.Connection(original, to_shared=None, path="original"),
+        cs.Scene.Connection(original, to_shared=None, path="original"),
         # cells = a full segmentation image
-        Scene.Connection(cells, to_shared=None, path="cells"),
+        cs.Scene.Connection(cells, to_shared=None, path="cells"),
         # nuclei = a segmentation image cropped from original, like:
         # nuclei.as_derived_from(original, reached_by=Translation(y=32.0, x=48.0))
-        Scene.Connection(nuclei, to_shared=Translation(y=32.0, x=48.0), path="nuclei"),
+        cs.Scene.Connection(nuclei, to_shared=cs.Translation(y=32.0, x=48.0), path="nuclei"),
         # thumbnail = a representative slice extracted from the center of the stack (e.g. at 160um)
-        Scene.Connection(thumbnail_yx, to_shared=[ProjectionTo("zyx"), Translation(z=160.0, y=0, x=0)], path="thumbnail"),
+        cs.Scene.Connection(
+            thumbnail_yx,
+            to_shared=[cs.ProjectionTo("zyx"), cs.Translation(z=160.0, y=0, x=0)],
+            path="thumbnail",
+        ),
     ],
 )
 ```
@@ -144,13 +148,13 @@ A Scene refers to its Multiscales by their path relative to the Scene's own zarr
 When you read one, those Multiscales are placeholders until you provide them:
 
 ```python
-from clearscale import OmeZarrGroup
+import clearscale as cs
 
-scene = OmeZarrGroup.from_group(zarr_group).scenes[0]
+scene = cs.OmeZarrGroup.from_group(zarr_group).scenes[0]
 
 assert not scene.is_fully_resolved
 multiscales = {
-    path: OmeZarrGroup.from_group(zarr_group[path]).multiscales[0]
+    path: cs.OmeZarrGroup.from_group(zarr_group[path]).multiscales[0]
     for path in scene.unresolved_paths
 }
 scene = scene.with_resolved(multiscales)

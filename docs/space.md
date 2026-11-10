@@ -54,27 +54,27 @@ Use `Multiscale.with_coordinate_system`.
 Give the new system a name and say how it is reached from the Multiscale's own space with `reached_by`:
 
 ```python
-from clearscale import Affine, Multiscale, PixelSize, Scale, Shape, Translation, Unit
+import clearscale as cs
 
-multiscale = Multiscale.from_single(
-    Scale(
-        shape=Shape(z=40, y=512, x=512),
-        pixel_size=PixelSize(z=2.0, y=0.5, x=0.5),
-        unit=Unit(z="micrometer", y="micrometer", x="micrometer"),
+multiscale = cs.Multiscale.from_single(
+    cs.Scale(
+        shape=cs.Shape(z=40, y=512, x=512),
+        pixel_size=cs.PixelSize(z=2.0, y=0.5, x=0.5),
+        unit=cs.Unit(z="micrometer", y="micrometer", x="micrometer"),
     )
 )
 
-acquisition_shift_from_stage_origin = Translation(z=100.0, y=250.0, x=250.0)
+acquisition_shift_from_stage_origin = cs.Translation(z=100.0, y=250.0, x=250.0)
 multiscale = multiscale.with_coordinate_system(
     "stage",
     reached_by=acquisition_shift_from_stage_origin,
 )
 
-converted_unit = Unit(z="mm", y="mm", x="mm")
+converted_unit = cs.Unit(z="mm", y="mm", x="mm")
 multiscale = multiscale.with_coordinate_system(
     "millimeter",
     # Unit conversion is a scaling affine relation
-    reached_by=Affine.from_unit_conversion(multiscale.unit, converted_unit),
+    reached_by=cs.Affine.from_unit_conversion(multiscale.unit, converted_unit),
     unit=converted_unit,
 )
 
@@ -103,7 +103,7 @@ You might write only a single data array whose shape, pixel size, axis units and
 In this simple case, use `.derive`:
 
 ```python
-original = OmeZarrGroup.from_group(zarr_group).multiscales[0]   # has coordinate systems, e.g. "stage"
+original = cs.OmeZarrGroup.from_group(zarr_group).multiscales[0]   # has coordinate systems, e.g. "stage"
 
 result = original.derive("s1")
 ```
@@ -131,15 +131,15 @@ As for every relation, its source is the space it starts from (here the result) 
 The relation you specify is chained before the connections that the original has to its own coordinate systems:
 
 ```python
-from clearscale import Multiscale, PixelSize, ProjectionTo, Scale, Shape
+import clearscale as cs
 
 projection = (
-    Multiscale
+    cs.Multiscale
     .from_single(
-        Scale(shape=Shape(y=512, x=512), pixel_size=PixelSize(y=0.5, x=0.5)),
+        cs.Scale(shape=cs.Shape(y=512, x=512), pixel_size=cs.PixelSize(y=0.5, x=0.5)),
         scale_key="s1"
     )
-    .as_derived_from(volume, reached_by=ProjectionTo(volume.axes))
+    .as_derived_from(volume, reached_by=cs.ProjectionTo(volume.axes))
 )
 ```
 
@@ -173,7 +173,7 @@ Coordinate systems are carried over by derivation (see above), so they can still
 Say `original` has axes `"zyx"`, and a coordinate system named `"stage"`, reached by a `Translation`, and the result is a maximum projection of it:
 
 ```python
-result = projection.as_derived_from(original, reached_by=ProjectionTo(original.axes))
+result = projection.as_derived_from(original, reached_by=cs.ProjectionTo(original.axes))
 
 # result --relation--> "stage"
 relation = result.relation_to_coordinate_system("stage")
@@ -235,33 +235,33 @@ To relate an axis to a *different* axis that has the same name, drop and insert 
 
 ```python
 import math
-from clearscale import Affine, Multiscale, PixelSize, Scale, Shape, Translation, Unit
+import clearscale as cs
 
-micrometer = Unit(y="micrometer", x="micrometer")
-image = Multiscale.from_single(
-    Scale(shape=Shape(y=512, x=512), pixel_size=PixelSize(y=0.5, x=0.5), unit=micrometer)
+micrometer = cs.Unit(y="micrometer", x="micrometer")
+image = cs.Multiscale.from_single(
+    cs.Scale(shape=cs.Shape(y=512, x=512), pixel_size=cs.PixelSize(y=0.5, x=0.5), unit=micrometer)
 )
 
 # Kept: Translations, flips and swaps of axes carry the unit
-shifted = image.with_coordinate_system("shifted", reached_by=Translation(y=10.0, x=10.0))
+shifted = image.with_coordinate_system("shifted", reached_by=cs.Translation(y=10.0, x=10.0))
 assert shifted.coordinate_system_ome_zarr_axes("shifted").get_unit() == micrometer
 
-quarter_turn = Affine.from_array([[0, -1, 0], [1, 0, 0]], "yx")
+quarter_turn = cs.Affine.from_array([[0, -1, 0], [1, 0, 0]], "yx")
 turned = image.with_coordinate_system("turned", reached_by=quarter_turn)
 assert turned.coordinate_system_ome_zarr_axes("turned").get_unit() == micrometer
 
 # Scaled: Say which unit it is in (here, an expansion factor leaves it as it is)
 expanded = image.with_coordinate_system(
-    "expanded", reached_by=Affine.from_factor({"y": 4.2, "x": 4.2}), unit=micrometer
+    "expanded", reached_by=cs.Affine.from_factor({"y": 4.2, "x": 4.2}), unit=micrometer
 )
 
 # Mixed: A rotation other than 90°: Provide the unit
 angle = math.radians(30)
-rotation = Affine.from_array(
+rotation = cs.Affine.from_array(
     [[math.cos(angle), -math.sin(angle), 0], [math.sin(angle), math.cos(angle), 0]], "yx"
 )
 rotated = image.with_coordinate_system("rotated", reached_by=rotation)
-assert rotated.coordinate_system_ome_zarr_axes("rotated").get_unit() == Unit(y="", x=""), "Nothing carried over"
+assert rotated.coordinate_system_ome_zarr_axes("rotated").get_unit() == cs.Unit(y="", x=""), "Nothing carried over"
 rotated = image.with_coordinate_system("rotated", reached_by=rotation, unit=micrometer)
 ```
 
@@ -349,10 +349,10 @@ An expanded sample is imaged at its expanded size.
 To record the sample's original dimensions in the output metadata, add a coordinate system for them:
 
 ```python
-from clearscale import Affine, Factor
+import clearscale as cs
 
-expansion_factor = Factor.uniform("zyx", 4.2)
-unexpansion = Affine.from_factor(expansion_factor.inverted())  # Distances in the original sample are 4.2 times smaller
+expansion_factor = cs.Factor.uniform("zyx", 4.2)
+unexpansion = cs.Affine.from_factor(expansion_factor.inverted())  # Distances in the original sample are 4.2 times smaller
 multiscale = multiscale.with_coordinate_system(
     "unexpanded",
     reached_by=unexpansion,
@@ -375,12 +375,12 @@ This is the same as Affine's push convention.
 Pass the physical image-to-world mapping directly as `reached_by`:
 
 ```python
-from clearscale import Affine
+import clearscale as cs
 
 # Registration tool output: "image -> world", in physical coordinates
 registration_matrix = [[0, -1, 10], [1, 0, 20]]
 
-image_to_world = Affine.from_array(registration_matrix, "yx")
+image_to_world = cs.Affine.from_array(registration_matrix, "yx")
 
 multiscale.with_coordinate_system("world", reached_by=image_to_world)
 ```
@@ -394,21 +394,21 @@ For a rotation by any other angle the axes are mixed, and the unit of the world 
 It returns an `Affine` that converts values from the source unit to the target:
 
 ```python
-from clearscale import Multiscale, Scale, Shape, Unit, Affine
+import clearscale as cs
 
-source_ms = Multiscale.from_single(
-    Scale(
-        shape=Shape.all_singletons("xy"),
-        unit=Unit(x="micrometer", y="micrometer")
+source_ms = cs.Multiscale.from_single(
+    cs.Scale(
+        shape=cs.Shape.all_singletons("xy"),
+        unit=cs.Unit(x="micrometer", y="micrometer")
     )
 )
 
-target_unit = Unit(x="nanometer", y="nanometer")
+target_unit = cs.Unit(x="nanometer", y="nanometer")
 
 annotated = source_ms.with_coordinate_system(
     "nm_target",
     unit=target_unit,
-    reached_by=Affine.from_unit_conversion(
+    reached_by=cs.Affine.from_unit_conversion(
         source_ms.unit,
         target_unit
     )
@@ -418,23 +418,23 @@ annotated = source_ms.with_coordinate_system(
 When converting units between different Multiscales, you can use `Scale.with_unit_converted` to create the base for the converted Multiscale:
 
 ```python
-from clearscale import Multiscale, Scale, Shape, PixelSize, Affine
+import clearscale as cs
 
-original_base = Scale(
-    shape=Shape(zip("zyx", (23, 256, 256))),
+original_base = cs.Scale(
+    shape=cs.Shape(zip("zyx", (23, 256, 256))),
     pixel_size={"z": 2.3, "y": 10, "x": 10},
     unit={"z": "um", "y": "nm", "x": "nm"}
 )
-original_ms = Multiscale.from_single(original_base, scale_key="s0")
+original_ms = cs.Multiscale.from_single(original_base, scale_key="s0")
 
 # Scale.with_unit_converted also updates pixel_size and translation, so the resulting Scale is geometrically identical
 converted_base = original_base.with_unit_converted({"z": "nm"})
-assert converted_base.pixel_size == PixelSize(z=2300.0, y=10.0, x=10.0), "2.3 micron = 2300 nm"
+assert converted_base.pixel_size == cs.PixelSize(z=2300.0, y=10.0, x=10.0), "2.3 micron = 2300 nm"
 
-converted_ms = Multiscale.from_single(converted_base, scale_key="s0")
+converted_ms = cs.Multiscale.from_single(converted_base, scale_key="s0")
 # source is converted_ms and target is original_ms.
 # The relation needs to be *from* converted *to* the original as a coordinate system.
-conversion_relation = Affine.from_unit_conversion(converted_ms.unit, original_ms.unit)
+conversion_relation = cs.Affine.from_unit_conversion(converted_ms.unit, original_ms.unit)
 
 derived = converted_ms.as_derived_from(original_ms, reached_by=conversion_relation)
 ```
@@ -445,14 +445,14 @@ For OME-Zarr, unless your workflow strictly requires a custom spelling, you shou
 You can use `Unit.normalized()` to clean up if you prefer to use abbreviations internally but want to write compliant metadata:
 
 ```python
-scale = Scale(
-    shape=Shape(y=512, x=512),
-    unit=Unit(y="um", x="um")
+scale = cs.Scale(
+    shape=cs.Shape(y=512, x=512),
+    unit=cs.Unit(y="um", x="um")
 )
 
 cleaned_up = scale.with_unit_replaced(scale.unit.normalized())
 
-assert cleaned_up.unit == Unit(y="micrometer", x="micrometer")
+assert cleaned_up.unit == cs.Unit(y="micrometer", x="micrometer")
 ```
 
 For display, the other direction is `Unit.abbreviated()`: it gives every recognized unit its standard short symbol (`"nm"`, `"µm"`, `"min"`).
@@ -460,8 +460,8 @@ The micro symbol is the micro sign U+00B5, which clearscale treats as the same u
 Replace it if you need pure ASCII.
 
 ```python
-assert Unit(x="micrometer", t="second").abbreviated() == Unit(x="\u00b5m", t="s"), "for display"
-assert Unit(x="\u00b5m", t="s").abbreviated().normalized() == Unit(x="micrometer", t="second"), "roundtrip"
+assert cs.Unit(x="micrometer", t="second").abbreviated() == cs.Unit(x="\u00b5m", t="s"), "for display"
+assert cs.Unit(x="\u00b5m", t="s").abbreviated().normalized() == cs.Unit(x="micrometer", t="second"), "roundtrip"
 ```
 
 #### Matrices in pixel index space
@@ -474,7 +474,7 @@ For a scipy pull matrix, this means the *input* acts as the *target* and the out
 The Affine returned by the constructor will then be accurately converted to physical, but still in "pull" direction, so it needs to be inverted to obtain an accurate "push" Affine relation:
 
 ```python
-pull_affine = Affine.from_linear_and_offset(
+pull_affine = cs.Affine.from_linear_and_offset(
     matrix,
     offset,
     "yx",
@@ -499,7 +499,7 @@ If the target is just a downscaled version of the source and both Scales are acc
 If you need a physical `Affine` for a coordinate system that has no `Scale` (i.e. for `with_coordinate_system`), describe the grid your matrix refers to with a placeholder `Scale`; its shape is not used:
 
 ```python
-grid = Scale(shape=Shape.all_singletons("yx"), pixel_size=PixelSize(y=0.5, x=0.5))
+grid = cs.Scale(shape=cs.Shape.all_singletons("yx"), pixel_size=cs.PixelSize(y=0.5, x=0.5))
 ```
 
 `to_linear_and_offset` returns a push matrix and offset, optionally converted to index space.
@@ -510,7 +510,9 @@ Its shape is what you pass to the resampling function, not to the placeholder `S
 ```python
 # For example, a relation that deskews an oblique acquisition
 affine = multiscale.relation_to_coordinate_system("deskewed")
-output_grid = Scale(shape=Shape.all_singletons("zyx"), pixel_size=input_scale.pixel_size, translation=output_origin)
+output_grid = cs.Scale(
+    shape=cs.Shape.all_singletons("zyx"), pixel_size=input_scale.pixel_size, translation=output_origin
+)
 matrix, offset = affine.inverted().to_linear_and_offset(source=output_grid, target=input_scale)
 deskewed = scipy.ndimage.affine_transform(data, matrix, offset=offset, output_shape=output_shape)
 ```
@@ -543,16 +545,16 @@ For example, a crop of a Multiscale `original`, with its own pyramid:
 
 ```python
 from dataclasses import replace
-from clearscale import BlueprintShapes, Multiscale, PixelOffset, Shape
+import clearscale as cs
 
 s0 = original["s0"]
-crop_offset = PixelOffset(z=10, y=100, x=200)  # where the crop starts, in s0 pixels
-crop_shape = Shape(z=20, y=128, x=128)
+crop_offset = cs.PixelOffset(z=10, y=100, x=200)  # where the crop starts, in s0 pixels
+crop_shape = cs.Shape(z=20, y=128, x=128)
 
 # The data you write is s0_data[10:30, 100:228, 200:328] and its pyramid.
-cropped = Multiscale.from_single(
+cropped = cs.Multiscale.from_single(
     replace(s0, shape=crop_shape),  # same pixel size and unit, but the cropped shape
-    blueprint=BlueprintShapes.downscale_powers_of_2_xyz(base_shape=crop_shape, rounding="ceil"),
+    blueprint=cs.BlueprintShapes.downscale_powers_of_2_xyz(base_shape=crop_shape, rounding="ceil"),
 ).as_derived_from(original, reached_by=crop_offset * s0.pixel_size)  # PixelOffset * PixelSize = Translation
 ```
 
@@ -601,7 +603,7 @@ All relations, whether they act on values (`Affine`, `Translation`) or on axes, 
 ```python
 multiscale.with_coordinate_system(
     "yx_preview",
-    reached_by=[ProjectionTo("yx"), Affine.from_factor({"y": 0.001, "x": 0.001})],
+    reached_by=[cs.ProjectionTo("yx"), cs.Affine.from_factor({"y": 0.001, "x": 0.001})],
 )
 ```
 

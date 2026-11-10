@@ -3,7 +3,7 @@
 In a nutshell, for simple cases:
 
 ```python
-from clearscale import OmeZarrGroup
+import clearscale as cs
 
 # Read
 
@@ -11,7 +11,7 @@ from clearscale import OmeZarrGroup
 # e.g. zarr-python: zarr_group = zarr.open(path)
 #      z5py:        zarr_group = z5py.File(path)
 # clearscale expects `zarr_group.attrs` and `zarr_group[array_path].shape` to return metadata and array shape
-multiscale = OmeZarrGroup.from_group(zarr_group).multiscales[0]
+multiscale = cs.OmeZarrGroup.from_group(zarr_group).multiscales[0]
 
 # Do stuff
 
@@ -19,7 +19,7 @@ multiscale = OmeZarrGroup.from_group(zarr_group).multiscales[0]
 
 # Write
 
-output_group_attrs = OmeZarrGroup.from_single(output_multiscale).to_attrs(version="0.5")
+output_group_attrs = cs.OmeZarrGroup.from_single(output_multiscale).to_attrs(version="0.5")
 
 output_zarr_group.attrs.update(output_group_attrs)
 ```
@@ -114,13 +114,13 @@ The next thing you will want to know is, "Is this *zarr* group an *OME-Zarr* gro
 Reading is permissive: Some partial invalidity is tolerated as long as valid parts are unambiguous.
 
 ```python
-from clearscale import OmeZarrGroup
+import clearscale as cs
 
 # Option 1
-ome_zarr_group = OmeZarrGroup.from_group(zarr_group)
+ome_zarr_group = cs.OmeZarrGroup.from_group(zarr_group)
 
 # Option 2, if you want to avoid requests for array shapes (e.g. when reading from a server)
-ome_zarr_group = OmeZarrGroup.from_attrs(zarr_group.attrs, shape_source="singletons")
+ome_zarr_group = cs.OmeZarrGroup.from_attrs(zarr_group.attrs, shape_source="singletons")
 ```
 
 You can either pass the group to `.from_group`, or the attrs to `.from_attrs`.
@@ -165,7 +165,7 @@ if ome_zarr_group.kind is clearscale.GroupKind.COLLECTION:
 
 In the `MULTISCALE` case, you now know that there is exactly one (valid) multiscale you can find here:
 ```python
-if ome_zarr_group.kind is GroupKind.MULTISCALE:
+if ome_zarr_group.kind is cs.GroupKind.MULTISCALE:
     assert (
         len(ome_zarr_group.multiscales) == 1
         and not ome_zarr_group.scenes 
@@ -208,11 +208,11 @@ Other important information you can get from a Multiscale includes:
 * Each Scale `ms[scale_key]` provides:
 
 ```python
-multiscale["s2"] == Scale(
-  shape       = Shape({'z': 5708, 'y': 6479, 'x': 6875}),  # Number of pixels along each axis
-  pixel_size  = PixelSize({'z': 0.05, 'y': 0.04, 'x': 0.04}),  # Physical size of each pixel
-  unit        = Unit({'z': 'micrometer', 'y': 'micrometer', 'x': 'micrometer'}),  # Physical units of the pixel size
-  translation = Translation({'z': 0.0, 'y': 0.0, 'x': 0.0})  # Shift of this scale's first pixel center from the multiscale's common origin
+multiscale["s2"] == cs.Scale(
+  shape       = cs.Shape({'z': 5708, 'y': 6479, 'x': 6875}),  # Number of pixels along each axis
+  pixel_size  = cs.PixelSize({'z': 0.05, 'y': 0.04, 'x': 0.04}),  # Physical size of each pixel
+  unit        = cs.Unit({'z': 'micrometer', 'y': 'micrometer', 'x': 'micrometer'}),  # Physical units of the pixel size
+  translation = cs.Translation({'z': 0.0, 'y': 0.0, 'x': 0.0})  # Shift of this scale's first pixel center from the multiscale's common origin
 )
 ```
 
@@ -230,17 +230,17 @@ The common practice is "bubbling up" the provided path to check whether any of t
 ```python
 path = "/drive/project/raw_data/multiscale_em.zarr/raw/scale3"
 zarr_object = zarr.open(path)  # Let's say this is actually a zarr array. OmeZarrGroup ignores that as long as zarr_object has `.attrs`
-ome_zarr_group = OmeZarrGroup.from_group(zarr_object)
+ome_zarr_group = cs.OmeZarrGroup.from_group(zarr_object)
 assert ome_zarr_group.kind is None, "scale3 is a zarr *array* and does not itself contain OME-Zarr group metadata"
 
 parent = "/drive/project/raw_data/multiscale_em.zarr/raw"
 parent_group = zarr.open(parent)
-parent_meta = OmeZarrGroup.from_group(parent_group)
+parent_meta = cs.OmeZarrGroup.from_group(parent_group)
 assert parent_meta.kind is None, "And let's say `raw` is some intermediate group with no metadata. This is allowed in OME-Zarr."
 
 parent2 = "/drive/project/raw_data/multiscale_em.zarr"
 parent2_group = zarr.open(parent2)
-parent2_meta = OmeZarrGroup.from_group(parent2_group)
+parent2_meta = cs.OmeZarrGroup.from_group(parent2_group)
 assert parent2_meta.kind is clearscale.GroupKind.MULTISCALE, "Found it"
 assert "raw/scale3" in parent2_meta.multiscales[0], "Scale key is the full relative path to the originally received array path"
 ```
@@ -286,11 +286,11 @@ The absolute minimum path when you really have no metadata at all:
 
 ```python
 # If you don't know what the axes are, you can't use OME-Zarr
-scale = Scale(
-  shape=Shape.fromkeys("zyx")
+scale = cs.Scale(
+  shape=cs.Shape.fromkeys("zyx")
 )
 
-multiscale = Multiscale.from_single(
+multiscale = cs.Multiscale.from_single(
   scale, 
   scale_key="data_subpath"
 )
@@ -330,9 +330,9 @@ clearscale helps you generate the zarr attrs for the group.
 Your processing should have created a new Multiscale as described in the previous section:
 
 ```python
-from clearscale import Multiscale
+import clearscale as cs
 
-new_multiscale: Multiscale = see_section_above()
+new_multiscale: cs.Multiscale = see_section_above()
 ```
 
 As on the reading side, the Multiscale's keys must match the paths within the output zarr group where the corresponding data of that scale level is written.
@@ -353,9 +353,9 @@ If you did scale the data, it might be simpler to write the data according to th
 Generating the new zarr attrs then simply becomes:
 
 ```python
-from clearscale import OmeZarrGroup
+import clearscale as cs
 
-new_ome_zarr_group = OmeZarrGroup.from_single(new_multiscale)
+new_ome_zarr_group = cs.OmeZarrGroup.from_single(new_multiscale)
 
 new_attrs = new_ome_zarr_group.to_attrs(version="0.5")
 
@@ -365,10 +365,10 @@ new_zarr_group.attrs.update(new_attrs)
 Or more compact:
 
 ```python
-from clearscale import OmeZarrGroup
+import clearscale as cs
 
 new_zarr_group.attrs.update(
-    OmeZarrGroup
+    cs.OmeZarrGroup
     .from_single(new_multiscale)
     .to_attrs(version="0.5")
 )
