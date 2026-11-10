@@ -60,8 +60,10 @@ class TestAliasesInPublicMethods:
     @pytest.mark.parametrize("name", ALL_NAMES)
     def test_factors_apply_to_scale_matches_passing_the_function(self, name):
         factors = BlueprintFactors({"s0": Factor(y=1.0, x=1.0), "s1": Factor(y=2.0, x=4.0)})
-        by_name = factors.apply_to_scale(self.base, rounding="ceil", translating=name)
-        by_function = factors.apply_to_scale(self.base, rounding="ceil", translating=getattr(characterization, name))
+        by_name = factors.apply_to_scale(self.base, rounding="ceil", pixel_sizing="shape_ratio", translating=name)
+        by_function = factors.apply_to_scale(
+            self.base, rounding="ceil", pixel_sizing="shape_ratio", translating=getattr(characterization, name)
+        )
         assert by_name == by_function
 
     def test_factors_exact_factor_path_resolves_names(self):

@@ -347,6 +347,7 @@ block_factors = BlueprintFactors(
 multiscale = block_factors.apply_to_scale(
     base,
     rounding="ceil",
+    pixel_sizing="exact_factor",
     translating=discrete_bin_center,
 )
 
@@ -403,6 +404,7 @@ stride_factors = BlueprintFactors(
 multiscale = stride_factors.apply_to_scale(
     base,
     rounding="ceil",
+    pixel_sizing="exact_factor",
     translating=first_value_decimation,
 )
 

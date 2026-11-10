@@ -50,7 +50,7 @@ Many clearscale types intentionally behave like mappings or collections for intu
 
 ## Class-internal method ordering
 
-Class methods should be ordered from top to bottom like:
+Class methods (in production code) should be ordered from top to bottom like:
 1. constructors (`__init__` last)
 2. properties
 3. base overrides

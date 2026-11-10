@@ -291,11 +291,23 @@ factors = cs.BlueprintFactors(
     }
 )
 
-multiscale = cs.Multiscale.from_single(base, blueprint=factors, rounding="ceil")
+multiscale = cs.Multiscale.from_single(
+    base,
+    blueprint=factors,
+    # e.g. params that describe plain striding like data[::2]
+    rounding="ceil",
+    pixel_sizing="exact_factor",
+    translating="first_value_decimation",
+)
 ```
 
-In this case, you need to specify how your data scaling handles rounding when factors unevenly divide shapes.
-If you are unsure how your method rounds, [scaling method characterization](characterization.md) can help.
+In this case, there is no sensible default for how your data scaling works, so you need to specify all of:
+
+* `rounding`: how it handles factors that unevenly divide shapes
+* `pixel_sizing`: how it spaces the output pixels
+* `translating`: how it shifts the first output pixel
+
+If you are unsure, [scaling method characterization](characterization.md) can help.
 
 The number of scales you want to output will probably depend on the input image shape though.
 In practice, you might want to go through `BlueprintShapes` anyway.

@@ -381,7 +381,9 @@ class TestBlueprintApply:
         )
 
         blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=4.0)})
-        multiscale = blueprint.apply_to_scale(base, rounding="ceil")
+        multiscale = blueprint.apply_to_scale(
+            base, rounding="ceil", pixel_sizing="shape_ratio", translating="first_value_decimation"
+        )
 
         assert multiscale == Multiscale(
             {
@@ -416,7 +418,9 @@ class TestBlueprintApply:
         blueprint = BlueprintFactors({"s0": Factor(x=factor)})
         base = self._as_xy(Scale(shape=Shape(x=source_length)))
 
-        multiscale = blueprint.apply_to_scale(base, rounding=rounding)
+        multiscale = blueprint.apply_to_scale(
+            base, rounding=rounding, pixel_sizing="shape_ratio", translating="first_value_decimation"
+        )
 
         assert multiscale["s0"].shape == self._as_xy(Shape(x=expected_length))
 
@@ -425,7 +429,9 @@ class TestBlueprintApply:
         base = Scale(shape=Shape(x=11))  # does not divide evenly - requires rounding
 
         with pytest.raises(ValueError, match="requires integer values"):
-            blueprint.apply_to_scale(base, rounding="error_on_round")
+            blueprint.apply_to_scale(
+                base, rounding="error_on_round", pixel_sizing="shape_ratio", translating="first_value_decimation"
+            )
 
     def test_factors_exact_factor_uses_nominal_factor_not_realized_shape_ratio(self):
         """
@@ -436,12 +442,16 @@ class TestBlueprintApply:
         blueprint = BlueprintFactors({"s0": Factor(x=4.0)})
         base = self._as_xy(Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0)))  # 11/4.0 = 2.75 -> ceil -> 3
 
-        exact_factor_result = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="exact_factor")
+        exact_factor_result = blueprint.apply_to_scale(
+            base, rounding="ceil", pixel_sizing="exact_factor", translating="first_value_decimation"
+        )
 
         assert exact_factor_result["s0"].shape == self._as_xy(Shape(x=3))
         assert exact_factor_result["s0"].pixel_size == self._as_xy(PixelSize(x=4.0))  # literal factor, not 11/3
 
-        shape_ratio_result = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="shape_ratio")
+        shape_ratio_result = blueprint.apply_to_scale(
+            base, rounding="ceil", pixel_sizing="shape_ratio", translating="first_value_decimation"
+        )
 
         assert shape_ratio_result["s0"].shape == self._as_xy(Shape(x=3))
         assert shape_ratio_result["s0"].pixel_size == self._as_xy(PixelSize(x=11 / 3))  # default behaviour
@@ -450,7 +460,9 @@ class TestBlueprintApply:
         blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=4.0), "s2": Factor(x=8.0)})
         base = self._as_xy(Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0)))
 
-        multiscale = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="exact_factor")
+        multiscale = blueprint.apply_to_scale(
+            base, rounding="ceil", pixel_sizing="exact_factor", translating="first_value_decimation"
+        )
 
         assert multiscale["s0"].pixel_size == self._as_xy(PixelSize(x=1.0))
         assert multiscale["s1"].pixel_size == self._as_xy(PixelSize(x=4.0))
@@ -472,11 +484,15 @@ class TestBlueprintApply:
         blueprint = BlueprintFactors({"s0": Factor(x=4.0)})
         base = self._as_xy(Scale(shape=Shape(x=9), pixel_size=PixelSize(x=1.0)))  # 9/4.0 = 2.25 -> ceil -> 3
 
-        shape_ratio_result = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="shape_ratio")
+        shape_ratio_result = blueprint.apply_to_scale(
+            base, rounding="ceil", pixel_sizing="shape_ratio", translating="first_value_decimation"
+        )
 
         assert shape_ratio_result["s0"].pixel_size == self._as_xy(PixelSize(x=3.0))  # 9/3
 
-        corner_ratio_result = blueprint.apply_to_scale(base, rounding="ceil", pixel_sizing="corner_ratio")
+        corner_ratio_result = blueprint.apply_to_scale(
+            base, rounding="ceil", pixel_sizing="corner_ratio", translating="first_value_decimation"
+        )
 
         assert corner_ratio_result["s0"].pixel_size == self._as_xy(PixelSize(x=4.0))  # (9-1)/(3-1)
 
@@ -484,7 +500,9 @@ class TestBlueprintApply:
         blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=100.0), "s2": Factor(x=200.0)})
         base = self._as_xy(Scale(shape=Shape(x=4)))  # both s1 and s2 round down to shape x=1
 
-        multiscale = blueprint.apply_to_scale(base, rounding="floor")
+        multiscale = blueprint.apply_to_scale(
+            base, rounding="floor", pixel_sizing="shape_ratio", translating="first_value_decimation"
+        )
 
         assert list(multiscale.keys()) == ["s0", "s1", "s2"], "apply_to_scale must keep all requested scale levels"
         assert multiscale["s1"].shape == self._as_xy(Shape(x=1))
@@ -495,7 +513,70 @@ class TestBlueprintApply:
         base = Scale(shape=Shape(x=12))
 
         with pytest.raises(AssertionError, match="requires a `rounding` method"):
-            factors.apply_to_scale(base, rounding=None)  # type: ignore[reportArgumentType]
+            factors.apply_to_scale(base, rounding=None, pixel_sizing="shape_ratio", translating="first_value_decimation")  # type: ignore[arg-type]
+
+
+class TestScalingMethodRequirements:
+    """Shape blueprints have sensible scaling-method defaults. Factor blueprints do not, and must be told how."""
+
+    factors = BlueprintFactors({"s0": Factor(y=1.0, x=1.0), "s1": Factor(y=2.0, x=2.0)})
+    shapes = BlueprintShapes({"s0": Shape(y=8, x=8), "s1": Shape(y=4, x=4)})
+    base = Scale(shape=Shape(y=8, x=8), pixel_size=PixelSize(y=1.0, x=1.0))
+    complete = dict(rounding="ceil", pixel_sizing="shape_ratio", translating="first_value_decimation")
+
+    def _call(self, entry_point, **kwargs):
+        kwargs.setdefault("blueprint", self.factors)
+        if entry_point == "from_single":
+            return Multiscale.from_single(self.base, **kwargs)
+        return Multiscale({"s0": self.base}).derive("s0", **kwargs)
+
+    @pytest.mark.parametrize("missing", ["rounding", "pixel_sizing", "translating"])
+    @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
+    def test_factors_name_the_missing_scaling_method_parameter(self, entry_point, missing):
+        kwargs = {k: v for k, v in self.complete.items() if k != missing}
+        with pytest.raises(ValueError, match=f"Missing: {missing}\\."):
+            self._call(entry_point, **kwargs)
+
+    @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
+    def test_factors_name_all_missing_scaling_method_parameters(self, entry_point):
+        with pytest.raises(ValueError, match="Missing: rounding, pixel_sizing, translating\\."):
+            self._call(entry_point)
+
+    @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
+    def test_factors_with_everything_specified_match_apply_to_scale(self, entry_point):
+        expected = self.factors.apply_to_scale(self.base, **self.complete)  # type: ignore[arg-type]
+        assert self._call(entry_point, **self.complete) == expected
+
+    def test_from_factors_requires_pixel_sizing_and_translating(self):
+        with pytest.raises(TypeError, match="pixel_sizing"):
+            Multiscale.from_factors(self.factors, self.base, rounding="ceil")  # type: ignore[call-arg]
+        with pytest.raises(TypeError, match="translating"):
+            Multiscale.from_factors(self.factors, self.base, rounding="ceil", pixel_sizing="shape_ratio")  # type: ignore[call-arg]
+
+    def test_factors_apply_to_scale_rejects_none_translating(self):
+        with pytest.raises(ValueError, match="requires `translating`"):
+            self.factors.apply_to_scale(self.base, rounding="ceil", pixel_sizing="shape_ratio", translating=None)  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
+    def test_shapes_unspecified_use_the_blueprint_defaults(self, entry_point):
+        assert self._call(entry_point, blueprint=self.shapes) == self.shapes.apply_to_scale(self.base)
+
+    @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
+    def test_shapes_specified_values_are_forwarded(self, entry_point):
+        expected = self.shapes.apply_to_scale(
+            self.base, pixel_sizing="corner_ratio", translating="half_pixel_space_preservation"
+        )
+        actual = self._call(
+            entry_point,
+            blueprint=self.shapes,
+            pixel_sizing="corner_ratio",
+            translating="half_pixel_space_preservation",
+        )
+        assert actual == expected
+
+    def test_single_scale_needs_no_scaling_method(self):
+        assert Multiscale.from_single(self.base) == Multiscale({"s0": self.base})
+        assert Multiscale({"s0": self.base}).derive("s0") == Multiscale({"s0": self.base})
 
 
 class TestProportionalBlueprint:
