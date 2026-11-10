@@ -21,6 +21,7 @@ from clearscale._axis_values import (
 )
 from clearscale._errors import CannotConvertToAffineError
 from clearscale._services.axis_links import IDENTITY_TOLERANCE
+from clearscale.types import Json
 from clearscale._services.matrices import (
     AxisIndices,
     FloatMatrix,
@@ -243,7 +244,7 @@ class ScaleTransform(AffineRepresentableTransform):
             return IdentityTransform(source=self.source, target=self.target)
         return self
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         payload_dict = {"path": self._ome_zarr_path} if self._ome_zarr_path else {"scale": list(self.scale)}
         return {"type": "scale", **payload_dict}
 
@@ -365,7 +366,7 @@ class TranslationTransform(AffineRepresentableTransform):
             return IdentityTransform(source=self.source, target=self.target)
         return self
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         payload_dict = {"path": self._ome_zarr_path} if self._ome_zarr_path else {"translation": list(self.translation)}
         return {"type": "translation", **payload_dict}
 
@@ -482,7 +483,7 @@ class RotationTransform(AffineRepresentableTransform):
             return IdentityTransform(source=self.source, target=self.target)
         return self
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         if self._ome_zarr_path is not None:
             return {"type": "rotation", "path": self._ome_zarr_path}
         assert self.rotation is not None
@@ -657,7 +658,7 @@ class AffineTransform(AffineRepresentableTransform):
             return components[0].bound(source=self.source, target=self.target)
         return TransformSequence(tuple(components)).bound(source=self.source, target=self.target)
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         if self._ome_zarr_path is not None:
             return {"type": "affine", "path": self._ome_zarr_path}
         assert self.affine is not None
@@ -866,8 +867,8 @@ class CoordinatesTransform(Transform):
     def simplified(self) -> "CoordinatesTransform":
         return self
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
-        result: Dict[str, Any] = {"type": "coordinates", "path": self.path}
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
+        result: Dict[str, Json] = {"type": "coordinates", "path": self.path}
         if self.interpolation is not None:
             result["interpolation"] = self.interpolation
         return result
@@ -925,8 +926,8 @@ class DisplacementsTransform(Transform):
     def simplified(self) -> "DisplacementsTransform":
         return self
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
-        result: Dict[str, Any] = {"type": "displacements", "path": self.path}
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
+        result: Dict[str, Json] = {"type": "displacements", "path": self.path}
         if self.interpolation is not None:
             result["interpolation"] = self.interpolation
         return result
@@ -1024,7 +1025,7 @@ class MapAxisTransform(AffineRepresentableTransform):
             return IdentityTransform(source=self.source, target=self.target)
         return self
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         return {"type": "mapAxis", "mapAxis": list(self.map_axis)}
 
     def _ndim_by_payload(self) -> _EndpointDimensionConstraints:
@@ -1167,8 +1168,8 @@ class ProjectAxisTransform(AffineRepresentableTransform):
             return IdentityTransform(source=self.source, target=self.target)
         return self
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
-        result: Dict[str, Any] = {"type": "projectAxis"}
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
+        result: Dict[str, Json] = {"type": "projectAxis"}
         if self.drops:
             result["droppedInputs"] = list(self.drops)
         if self.inserts:
@@ -1271,7 +1272,7 @@ class BijectionTransform(Transform):
             return self
         return replace(self, forward=forward, inverse=inverse)
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         return {
             "type": "bijection",
             "forward": self.forward.to_ome_zarr(version),
@@ -1429,7 +1430,7 @@ class _ByDimensionChild:
             transform=Transform.from_ome_zarr(transformation_dict),
         )
 
-    def to_ome_zarr(self, version: str) -> Dict[str, Any]:
+    def to_ome_zarr(self, version: str) -> Dict[str, Json]:
         return {
             "inputAxes": list(self.source_indices),
             "outputAxes": list(self.target_indices),
@@ -1611,7 +1612,7 @@ class ByDimensionTransform(Transform):
             return self
         return replace(self, transforms=simplified_items)
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         return {
             "type": "byDimension",
             "transformations": [item.to_ome_zarr(version) for item in self.transforms],

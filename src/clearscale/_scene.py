@@ -17,7 +17,7 @@ from clearscale._services.axis_properties_across_relations import (
 )
 from clearscale._axis_values import AxisKey
 from clearscale._spatial_relations import RelationsParam, SameSpace, SpatialRelation, normalize_relations_param
-from clearscale.types import AxisKeyT
+from clearscale.types import AxisKeyT, Json
 from clearscale._transforms import (
     OmeZarrAxes,
     relation_to_transform_canonic,
@@ -379,7 +379,7 @@ class Scene:
         graph = replace(self._internal_graph, transforms=tuple(transforms))
         return replace(self, _internal_graph=graph, _multiscale_paths=paths)
 
-    def to_ome_zarr(self, *, version: str) -> Dict:
+    def to_ome_zarr(self, *, version: str) -> Dict[str, Json]:
         if version != "0.6":
             raise ValueError(f"Scenes can only be written in OME-Zarr version 0.6. Received: {version}")
         return self._internal_graph.to_ome_zarr(version=version, nodes_by_path=self._multiscale_paths)

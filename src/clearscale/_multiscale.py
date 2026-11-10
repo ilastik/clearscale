@@ -83,6 +83,7 @@ from clearscale._services.units import unit_conversion_factor
 from clearscale._services.translating import resolve_translating
 from clearscale.types import (
     PixelSizingMethod,
+    Json,
     ShapeSource,
     TranslatingMethod,
     TranslationShiftFunction,
@@ -2141,13 +2142,14 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         *,
         version: Literal["0.4", "0.5", "0.6"],
         name: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Json]:
         """
         Raises ValueError for unrecognised `version`, or if `self.ome` contains invalid metadata.
         """
         if version not in ome_zarr.SUPPORTED_VERSIONS_WRITE:
             raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.")
-        result: Dict[str, Any] = {"version": version, "datasets": []}
+        datasets: List[Dict[str, Json]] = []
+        result: Dict[str, Json] = {"version": version, "datasets": datasets}
         if self.ome:
             result.update(self.ome.to_ome_zarr())
 
@@ -2166,7 +2168,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     self._intrinsic_ref,
                     self._zero_scale_axes_by_key.get(key, ()),
                 )
-                result["datasets"].append(dataset)
+                datasets.append(dataset)
             return result
 
         # Legacy: Determine axes, coordinateTransformations, and datasets, and handle legacy t-scale convention
@@ -2196,7 +2198,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     scale.translation,
                     serialized_zero_scale_axes=self._zero_scale_axes_by_key.get(key, ()),
                 )
-                result["datasets"].append(dataset)
+                datasets.append(dataset)
             return result
 
         # Legacy convention where pixel size along t is written as a global scale transform
@@ -2225,7 +2227,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 dataset_translation,
                 serialized_zero_scale_axes=self._zero_scale_axes_by_key.get(key, ()),
             )
-            result["datasets"].append(dataset)
+            datasets.append(dataset)
         return result
 
     def _axes_of(self, name: CoordinateSystemName) -> Tuple[AxisKey, ...]:

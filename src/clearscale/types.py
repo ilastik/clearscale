@@ -10,6 +10,7 @@ from typing import (
     Sequence,
     Union,
     TYPE_CHECKING,
+    TypeAlias,
 )
 
 if TYPE_CHECKING:
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 AxisKey = Hashable
 AxisKeyT = TypeVar("AxisKeyT", bound=AxisKey)
 AxisKeyT_co = TypeVar("AxisKeyT_co", bound=AxisKey, covariant=True)
+Json: TypeAlias = Union[str, int, float, bool, Mapping[str, "Json"], Sequence["Json"], None]
+"""JSON-shaped values. This annotation does not validate encoder compatibility, finite numbers, or cycles."""
 
 
 class _Ordered(Protocol[AxisKeyT_co]):

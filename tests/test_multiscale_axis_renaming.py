@@ -1,3 +1,4 @@
+from typing import Any, Dict
 import pytest
 
 from clearscale import (
@@ -107,7 +108,7 @@ class TestWithCoordinateSystem:
         )
         assert ms.lowest_lossless_ome_zarr_version == "0.6"
 
-        attrs = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
+        attrs: Dict[str, Any] = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
         system = next(s for s in attrs["ome"]["multiscales"][0]["coordinateSystems"] if s["name"] == "renamed")
         assert [a["name"] for a in system["axes"]] == ["Z", "y", "x"]
         assert system["axes"][0]["unit"] == "um"

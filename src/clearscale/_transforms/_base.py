@@ -31,6 +31,7 @@ from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscal
 from clearscale._services.matrices import AxisIndices
 from clearscale._services.units import is_same_unit
 from clearscale._services.axis_links import AxisLink, AxisLinks
+from clearscale.types import Json
 
 RelativePath = str  # 0.6: scene["coordinateTransformations"][]["input"]["path"]
 CoordinateSystemName = str  # str from ["input"]["name"]
@@ -186,8 +187,8 @@ class OmeZarrAxis:
         )
         return result
 
-    def to_ome_zarr(self, *, version: str) -> Dict[str, Any]:
-        axis_dict: Dict[str, Any] = {"name": str(self.name)}
+    def to_ome_zarr(self, *, version: str) -> Dict[str, Json]:
+        axis_dict: Dict[str, Json] = {"name": str(self.name)}
         if self.type:
             axis_dict["type"] = self.type
         if self.unit:
@@ -397,7 +398,7 @@ class NodeRef(Generic[TransformGraphNodeT]):
     def __repr__(self):
         return f"NodeRef(name='{self.name}', owner={type(self.owner).__name__}<id={id(self.owner)}, axes={self.axes})>"
 
-    def to_ome_zarr(self, *, version: str, path: Optional[str] = None) -> Dict[str, Any]:
+    def to_ome_zarr(self, *, version: str, path: Optional[str] = None) -> Dict[str, Json]:
         return _UnresolvedRef(name=self.name, path=path or None).to_ome_zarr(version=version)
 
     def to_signature(self, rename: Mapping["NodeRef", str]) -> "NodeSignature":
@@ -436,12 +437,12 @@ class _UnresolvedRef:
             return None
         return cls(name=name, path=path)
 
-    def to_ome_zarr(self, *, version: str) -> Dict[str, Any]:
+    def to_ome_zarr(self, *, version: str) -> Dict[str, Json]:
         if version != "0.6":
             raise ValueError(
                 f"Unsupported OME-Zarr version {version!r}. Transform endpoints can only be written to '0.6'."
             )
-        d: Dict[str, Any] = {}
+        d: Dict[str, Json] = {}
         if self.name:
             d["name"] = self.name
         if self.path is not None:
@@ -529,7 +530,7 @@ class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
             items.append((axis_dict["name"], OmeZarrAxis.from_ome_zarr(axis_dict)))
         return cls(items)
 
-    def to_ome_zarr(self, *, name: CoordinateSystemName, version: str) -> Dict[str, Any]:
+    def to_ome_zarr(self, *, name: CoordinateSystemName, version: str) -> Dict[str, Json]:
         if not name and version not in PRE_TRANSFORMS_VERSIONS:
             raise ValueError(f"Cannot store coordinate system without name in OME-Zarr version {version}.")
         return {
@@ -620,7 +621,7 @@ class Transform(ABC):
         return None
 
     @abstractmethod
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         """Must return the OME-Zarr object properties that are specific to the respective Transform type.
         At a minimum, this includes {'type': '<ome-zarr type name>'}.
         The common properties (input/output) are handled in the base class."""
@@ -636,7 +637,7 @@ class Transform(ABC):
         items = (f"{f.name}={getattr(self, f.name)!r}" for f in fields(self) if getattr(self, f.name) is not None)
         return f"{self.__class__.__name__}({', '.join(items)})"
 
-    def to_ome_zarr(self, version: str, *, nodes_by_path: Optional[NodesByPath] = None) -> Dict[str, Any]:
+    def to_ome_zarr(self, version: str, *, nodes_by_path: Optional[NodesByPath] = None) -> Dict[str, Json]:
         ome_zarr_transform_dict = self._get_subtype_ome_zarr_properties(version)
         if version in PRE_TRANSFORMS_VERSIONS:
             return ome_zarr_transform_dict
@@ -972,7 +973,7 @@ class IdentityTransform(Transform):
     def _axis_dependencies(self, source_ndim: int) -> AxisDependencies:
         return tuple((i,) for i in range(source_ndim))
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         return {"type": "identity"}
 
 
@@ -1018,13 +1019,13 @@ class TransformSequence(Transform):
         endpoints_cleared = replace(self, transforms=tuple(simplified_flattened), source=None, target=None)
         return endpoints_cleared.bound(source=self.source, target=self.target)
 
-    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Any]:
+    def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         return {
             "type": "sequence",
             "transformations": [t.to_ome_zarr(version) for t in self.transforms],
         }
 
-    def to_ome_zarr(self, version: str, *, nodes_by_path: Optional[NodesByPath] = None) -> Dict[str, Any]:
+    def to_ome_zarr(self, version: str, *, nodes_by_path: Optional[NodesByPath] = None) -> Dict[str, Json]:
         if version in PRE_TRANSFORMS_VERSIONS:
             raise ValueError("TransformSequence cannot be serialized to OME-Zarr older than 0.6")
         return super(TransformSequence, self).to_ome_zarr(version, nodes_by_path=nodes_by_path)
@@ -1347,7 +1348,7 @@ class TransformGraph:
         self,
         version="0.6",
         nodes_by_path: Optional[NodesByPath] = None,
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Json]:
         """
         Returns dict like {
             "coordinateSystems": List[Dict] (required for Multiscale, optional for Scene)
@@ -1375,7 +1376,7 @@ class TransformGraph:
             missing = [ms for ms in requires_path if id(ms) not in provided]
             if missing:
                 raise ValueError(f"Paths for all Multiscales must be provided. Missing: {missing!r}")
-        d: Dict[str, Any] = {}
+        d: Dict[str, Json] = {}
         if systems:
             d["coordinateSystems"] = systems
         if transform_dicts:

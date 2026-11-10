@@ -1,3 +1,4 @@
+from typing import Any, Dict
 import pytest
 
 from clearscale import Affine, Factor, Multiscale, SameSpace, Scale, Scene, Shape, Translation, OmeZarrGroup
@@ -34,7 +35,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         )
         ms_by_path = {"a": a, "b": b}
 
-        result = scene.to_ome_zarr(version="0.6")
+        result: Dict[str, Any] = scene.to_ome_zarr(version="0.6")
 
         names = {s["name"] for s in result["coordinateSystems"]}
         assert names == {"world", "mm"}
@@ -58,7 +59,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         )
         paths = {"a.zarr": tile_a, "b.zarr": tile_b}
 
-        result = scene.to_ome_zarr(version="0.6")
+        result: Dict[str, Any] = scene.to_ome_zarr(version="0.6")
 
         assert [s["name"] for s in result["coordinateSystems"]] == ["stage"]
         assert [(t["type"], t["input"]["path"]) for t in result["coordinateTransformations"]] == [
@@ -100,7 +101,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
             [(tile_0, TranslationTransform((1, 1)), tile_1)], multiscale_paths={"tile_0": tile_0, "tile_1": tile_1}
         )
 
-        attrs = OmeZarrGroup.from_single(scene).to_attrs(version="0.6")
+        attrs: Dict[str, Any] = OmeZarrGroup.from_single(scene).to_attrs(version="0.6")
 
         (transform,) = attrs["ome"]["scene"]["coordinateTransformations"]
         assert transform["input"]["path"] == "tile_0"
@@ -120,7 +121,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         edge = TranslationTransform((1.0, 2.0)).bound(source=atlas, target=world)
         scene = Scene(TransformGraph([edge], system_refs=(world, atlas)), _multiscale_paths={})
 
-        result = scene.to_ome_zarr(version="0.6")
+        result: Dict[str, Any] = scene.to_ome_zarr(version="0.6")
 
         assert [s["name"] for s in result["coordinateSystems"]] == ["world", "atlas"]
 

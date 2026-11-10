@@ -1,3 +1,4 @@
+from typing import Any, Dict
 import copy
 
 import pytest
@@ -228,7 +229,7 @@ class TestCoordinateSystems06:
         )
         ms = ms.with_coordinate_system("proj", reached_by=AxisRearrangementTo("zyx"))
 
-        result = ms.to_ome_zarr(version="0.6")
+        result: Dict[str, Any] = ms.to_ome_zarr(version="0.6")
 
         names = {s["name"] for s in result["coordinateSystems"]}
         assert names == {ms._intrinsic_ref.name, "world", "mm", "proj"}, "json export must include all"
@@ -274,7 +275,7 @@ class TestCoordinateSystems06:
 
         derived = source.derive("s1")
 
-        result = derived.to_ome_zarr(version="0.6")
+        result: Dict[str, Any] = derived.to_ome_zarr(version="0.6")
         names = {s["name"] for s in result["coordinateSystems"]}
         # Both inherited satellites, plus a direct lineage link back to the source's own intrinsic system.
         assert names == {derived._intrinsic_ref.name, "world", "other"}

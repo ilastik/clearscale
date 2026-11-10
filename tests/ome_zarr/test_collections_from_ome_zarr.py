@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, Any, Dict
 
 import pytest
 from clearscale._scene import Scene
@@ -121,7 +121,7 @@ class TestOmeroAndImageLabel:
             MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
         )
 
-        output = ome_group.to_attrs(version=example.id)
+        output: Dict[str, Any] = ome_group.to_attrs(version=example.id)
         ome_attrs = output["ome"] if "ome" in output else output
 
         assert ome_attrs["omero"] == example.group_metadata["omero"]
@@ -135,7 +135,7 @@ class TestOmeroAndImageLabel:
             MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
         )
 
-        output = ome_group.to_attrs(version=example.id)
+        output: Dict[str, Any] = ome_group.to_attrs(version=example.id)
         ome_attrs = output["ome"] if "ome" in output else output
 
         assert ome_attrs["image-label"] == example.group_metadata["image-label"]
@@ -152,7 +152,7 @@ class TestOmeroAndImageLabel:
         )
 
         as_0_4 = ome_group.to_attrs(version="0.4")
-        output_0_6 = ome_group.to_attrs(version="0.6")
+        output_0_6: Dict[str, Any] = ome_group.to_attrs(version="0.6")
         as_0_6 = output_0_6["ome"] if "ome" in output_0_6 else output_0_6
 
         expected_image_label = example.group_metadata["image-label"]

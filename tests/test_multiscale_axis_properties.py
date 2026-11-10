@@ -1,3 +1,4 @@
+from typing import Any, Dict
 from dataclasses import replace
 
 import pytest
@@ -371,7 +372,7 @@ class TestMultiscale:
 
     def test_to_ome_zarr_output_matches_unit_property(self):
         ms = Multiscale({"s0": Scale(shape=Shape(y=100, x=100), unit=Unit(x="micrometer"))})
-        serialized = ms.to_ome_zarr(version="0.5")
+        serialized: Dict[str, Any] = ms.to_ome_zarr(version="0.5")
         serialized_unit = serialized["axes"][1]["unit"]
         assert ms.unit["x"] == "micrometer", "sanity check"
         assert serialized_unit == ms.unit["x"]
@@ -931,7 +932,8 @@ class TestScaleWithUnitConverted:
 
         derived = converted_ms.as_derived_from(original_ms, reached_by=conversion_relation)
 
-        scale = derived.to_ome_zarr(version="0.6")["coordinateTransformations"][0]["scale"]
+        serialized: Dict[str, Any] = derived.to_ome_zarr(version="0.6")
+        scale = serialized["coordinateTransformations"][0]["scale"]
         assert scale == [0.001, 1.0, 1.0]
 
 

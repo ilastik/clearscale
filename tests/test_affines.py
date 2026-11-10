@@ -1,6 +1,6 @@
 from collections import OrderedDict
 import pytest
-from typing import cast
+from typing import cast, Any, Dict
 
 from dataclasses import dataclass
 
@@ -967,7 +967,9 @@ class TestFromLinearAndOffset:
         # Derivation reaches back from target units to source units.
         source_ms = Multiscale({"s0": nanometer})
         target_ms = Multiscale({"s0": micrometer})
-        result = target_ms.as_derived_from(source_ms, reached_by=affine.inverted()).to_ome_zarr(version="0.6")
+        result: Dict[str, Any] = target_ms.as_derived_from(source_ms, reached_by=affine.inverted()).to_ome_zarr(
+            version="0.6"
+        )
         assert result["coordinateTransformations"][0]["scale"] == pytest.approx([1000.0, 1000.0])
 
     def test_accepts_any_object_with_a_pixel_grid(self):
@@ -1069,7 +1071,8 @@ class TestFromUnitConversion:
 
         result = ms.with_coordinate_system("um", reached_by=Affine.from_unit_conversion(old, new), unit=new)
 
-        scale = result.to_ome_zarr(version="0.6")["coordinateTransformations"][0]["scale"]
+        serialized: Dict[str, Any] = result.to_ome_zarr(version="0.6")
+        scale = serialized["coordinateTransformations"][0]["scale"]
         assert scale == pytest.approx([0.001, 0.001]), "coordinate at input 1nm = coordinate at output 0.001um"
 
 

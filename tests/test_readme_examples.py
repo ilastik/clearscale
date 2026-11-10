@@ -1,3 +1,4 @@
+from typing import Any, Dict
 from unittest.mock import Mock, MagicMock
 
 from clearscale import Shape, PixelSize, Unit, Scale, BlueprintShapes, Multiscale, OmeZarrGroup, GroupKind
@@ -14,7 +15,9 @@ def test_simple_dump_example():
     # Write metadata
     # Make a Scale, expand it to a Multiscale, put that in an OME-Zarr group.
     scale = Scale.from_lists("zyx")  # Axis keys are the minimum you really must specify
-    written = OmeZarrGroup.from_single(Multiscale.from_single(scale, scale_key=array_path)).to_attrs(version="0.5")
+    written: Dict[str, Any] = OmeZarrGroup.from_single(Multiscale.from_single(scale, scale_key=array_path)).to_attrs(
+        version="0.5"
+    )
 
     assert "ome" in written
     assert "multiscales" in written["ome"]
@@ -67,7 +70,7 @@ def test_downscale_2_example():
     # 4. Expand and write metadata
     base = Scale(shape, pixel_size, unit)
     ms = Multiscale.from_single(base, blueprint=scaling_blueprint)
-    written = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
+    written: Dict[str, Any] = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 
     assert "ome" in written
     assert "multiscales" in written["ome"]
@@ -195,7 +198,7 @@ def test_skimage_pyramid_gaussian_example():
     group_meta = OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5")
     group.attrs.update(group_meta)
 
-    written = group_meta
+    written: Dict[str, Any] = group_meta
     assert "ome" in written
     assert "multiscales" in written["ome"]
     assert "version" in written["ome"] and written["ome"]["version"] == "0.5"

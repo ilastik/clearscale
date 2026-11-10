@@ -1,5 +1,5 @@
 import copy
-from typing import Any
+from typing import Any, Dict
 
 import pytest
 from clearscale import Multiscale, Translation
@@ -121,7 +121,7 @@ def test_multiscale_roundtrips_zero_scale_values_from_ome_zarr():
     }
     multiscale = Multiscale.from_ome_zarr(metadata, shape_source={"s0": (3, 100, 200)})
 
-    output_json = multiscale.to_ome_zarr(version="0.5")
+    output_json: Dict[str, Any] = multiscale.to_ome_zarr(version="0.5")
 
     assert output_json["datasets"][0]["coordinateTransformations"] == [{"type": "scale", "scale": [0.0, 1.0, 1.0]}]
 
@@ -136,7 +136,7 @@ def test_new_multiscale_writes_normalized_zero_scale_values():
     parsed = Multiscale.from_ome_zarr(metadata, shape_source={"s0": (3, 100, 200)})
     normalized = Multiscale({"s0": parsed["s0"]})
 
-    output_json = normalized.to_ome_zarr(version="0.5")
+    output_json: Dict[str, Any] = normalized.to_ome_zarr(version="0.5")
 
     assert output_json["datasets"][0]["coordinateTransformations"] == [{"type": "scale", "scale": [1.0, 1.0, 1.0]}]
 
@@ -200,7 +200,7 @@ def test_multiscale_roundtrip_folds_global_translation_into_scales_if_global_t_c
 
     assert parsed["s1"].translation == Translation(t=1.0, y=12.0, x=13.0)  # dataset + global sum
 
-    output_json = parsed.to_ome_zarr(version="0.4")
+    output_json: Dict[str, Any] = parsed.to_ome_zarr(version="0.4")
 
     assert output_json["coordinateTransformations"][0]["scale"] == [3.4, 1.0, 1.0]
     assert len(output_json["coordinateTransformations"]) == 1, "global translation not expected to roundtrip"

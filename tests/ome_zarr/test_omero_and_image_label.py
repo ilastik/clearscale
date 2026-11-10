@@ -1,3 +1,4 @@
+from typing import Any, Dict
 import copy
 
 import pytest
@@ -96,7 +97,7 @@ def test_omero_keeps_unknown_top_level_keys_in_extra():
     )
     assert omero is not None
     assert omero.extra == {"id": 1, "name": "x"}
-    d = omero.to_ome_zarr()
+    d: Dict[str, Any] = omero.to_ome_zarr()
     assert d["id"] == 1
     assert d["name"] == "x"
     assert len(d["channels"]) == 1
@@ -108,7 +109,7 @@ def test_omero_round_trips_through_group_attrs(version):
     ms.ome.omero = Omero([_channel("FF0000"), _channel("00FF00")], extra={"id": 1, "name": "example.tif"})
     group = OmeZarrGroup.from_single(ms)
 
-    attrs = group.to_attrs(version=version)
+    attrs: Dict[str, Any] = group.to_attrs(version=version)
     ome_attrs = attrs if version == "0.4" else attrs["ome"]
     assert ome_attrs["omero"]["channels"][0] == {
         "color": "FF0000",
@@ -123,7 +124,7 @@ def test_omero_round_trips_through_group_attrs(version):
 def test_omero_extra_deep_copies_so_writer_output_does_not_alias_the_stored_object():
     channel = _channel()
     omero = Omero([channel], extra={"nested": {"a": 1}})
-    d = omero.to_ome_zarr()
+    d: Dict[str, Any] = omero.to_ome_zarr()
     d["nested"]["a"] = 999
     assert omero.extra["nested"]["a"] == 1
 
@@ -273,7 +274,7 @@ def test_from_attrs_shares_omero_but_copies_image_label_across_multiscales():
     ms = _multiscale(Shape(c=1, y=4, x=4))
     ms.ome.omero = Omero([_channel()])
     ms.ome.image_label = ImageLabel(labels={1: LabelEntry(color=(255, 0, 0, 128))})
-    attrs = OmeZarrGroup.from_single(ms).to_attrs(version="0.6", override_multi_multiscales=True)
+    attrs: Dict[str, Any] = OmeZarrGroup.from_single(ms).to_attrs(version="0.6", override_multi_multiscales=True)
 
     # Simulate a group whose "multiscales" list has two entries describing the same image
     attrs["ome"]["multiscales"] = attrs["ome"]["multiscales"] * 2
@@ -300,7 +301,7 @@ def test_to_attrs_omits_omero_on_conflict_across_multiscales():
     ms2.ome.omero = Omero([_channel("00FF00")])
     group = OmeZarrGroup(multiscales=(ms1, ms2))
 
-    attrs = group.to_attrs(version="0.6", override_multi_multiscales=True)
+    attrs: Dict[str, Any] = group.to_attrs(version="0.6", override_multi_multiscales=True)
     assert "omero" not in attrs["ome"]
 
 
@@ -322,7 +323,7 @@ def test_to_attrs_writes_shared_omero_and_image_label_when_multiscales_agree():
     ms2.ome.omero = Omero([_channel("FF0000")])  # equal, not the same instance
     group = OmeZarrGroup(multiscales=(ms1, ms2))
 
-    attrs = group.to_attrs(version="0.6", override_multi_multiscales=True)
+    attrs: Dict[str, Any] = group.to_attrs(version="0.6", override_multi_multiscales=True)
     assert attrs["ome"]["omero"]["channels"][0]["color"] == "FF0000"
 
 
@@ -334,7 +335,7 @@ def test_to_attrs_multi_multiscale_requires_override():
     with pytest.raises(ValueError, match="collection groups are not supported"):
         group.to_attrs(version="0.6")
 
-    attrs = group.to_attrs(version="0.6", override_multi_multiscales=True)  # does not raise
+    attrs: Dict[str, Any] = group.to_attrs(version="0.6", override_multi_multiscales=True)  # does not raise
     assert len(attrs["ome"]["multiscales"]) == 2
 
 

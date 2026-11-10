@@ -35,7 +35,7 @@ from clearscale._transforms import (
     TransformSignature,
     IDENTITY_TOLERANCE,
 )
-from clearscale.types import ShapeValue, ShapeSource
+from clearscale.types import ShapeValue, ShapeSource, Json
 
 logger = logging.getLogger(__name__)
 SUPPORTED_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
@@ -119,7 +119,9 @@ class MultiscaleProperties:
     """Additional properties of multiscale metadata that OME-Zarr loosely specifies.
     The standard describes what 'should' be written in them, but nothing about how the values
     should be interpreted. In practice, they are arbitrary fields for display purposes only.
-    Since their semantics are not defined, clearscale does not use them for internal logic."""
+    Since their semantics are not defined, clearscale does not use them for internal logic.
+    Caution: Mutable!
+    All values stored here must be JSON-compatible."""
 
     type: str = ""
     """The 'type' of downscaling method used to create the pyramid"""
@@ -149,8 +151,8 @@ class MultiscaleProperties:
             metadata = {}
         return cls(type=typ, name=name, metadata=metadata)
 
-    def to_ome_zarr(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {}
+    def to_ome_zarr(self) -> Dict[str, Json]:
+        d: Dict[str, Json] = {}
         if self.type:
             d["type"] = self.type
         if self.name:
@@ -177,7 +179,7 @@ class OmeroWindow:
         object.__setattr__(self, "min", self._as_finite_float(min))
         object.__setattr__(self, "max", self._as_finite_float(max))
 
-    def to_ome_zarr(self) -> Dict[str, Any]:
+    def to_ome_zarr(self) -> Dict[str, Json]:
         return {"start": self.start, "end": self.end, "min": self.min, "max": self.max}
 
     @classmethod
@@ -226,8 +228,8 @@ class OmeroChannel:
         object.__setattr__(self, "window", window)
         object.__setattr__(self, "extra", copy.deepcopy(dict(extra or {})))
 
-    def to_ome_zarr(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = copy.deepcopy(dict(self.extra))
+    def to_ome_zarr(self) -> Dict[str, Json]:
+        d: Dict[str, Json] = copy.deepcopy(dict(self.extra))
         d["color"] = self.color
         d["window"] = self.window.to_ome_zarr()
         return d
@@ -277,8 +279,8 @@ class Omero:
         object.__setattr__(self, "channels", channels)
         object.__setattr__(self, "extra", copy.deepcopy(dict(extra or {})))
 
-    def to_ome_zarr(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = copy.deepcopy(dict(self.extra))
+    def to_ome_zarr(self) -> Dict[str, Json]:
+        d: Dict[str, Json] = copy.deepcopy(dict(self.extra))
         d["channels"] = [c.to_ome_zarr() for c in self.channels]
         return d
 
@@ -378,13 +380,14 @@ class ImageLabel:
     def __bool__(self) -> bool:
         return self.source is not None or bool(self.labels)
 
-    def to_ome_zarr(self, version: str) -> Dict[str, Any]:
-        colors, properties = [], []
+    def to_ome_zarr(self, version: str) -> Dict[str, Json]:
+        colors: List[Dict[str, Json]] = []
+        properties: List[Dict[str, Json]] = []
         for label_value, entry in self.labels.items():
-            color_entry: Dict[str, Any] = {"label-value": label_value}
+            color_entry: Dict[str, Json] = {"label-value": label_value}
             if entry.color is not None:
                 color_entry["rgba"] = list(entry.color)
-            property_entry: Dict[str, Any] = {"label-value": label_value}
+            property_entry: Dict[str, Json] = {"label-value": label_value}
             for key, value in entry.properties.items():
                 if key.startswith(self._COLOR_PREFIX):
                     color_entry[key[len(self._COLOR_PREFIX) :]] = value
@@ -395,7 +398,7 @@ class ImageLabel:
             if len(property_entry) > 1:
                 properties.append(property_entry)
 
-        d: Dict[str, Any] = {}
+        d: Dict[str, Json] = {}
         if colors:
             d["colors"] = colors
         if properties:
@@ -536,7 +539,7 @@ class MultiscaleTransforms(TransformSequence):
 
         TransformSequence.__post_init__(self)
 
-    def to_legacy_ome_zarr(self) -> List[Dict[str, Any]]:
+    def to_legacy_ome_zarr(self) -> List[Dict[str, Json]]:
         """TransformSequence.to_ome_zarr is for 0.6 and upwards; this handles legacy 0.4/0.5"""
         version = "0.5"  # Same format for 0.4 and 0.5, so doesn't matter which
         return [t.to_ome_zarr(version) for t in self.transforms]
@@ -1040,7 +1043,7 @@ def build_dataset_dict(
     dataset_translation: Translation,
     intrinsic_ref: Optional[NodeRef[CoordinateSystem]] = None,
     serialized_zero_scale_axes: Iterable[AxisKey] = (),
-) -> Dict[str, Any]:
+) -> Dict[str, Json]:
     scale = pixel_size_to_scale_with_reintroduced_zeros(dataset_scale, serialized_zero_scale_axes)
     components: Tuple[Transform, ...] = (scale,)
     if not dataset_translation.is_identity():
@@ -1054,5 +1057,5 @@ def build_dataset_dict(
         single_t = TransformSequence(components) if len(components) > 1 else components[0]
         single_dict = single_t.bound(source=dataset_path, target=intrinsic_ref).to_ome_zarr(version)
         dataset_transforms = [single_dict]
-    dataset_dict = {"path": str(key), "coordinateTransformations": dataset_transforms}
+    dataset_dict: Dict[str, Json] = {"path": str(key), "coordinateTransformations": dataset_transforms}
     return dataset_dict

@@ -14,7 +14,7 @@ from clearscale._services.ome_zarr import (
     Omero,
     InvalidObject,
 )
-from clearscale.types import ZarrGroup, ShapeSource
+from clearscale.types import ZarrGroup, ShapeSource, Json
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +285,7 @@ class OmeZarrGroup:
         version: Literal["0.4", "0.5", "0.6"],
         *,
         override_multi_multiscales=False,
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Json]:
         """Return attributes for the zarr group described by this OmeZarrGroup metadata.
         Pass this to `zarr_group.attrs.update()` to make zarr_group an OME-Zarr dataset.
 
@@ -304,7 +304,7 @@ class OmeZarrGroup:
                 f"Errors: {[obj.error for obj in self.invalid_objects]}"
             )
         self._validate_for_version(version, override_multi_multiscales)
-        ome: Dict[str, Any] = {}
+        ome: Dict[str, Json] = {}
         if self.kind is GroupKind.MULTISCALE:
             ome.update(self._multiscales_to_attrs(version))
         elif self.kind is GroupKind.SCENE:
@@ -357,8 +357,8 @@ class OmeZarrGroup:
                 f"Cannot write this group in OME-Zarr version {version}: {self.kind.value} groups are not supported."
             )
 
-    def _multiscales_to_attrs(self, version: Literal["0.4", "0.5", "0.6"]) -> Dict[str, Any]:
-        multiscale_group_attrs: Dict[str, Any] = {
+    def _multiscales_to_attrs(self, version: Literal["0.4", "0.5", "0.6"]) -> Dict[str, Json]:
+        multiscale_group_attrs: Dict[str, Json] = {
             "multiscales": [ms.to_ome_zarr(version=version) for ms in self.multiscales]
         }
 
