@@ -12,6 +12,17 @@ nav:
   - Coordinate systems: space.md
   - Scenes: scene.md
   - Examples: examples.md
+  - API Reference:
+      - Multiscale: reference/multiscale.md
+      - Blueprints: reference/blueprints.md
+      - Scenes: reference/scenes.md
+      - OME-Zarr groups: reference/groups.md
+      - Axis values: reference/axis-values.md
+      - Affine transformations: reference/affines.md
+      - Spatial relations: reference/spatial-relations.md
+      - characterization: reference/characterization.md
+      - ome_zarr: reference/ome_zarr.md
+      - types: reference/types.md
 
 plugins:
   - search
@@ -29,10 +40,8 @@ plugins:
             show_submodules: false
             show_bases: false
             show_source: false
+            show_root_heading: true
+            heading_level: 2
             show_signature_annotations: true
             separate_signature: true
             docstring_style: null
-  - api-autonav:
-      modules: [src/clearscale]
-      exclude_private: true
-      nav_section_title: API Reference
