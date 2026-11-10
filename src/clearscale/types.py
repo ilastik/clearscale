@@ -96,3 +96,24 @@ class ZarrGroup(ShapeSourceMap, Protocol):
 
     @property
     def attrs(self) -> Mapping[str, Any]: ...
+
+
+__all__ = [
+    "AxisKey",
+    "AxisKeyT",
+    "AxisKeyT_co",
+    "Json",
+    "OrderedAxes",
+    "ShapeLike",
+    "FactorLike",
+    "TranslationShiftFunction",
+    "TranslatingMethodName",
+    "TranslatingMethod",
+    "PixelSizingMethod",
+    "HasShape",
+    "HasPixelGrid",
+    "ShapeValue",
+    "ShapeSourceMap",
+    "ShapeSource",
+    "ZarrGroup",
+]
