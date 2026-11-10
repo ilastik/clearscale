@@ -211,17 +211,22 @@ For factor-based scaling methods, there is one additional option:
 
 `Scale.translation` is the physical coordinate of the first pixel center.
 
-Pass a `translating` function to `blueprint.apply_to_scale()` when your scaling operation changes where the first scaled pixel belongs in physical space:
-
-```python
-multiscale = blueprint.apply_to_scale(base, translating=half_pixel_space_preservation)
-```
-
-Most common scaling methods apply one of the provided shift functions explained below (`from clearscale.characterization import ...`):
+Use a `translating` function when your scaling operation changes where the first scaled pixel belongs in physical space.
+Most common scaling methods apply one of the provided shift functions explained below:
 
 * `half_pixel_space_preservation`
 * `discrete_bin_center`
 * `first_value_decimation`
+
+Pass the function itself or just its name as a string to `blueprint.apply_to_scale()`:
+
+```python
+# Both ok
+multiscale = blueprint.apply_to_scale(base, translating="half_pixel_space_preservation")
+
+from clearscale.characterization import half_pixel_space_preservation
+multiscale = blueprint.apply_to_scale(base, translating=half_pixel_space_preservation)
+```
 
 If your scaling method applies a different shift, you need to implement your own function as a `Callable[[Scale, Scale], Translation]`.
 The `translating` function receives both the base `Scale` including its existing `.translation`, and the target `Scale` with a zero-translation.

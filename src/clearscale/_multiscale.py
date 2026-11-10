@@ -79,7 +79,16 @@ from clearscale._services.axis_properties_across_relations import (
     require_consistent_axis_properties,
 )
 from clearscale._services.units import unit_conversion_factor
-from clearscale.types import PixelSizingMethod, ShapeSource, TranslationShiftFunction, ShapeLike, FactorLike, AxisKeyT
+from clearscale._services.translating import resolve_translating
+from clearscale.types import (
+    PixelSizingMethod,
+    ShapeSource,
+    TranslatingMethod,
+    TranslationShiftFunction,
+    ShapeLike,
+    FactorLike,
+    AxisKeyT,
+)
 
 ScaleKey = str
 ValueType = TypeVar("ValueType", Shape, Factor, "Scale")
@@ -1017,8 +1026,9 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         base: Scale,
         *,
         pixel_sizing: PixelSizingMethod = "shape_ratio",
-        translating: Optional[TranslationShiftFunction] = None,
+        translating: Optional[TranslatingMethod] = None,
     ) -> "Multiscale":
+        translating = resolve_translating(translating)
         if list(self.first_value.keys()) != list(base.shape.keys()):
             raise ValueError(
                 f"Cannot apply blueprint with axes {list(self.first_value.keys())} "
@@ -1349,7 +1359,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         *,
         rounding: RoundingMethod,
         pixel_sizing: PixelSizingMethod = "shape_ratio",
-        translating: Optional[TranslationShiftFunction] = None,
+        translating: Optional[TranslatingMethod] = None,
     ) -> "Multiscale":
         if rounding is None:
             raise AssertionError(
@@ -1358,6 +1368,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
                 " here by mistake? Use BlueprintShapes instead in that case."
             )
 
+        translating = resolve_translating(translating)
         # KEEP_ALL: The blueprint is authoritative on the scales it wants to generate.
         shapes = self.to_shapes(scale.shape, rounding=rounding, on_duplicate=DuplicatePolicy.KEEP_ALL)
 
@@ -1577,7 +1588,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         scale_key: Optional[str] = "s0",
         blueprint: Union[BlueprintShapes, BlueprintFactors, None] = None,
         pixel_sizing: PixelSizingMethod = "shape_ratio",
-        translating: Optional[TranslationShiftFunction] = None,
+        translating: Optional[TranslatingMethod] = None,
         rounding: Optional[RoundingMethod] = None,
     ):
         """
@@ -1588,7 +1599,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Optionally provide a `blueprint` to specify how the data described by `scale` was/will be scaled, and compute matching metadata.
         Related (see "Scaling method characteristics" docs):
           - `pixel_sizing`: Your scaling method's pixel size scaling behavior. Default: "shape_ratio"
-          - `translating`: Function that computes your scaling method's translation shift. Default: None
+          - `translating`: Your scaling method's translating behavior: the name of one of the functions in
+              `clearscale.characterization` (e.g. "half_pixel_space_preservation"), or your own function. Default: None
           - `rounding`: Your scaling method's shape rounding behavior. Required when `blueprint` is `BlueprintFactors`
 
         If you already have an existing Multiscale, and `scale` is one of its values, consider `Multiscale.derive` instead.
@@ -1612,7 +1624,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         *,
         base: Optional[Scale] = None,
         pixel_sizing: PixelSizingMethod = "shape_ratio",
-        translating: Optional[TranslationShiftFunction] = None,
+        translating: Optional[TranslatingMethod] = None,
     ):
         bp = BlueprintShapes(blueprint)
         base = base or Scale(shape=bp.first_value)
@@ -1625,7 +1637,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         *,
         rounding: RoundingMethod,
         pixel_sizing: PixelSizingMethod = "shape_ratio",
-        translating: Optional[TranslationShiftFunction] = None,
+        translating: Optional[TranslatingMethod] = None,
     ):
         return blueprint.apply_to_scale(base, rounding=rounding, pixel_sizing=pixel_sizing, translating=translating)
 
@@ -2027,7 +2039,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         *,
         blueprint: Union[BlueprintShapes, BlueprintFactors, None] = None,
         pixel_sizing: PixelSizingMethod = "shape_ratio",
-        translating: Optional[TranslationShiftFunction] = None,
+        translating: Optional[TranslatingMethod] = None,
         rounding: Optional[RoundingMethod] = None,
     ) -> "Multiscale":
         """
@@ -2041,7 +2053,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Omit to extract the respective Scale as an independent Multiscale with just that one entry.
         Related (see "Scaling method characteristics" docs):
           - `pixel_sizing`: Your scaling method's pixel size scaling behavior. Default: "shape_ratio"
-          - `translating`: Function that computes your scaling method's translation shift. Default: None
+          - `translating`: Your scaling method's translating behavior: the name of one of the functions in
+              `clearscale.characterization` (e.g. "half_pixel_space_preservation"), or your own function. Default: None
           - `rounding`: Your scaling method's shape rounding behavior. Required when `blueprint` is `BlueprintFactors`
         """
         new_ms = Multiscale.from_single(

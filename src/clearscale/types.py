@@ -38,6 +38,10 @@ base_scale: the reference scale being transformed from
 target_scale: the new scale being created (with 0 translation)
 Returns: target_scale's translation
 """
+TranslatingMethodName = Literal["half_pixel_space_preservation", "discrete_bin_center", "first_value_decimation"]
+"""Names of the built-in `TranslationShiftFunction`s (they are the functions' own names)."""
+TranslatingMethod = Union[TranslatingMethodName, TranslationShiftFunction]
+"""What the `translating` parameter accepts: the name of a built-in function, or a function."""
 PixelSizingMethod = Literal["shape_ratio", "corner_ratio", "exact_factor"]
 """
 How the scaling method used spaces output pixels.

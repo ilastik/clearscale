@@ -1,8 +1,8 @@
 import math
-from typing import Tuple, TYPE_CHECKING
+from typing import Dict, Optional, Tuple, TYPE_CHECKING
 
 from clearscale._axis_values import Translation
-from clearscale.types import TranslationShiftFunction
+from clearscale.types import TranslatingMethod, TranslationShiftFunction
 
 if TYPE_CHECKING:
     from clearscale._multiscale import Scale
@@ -93,3 +93,25 @@ known_shift_functions: Tuple[TranslationShiftFunction, ...] = (
     discrete_bin_center,
     first_value_decimation,
 )
+
+
+SHIFT_FUNCTIONS_BY_NAME: Dict[str, TranslationShiftFunction] = {f.__name__: f for f in known_shift_functions}
+"""The string aliases accepted wherever a `translating` function is expected: the functions' own names."""
+
+
+def resolve_translating(translating: Optional[TranslatingMethod]) -> Optional[TranslationShiftFunction]:
+    """Turn a `translating` argument into a callable: names resolve to the built-in function of that name,
+    callables and None pass through unchanged."""
+    if translating is None or callable(translating):
+        return translating
+    if isinstance(translating, str):
+        try:
+            return SHIFT_FUNCTIONS_BY_NAME[translating]
+        except KeyError:
+            raise ValueError(
+                f"Unknown translating method {translating!r}. "
+                f"Use one of {list(SHIFT_FUNCTIONS_BY_NAME)} or pass your own function."
+            ) from None
+    raise TypeError(
+        f"translating must be a function or one of {list(SHIFT_FUNCTIONS_BY_NAME)}, got {type(translating).__name__}"
+    )
