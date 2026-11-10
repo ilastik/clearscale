@@ -67,10 +67,9 @@ def maximal_ome_zarr_0_6() -> MultiscaleMetadataExample:
     return maximal_multiscale_example("0.6")
 
 
-@pytest.mark.parametrize("example", minimal_multiscale_examples_params())
+@pytest.mark.parametrize("example", minimal_multiscale_examples_params(writable_only=True))
 def test_multiscale_roundtrips_minimal_ome_zarr(example: MultiscaleMetadataExample):
-    if example.id not in SUPPORTED_VERSIONS_WRITE:
-        pytest.skip(f"Writing version {example.id} not supported")
+    assert example.id in SUPPORTED_VERSIONS_WRITE
     multiscale = Multiscale.from_ome_zarr(example.metadata, shape_source=make_all_singleton_shapes(example.ndim))
     output_json = multiscale.to_ome_zarr(version=example.id)
 
@@ -78,10 +77,9 @@ def test_multiscale_roundtrips_minimal_ome_zarr(example: MultiscaleMetadataExamp
     assert output_json == expected_output
 
 
-@pytest.mark.parametrize("example", maximal_multiscale_examples_params())
+@pytest.mark.parametrize("example", maximal_multiscale_examples_params(writable_only=True))
 def test_multiscale_roundtrips_maximal_ome_zarr(example: MultiscaleMetadataExample):
-    if example.id not in SUPPORTED_VERSIONS_WRITE:
-        pytest.skip(f"Writing version {example.id} not supported")
+    assert example.id in SUPPORTED_VERSIONS_WRITE
     multiscale = Multiscale.from_ome_zarr(example.metadata, shape_source=make_all_singleton_shapes(example.ndim))
     output_json = multiscale.to_ome_zarr(version=example.id)
 

@@ -113,10 +113,9 @@ class TestOmeroAndImageLabel:
         assert (ms.ome.omero is not None) == ("omero" in example.group_metadata)
         assert (ms.ome.image_label is not None) == ("image-label" in example.group_metadata)
 
-    @pytest.mark.parametrize("example", group_metadata_examples_params("omero"))
+    @pytest.mark.parametrize("example", group_metadata_examples_params("omero", writable_only=True))
     def test_ome_zarr_group_roundtrips_omero(self, example: MultiscaleMetadataExample):
-        if example.id not in SUPPORTED_VERSIONS_WRITE:
-            pytest.skip(f"Writing version {example.id} not supported")
+        assert example.id in SUPPORTED_VERSIONS_WRITE
         ome_group = OmeZarrGroup.from_group(
             MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
         )
@@ -127,10 +126,9 @@ class TestOmeroAndImageLabel:
         assert ome_attrs["omero"] == example.group_metadata["omero"]
         assert "omero" not in ome_attrs["multiscales"][0], "omero is a group key, not a multiscale key"
 
-    @pytest.mark.parametrize("example", group_metadata_examples_params("image-label"))
+    @pytest.mark.parametrize("example", group_metadata_examples_params("image-label", writable_only=True))
     def test_ome_zarr_group_roundtrips_image_label(self, example: MultiscaleMetadataExample):
-        if example.id not in SUPPORTED_VERSIONS_WRITE:
-            pytest.skip(f"Writing version {example.id} not supported")
+        assert example.id in SUPPORTED_VERSIONS_WRITE  # also narrows the type for `to_attrs`
         ome_group = OmeZarrGroup.from_group(
             MockZarrGroup(example.to_group_attrs(), make_all_singleton_shapes(example.ndim))
         )

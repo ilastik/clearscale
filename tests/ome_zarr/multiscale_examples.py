@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 import pytest
-from clearscale.ome_zarr import SUPPORTED_VERSIONS_READ
+from clearscale.ome_zarr import SUPPORTED_VERSIONS_READ, SUPPORTED_VERSIONS_WRITE
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,19 +398,27 @@ def maximal_multiscale_example(version: str) -> MultiscaleMetadataExample:
     raise ValueError(f"No maximal multiscale example for OME-Zarr version {version!r}")
 
 
-def minimal_multiscale_examples_params(version: Optional[str] = None):
-    return [pytest.param(example, id=example.id) for example in minimal_multiscale_examples(version)]
+def minimal_multiscale_examples_params(version: Optional[str] = None, *, writable_only: bool = False):
+    return [
+        pytest.param(example, id=example.id)
+        for example in minimal_multiscale_examples(version)
+        if not writable_only or example.id in SUPPORTED_VERSIONS_WRITE
+    ]
 
 
-def maximal_multiscale_examples_params(version: Optional[str] = None):
-    return [pytest.param(example, id=example.id) for example in maximal_multiscale_examples(version)]
+def maximal_multiscale_examples_params(version: Optional[str] = None, *, writable_only: bool = False):
+    return [
+        pytest.param(example, id=example.id)
+        for example in maximal_multiscale_examples(version)
+        if not writable_only or example.id in SUPPORTED_VERSIONS_WRITE
+    ]
 
 
-def group_metadata_examples_params(key: str):
+def group_metadata_examples_params(key: str, *, writable_only: bool = False):
     """Select examples whose group attrs contain `key`
     (for group-level keys, i.e. "omero" and "image-label")."""
     return [
         pytest.param(example, id=example.id)
         for example in maximal_multiscale_examples()  # only maximal examples have group-level keys
-        if key in example.group_metadata
+        if key in example.group_metadata and (not writable_only or example.id in SUPPORTED_VERSIONS_WRITE)
     ]
