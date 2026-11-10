@@ -1081,13 +1081,13 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             if "argument" in str(e):
                 raise TypeError(
                     "translating must accept two positional arguments (base and target scale). "
-                    "See clearscale.half_pixel_space_preservation for an example implementation."
+                    "See clearscale.characterization.half_pixel_space_preservation for an example implementation."
                 ) from e
             raise e
         if not isinstance(shift, Translation):
             raise TypeError(
                 f"translating must return a Translation, got {type(shift).__name__}. "
-                "See clearscale.half_pixel_space_preservation for an example implementation."
+                "See clearscale.characterization.half_pixel_space_preservation for an example implementation."
             )
         if list(shift.keys()) != list(target_scale_pre_shift.shape.keys()):
             raise ValueError(

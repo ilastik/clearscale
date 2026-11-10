@@ -339,7 +339,8 @@ class TestBlueprintApply:
         base = Scale(shape=Shape(x=1))
 
         with pytest.raises(
-            TypeError, match="See clearscale.half_pixel_space_preservation for an example implementation"
+            TypeError,
+            match="See clearscale.characterization.half_pixel_space_preservation for an example implementation",
         ):
             _ = bp.apply_to_scale(base, translating=shift_func)  # noqa
 
