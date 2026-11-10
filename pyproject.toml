@@ -31,6 +31,10 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Image Processing",
 ]
 
+[project.urls]
+Documentation = "https://clearscale.readthedocs.io/"
+Source = "https://github.com/ilastik/clearscale"
+
 [project.optional-dependencies]
 dev = ["pre-commit", "pytest", "pyright"]
 docs = ["zensical==0.0.74", "mkdocstrings-python==2.0.10"]
