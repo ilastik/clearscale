@@ -109,17 +109,14 @@ zarr_group = zarr.open_group(os.path.expanduser("demo-output/sweet.ome.zarr"), m
 
 ## Install
 
-`clearscale` is still being actively developed.
-We would love to hear your feedback if you try it out!
+`clearscale` is considered in "beta" status for a short time, with 1.0 release intended soon(TM), when we have some feedback from first users.
 
-This also means the API is subject to change, particularly regarding names of classes, methods, etc., and regarding required parameters.
-We want the 1.0 API to be as intuitive as possible.
-If you encounter anything unclear, please feel free to suggest alternatives.
+Please try it and let us know if you encounter anything unclear!
 
-Until the first package release you can install directly from GitHub:
+Install the 0.9.0 release candidate from PyPI:
 
 ```bash
-pip install git+https://github.com/ilastik/clearscale.git
+python -m pip install clearscale==0.9.0rc1
 ```
 
 Or add to your conda `env.yaml`:
@@ -128,8 +125,11 @@ Or add to your conda `env.yaml`:
 dependencies:
   - pip
   - pip:
-      - git+https://github.com/ilastik/clearscale.git
+      - clearscale==0.9.0rc1
 ```
+
+Note that until we publish 1.0, the API is considered subject to change so we can ensure it "solidifies" with as much convenience and robustness as possible.
+Though we hope there won't be too many changes necessary at this point :)
 
 ## Documentation
 
