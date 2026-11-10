@@ -4,7 +4,7 @@ and every (public) method that accepts SpatialRelations should use the validator
 
 import pytest
 
-from clearscale import Affine, Multiscale, Scale, Scene, Shape, Unit
+from clearscale import Affine, Multiscale, Scale, Scene, Shape, Unit, ome_zarr
 
 MICROMETER = Unit(y="micrometer", x="micrometer")
 AFFINE_SCALING_X = Affine.from_factor({"y": 1, "x": 1000})  # y is kept as it is, x is scaled
@@ -69,3 +69,78 @@ class TestUnitConversionFactor:
             ValueError, match=r"differ \('x': 'micrometer' vs 'nanometer' \(scaled by 100, but .* 1000\)\)"
         ):
             entry_point(MICROMETER, self.NANO, Affine.from_array(((1000, 0, 0), (0, 100, 0)), "yx"))
+
+
+class TestTypesAcrossAnAffine:
+    @staticmethod
+    def _typed_axes(c_type: str) -> dict:
+        return {
+            "c": ome_zarr.Axis(type=c_type),
+            "y": ome_zarr.Axis(type="space"),
+            "x": ome_zarr.Axis(type="space"),
+        }
+
+    @staticmethod
+    def _typed_ms(c_type: str) -> Multiscale:
+        return Multiscale(
+            {"s0": Scale(Shape(c=2, y=4, x=4), ome_zarr_axes=TestTypesAcrossAnAffine._typed_axes(c_type))}
+        )
+
+    TYPED_RELATION = Affine.from_factor({"c": 1, "y": 1, "x": 1000})  # c and y are kept as they are, x is scaled
+
+    @staticmethod
+    def _typed_with_coordinate_system(source_type: str, target_type: str):
+        TestTypesAcrossAnAffine._typed_ms(source_type).with_coordinate_system(
+            "target",
+            reached_by=TestTypesAcrossAnAffine.TYPED_RELATION,
+            ome_zarr_axes=TestTypesAcrossAnAffine._typed_axes(target_type),
+        )
+
+    @staticmethod
+    def _typed_as_derived_from(source_type: str, target_type: str):
+        TestTypesAcrossAnAffine._typed_ms(source_type).as_derived_from(
+            TestTypesAcrossAnAffine._typed_ms(target_type), reached_by=TestTypesAcrossAnAffine.TYPED_RELATION
+        )
+
+    @staticmethod
+    def _typed_from_multiscale_pair(source_type: str, target_type: str):
+        Scene.from_multiscale_pair(
+            a=TestTypesAcrossAnAffine._typed_ms(source_type),
+            b=TestTypesAcrossAnAffine._typed_ms(target_type),
+            a_to_b=TestTypesAcrossAnAffine.TYPED_RELATION,
+            a_path="a",
+            b_path="b",
+        )
+
+    @staticmethod
+    def _typed_from_shared_coordinate_system(source_type: str, target_type: str):
+        Scene.from_shared_coordinate_system(
+            coordinate_system="target",
+            connections=[(TestTypesAcrossAnAffine._typed_ms(source_type), TestTypesAcrossAnAffine.TYPED_RELATION, "a")],
+            ome_zarr_axes=TestTypesAcrossAnAffine._typed_axes(target_type),
+        )
+
+    @pytest.mark.parametrize(
+        "entry_point",
+        [
+            _typed_with_coordinate_system,
+            _typed_as_derived_from,
+            _typed_from_multiscale_pair,
+            _typed_from_shared_coordinate_system,
+        ],
+    )
+    def test_accepts_the_same_type(self, entry_point):
+        entry_point("channel", "channel")
+
+    @pytest.mark.parametrize(
+        "entry_point",
+        [
+            _typed_with_coordinate_system,
+            _typed_as_derived_from,
+            _typed_from_multiscale_pair,
+            _typed_from_shared_coordinate_system,
+        ],
+    )
+    def test_rejects_a_different_type_for_an_axis_that_the_affine_keeps(self, entry_point):
+        with pytest.raises(ValueError, match=r"differ \('c': 'channel' vs 'time'\)"):
+            entry_point("channel", "time")

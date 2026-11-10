@@ -510,7 +510,7 @@ class TestMultiscaleTransfer:
                 "s0": Scale(
                     shape=Shape(x=100, y=100, z=100),
                     ome_zarr_axes={
-                        "x": ome_zarr.Axis(type="space", unit="micrometer"),
+                        "x": ome_zarr.Axis(type="space", unit="micrometer", long_name="parent x"),
                         "y": ome_zarr.Axis(type="space"),
                         "z": ome_zarr.Axis(type="space"),
                     },
@@ -522,7 +522,7 @@ class TestMultiscaleTransfer:
                 "s0": Scale(
                     shape=Shape(x=50, y=50, z=50),
                     ome_zarr_axes={
-                        "x": ome_zarr.Axis(type="channel", unit="nanometer"),
+                        "x": ome_zarr.Axis(type="space", unit="nanometer", long_name="child x"),
                         "y": ome_zarr.Axis(type="space"),
                         "z": ome_zarr.Axis(type="space"),
                     },
@@ -533,7 +533,7 @@ class TestMultiscaleTransfer:
         # along x: nm -> um = 0.001
         result = child.as_derived_from(parent, reached_by=Affine.from_factor({"x": 0.001, "y": 1.0, "z": 1.0}))
 
-        assert result.ome_zarr_axes["x"].type == "channel"
+        assert result.ome_zarr_axes["x"].long_name == "child x"
         assert result.ome_zarr_axes["x"].unit == "nanometer"
 
     def test_as_derived_from_does_not_restore_dropped_axes(self):
@@ -620,11 +620,9 @@ class TestMultiscaleTransfer:
         assert result.ome_zarr_axes["x"].unit == "micrometer"
         assert "y" not in result.ome_zarr_axes
 
-    def test_as_derived_from_accepts_conflicting_axis_properties(self):
-        # It *shouldn't* be accepted.
-        # Conflicting axis properties indicate that the axis by the same ID is actually a different axis on the child.
-        # This should be specified as a drop-reinsert relation as in the test below.
-        # But SpatialRelation can't track axis provenance yet (tbd).
+    def test_as_derived_from_rejects_conflicting_axis_types(self):
+        # Conflicting types indicate that the axis by the same ID is actually a different axis on the child.
+        # This is specified as a drop-reinsert relation, as in the test below.
         parent = Multiscale({"s0": Scale(shape=Shape(c=3, y=1, x=1))})
         child = Multiscale(
             {
@@ -636,9 +634,10 @@ class TestMultiscaleTransfer:
             }
         )
 
-        # with pytest.raises(ValueError, match="Conflicting type for axis 'c'"):  # Should raise but doesn't yet. Document actual behaviour instead.
-        result = child.as_derived_from(parent)
-        assert result.ome_zarr_axes["c"].type == "label"
+        with pytest.raises(
+            ValueError, match=r"types of this Multiscale and `other` differ \('c': 'label' vs 'channel'\)"
+        ):
+            child.as_derived_from(parent)
 
     def test_as_derived_from_allows_conflicting_axis_properties_when_axis_is_dropped_and_reinserted(self):
         parent = Multiscale(

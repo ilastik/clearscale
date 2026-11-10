@@ -263,6 +263,91 @@ class TestUnitValidation:
             )
 
 
+class TestTypeValidation:
+    @staticmethod
+    def _ome_axes_with_type(**types):
+        return OmeZarrAxes((axis, OmeZarrAxis(name=axis, type=t)) for axis, t in types.items())
+
+    @pytest.mark.parametrize(
+        "source, target",
+        [("space", "space"), ("time", "time"), (None, "space"), ("space", None), (None, None), ("custom", "custom")],
+    )
+    def test_accepts_matching_or_unspecified_types(self, source, target):
+        require_consistent_axis_properties(
+            self._ome_axes_with_type(x=source),
+            self._ome_axes_with_type(x=target),
+            None,
+            source_label="a",
+            target_label="b",
+        )
+
+    @pytest.mark.parametrize(
+        "relation",
+        [
+            None,
+            Translation(x=1),
+            Affine.identity("x"),
+            Affine.from_factor({"x": 1000}),  # scaling does not change the type
+            Affine.from_array(((-3, 0),), "x"),
+            SpatialRelationSequence((Affine.from_factor({"x": 1000}), Affine.from_factor({"x": 0.001}))),
+        ],
+    )
+    def test_rejects_different_types_for_an_axis_that_is_kept_or_scaled(self, relation):
+        with pytest.raises(
+            ValueError, match=r"types of source and target differ \('x': 'space' vs 'time'\).*cannot change its type"
+        ):
+            require_consistent_axis_properties(
+                self._ome_axes_with_type(x="space"),
+                self._ome_axes_with_type(x="time"),
+                relation,
+                source_label="source",
+                target_label="target",
+            )
+
+    def test_rejects_different_types_across_renaming_and_permutation(self):
+        with pytest.raises(ValueError, match=r"\('X': 'space' vs 'time'\)"):
+            require_consistent_axis_properties(
+                self._ome_axes_with_type(x="space"),
+                self._ome_axes_with_type(X="time"),
+                AxisRenaming(x="X"),
+                source_label="source",
+                target_label="target",
+            )
+        with pytest.raises(ValueError, match=r"\('y': 'channel' vs 'space'\)"):
+            require_consistent_axis_properties(
+                self._ome_axes_with_type(x="space", y="channel"),
+                self._ome_axes_with_type(y="space", x="space"),
+                PermutationTo("yx"),
+                source_label="source",
+                target_label="target",
+            )
+
+    def test_does_not_check_mixed_axes_or_inserted_ones(self):
+        # Mixing space and time is what a shear along time is
+        shear = Affine.from_array(((1, 0, 0), (1, 1, 0)), "yx")  # y' = y, x' = y + x
+        require_consistent_axis_properties(
+            self._ome_axes_with_type(y="space", x="space"),
+            self._ome_axes_with_type(y="space", x="time"),
+            shear,
+            source_label="source",
+            target_label="target",
+        )
+        # Inserted axis does not correspond to any source
+        require_consistent_axis_properties(
+            self._ome_axes_with_type(x="space"),
+            self._ome_axes_with_type(c="channel", x="space"),
+            ProjectionTo("cx"),
+            source_label="source",
+            target_label="target",
+        )
+
+    def test_reports_the_first_property_that_conflicts(self):
+        axes_a = OmeZarrAxes({"x": OmeZarrAxis(name="x", type="space", unit="um")})
+        axes_b = OmeZarrAxes({"x": OmeZarrAxis(name="x", type="time", unit="nm")})
+        with pytest.raises(ValueError, match="units of a and b differ"):
+            require_consistent_axis_properties(axes_a, axes_b, None, source_label="a", target_label="b")
+
+
 class TestReconcileAxisPropParams:
     @staticmethod
     def reconcile_by_dependencies(target_axes, dependencies, source, provided, unit):
