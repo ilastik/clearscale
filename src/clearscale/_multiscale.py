@@ -126,6 +126,7 @@ class Scale:
     def from_lists(
         cls,
         keys: Optional[OrderedAxes] = None,
+        *,
         shape: Optional[Sequence[int]] = None,
         pixel_size: Optional[Sequence[float]] = None,
         unit: Optional[Sequence[str]] = None,
