@@ -133,8 +133,9 @@ dependencies:
 
 ## Documentation
 
-Docs for clearscale's concepts are at [`docs/index.md`](docs/index.md).
-The OME-Zarr How-To is at [`docs/ome_zarr.md`](docs/ome_zarr.md).
+Rendered guides (OME-Zarr how-to, core concepts, metadata scaling, ...) and automatically generated API Reference are in the [clearscale documentation](https://clearscale.readthedocs.io/).
+
+The handwritten guides are also directly under [`docs/`](docs/index.md) in this repository.
 
 ## End-to-end examples
 

@@ -39,7 +39,7 @@ Typical uses:
 ### What can they express?
 
 For now, clearscale can express affine mappings (such as unit conversions, rotations and flips), shifting, and changes to the axes (reordering, dropping, inserting), as well as chains of these.
-These are the [spatial relations](#the-available-spatial-relations) described below.
+These are the [spatial relations](#available-spatial-relations) described below.
 
 Metadata formats differ in how much of this they can store.
 OME-Zarr 0.6 stores all coordinate systems and the transformations between them.

@@ -1,4 +1,5 @@
 site_name: clearscale
+site_url: https://clearscale.readthedocs.io/
 site_description: Clear, dependency-free multiscale image metadata in Python
 repo_url: https://github.com/ilastik/clearscale
 repo_name: ilastik/clearscale
@@ -27,6 +28,9 @@ plugins:
             merge_init_into_class: true
             show_submodules: false
             show_bases: false
+            show_source: false
+            show_signature_annotations: true
+            separate_signature: true
             docstring_style: null
   - api-autonav:
       modules: [src/clearscale]
