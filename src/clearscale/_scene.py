@@ -82,9 +82,11 @@ class Scene:
             raise ValueError("Every resolved Multiscale in a Scene must have a path.")
 
     def __eq__(self, other):
-        """Structural equality: Same coordinate systems and transforms between the same (equal) Multiscales.
-        Ignores which instances the graph refers to, and `self._multiscale_paths` (like Multiscale
-        ignores `.ome`), so that `Scene.from_ome_zarr(scene.to_ome_zarr(...)).with_resolved(...) == scene`."""
+        """Structural equality: Same coordinate systems and transforms between the same (equal) Multiscales, stored
+        at the same paths. Equal Multiscales are interchangeable, but the path each one is stored at is not: It decides
+        which transforms belong to which stored Multiscale. Ignores which instances the graph refers to (like
+        Multiscale ignores `.ome`), so that `Scene.from_ome_zarr(scene.to_ome_zarr(...)).with_resolved(...) == scene`.
+        """
         if not isinstance(other, Scene):
             return NotImplemented
         return self._structural_signature() == other._structural_signature()
@@ -93,13 +95,14 @@ class Scene:
         return hash(self._structural_signature())
 
     def _structural_signature(self):
-        # Multiscales name their own (intrinsic) system randomly, which says nothing about the space they describe
-        intrinsic_refs = {
-            ref.owner._as_ref_to_intrinsic(): "_intrinsic"
-            for ref in self._internal_graph.node_refs
-            if isinstance(ref, NodeRef) and isinstance(ref.owner, Multiscale)
-        }
-        return self._internal_graph.structural_signature(rename=intrinsic_refs)
+        path_by_instance = {id(ms): path for path, ms in self._multiscale_paths.items()}
+        labels = {}
+        for ref in self._internal_graph.node_refs:
+            if isinstance(ref, NodeRef) and isinstance(ref.owner, Multiscale):
+                # Multiscales name their own (intrinsic) system randomly, which says nothing about the space they describe
+                name = "_intrinsic" if ref == ref.owner._as_ref_to_intrinsic() else ref.name
+                labels[ref] = f"{path_by_instance[id(ref.owner)]!r}: {name!r}"  # repr: unambiguous
+        return self._internal_graph.structural_signature(rename=labels)
 
     @property
     def is_fully_resolved(self) -> bool:

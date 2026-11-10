@@ -616,12 +616,33 @@ class TestFromSharedCoordinateSystem:
 
 
 class TestSceneEquality:
-    def test_paths_do_not_affect_equality(self):
+    def test_includes_paths(self):
         a, b = _multiscale(y=2, x=2), _multiscale(y=3, x=3)
         first = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
         second = Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="tiles/0", b_path="tiles/1")
-        assert first == second
-        assert hash(first) == hash(second)
+        assert first != second
+        assert first == Scene.from_multiscale_pair(a=a, b=b, a_to_b=None, a_path="a", b_path="b")
+
+    def test_differs_if_equal_multiscales_at_different_paths_are_transformed_differently(self):
+        a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
+        assert a == b
+        connect = lambda *offsets: Scene.from_shared_coordinate_system(
+            coordinate_system="stage",
+            connections=[(ms, Translation(y=0.0, x=x), f"tile_{i}") for i, (ms, x) in enumerate(zip((a, b), offsets))],
+        )
+
+        assert connect(0.0, 4.0) != connect(4.0, 0.0), "tile_0 is written with a different transform"
+        assert connect(0.0, 4.0) == connect(0.0, 4.0)
+
+    def test_scenes_read_from_ome_zarr_differing_only_by_path_stay_different_when_resolved(self):
+        tile = _multiscale(y=2, x=2)
+        connect = lambda path: Scene.from_shared_coordinate_system(
+            coordinate_system="stage", connections=[(tile, Translation(y=0.0, x=1.0), path)]
+        )
+        first, second = (Scene.from_ome_zarr(connect(path).to_ome_zarr(version="0.6")) for path in ("tile", "other"))
+        assert first != second, "unresolved: the refs contain the paths"
+
+        assert first.with_resolved({"tile": tile}) != second.with_resolved({"other": tile})
 
     @staticmethod
     def _stitched(*tiles: Multiscale, name: str = "stage", **kwargs) -> Scene:
