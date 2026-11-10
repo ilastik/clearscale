@@ -16,6 +16,7 @@ plugins:
   - search
   - gh-admonitions
   - mkdocstrings:
+      custom_templates: scripts/doc_templates
       handlers:
         python:
           paths: [src]

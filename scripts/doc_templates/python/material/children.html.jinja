@@ -1,0 +1,12 @@
+{# Apply both rules here: Griffe recreates aliases for re-exported class members. #}
+{% set public_members = [] %}
+{% for name, member in obj.all_members|dictsort %}
+  {% if member.is_public and not name.startswith("_") %}
+    {% set _ = public_members.append(name) %}
+  {% endif %}
+{% endfor %}
+{% if public_members %}
+{% with config = config.__class__(**dict(config.__dict__, members=public_members)), root_members = true %}
+  {% include "_base/children.html.jinja" %}
+{% endwith %}
+{% endif %}
