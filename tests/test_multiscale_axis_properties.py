@@ -530,7 +530,8 @@ class TestMultiscaleTransfer:
             }
         )
 
-        result = child.as_derived_from(parent, reached_by=Affine.from_factor({"x": 1000.0, "y": 1.0, "z": 1.0}))
+        # along x: nm -> um = 0.001
+        result = child.as_derived_from(parent, reached_by=Affine.from_factor({"x": 0.001, "y": 1.0, "z": 1.0}))
 
         assert result.ome_zarr_axes["x"].type == "channel"
         assert result.ome_zarr_axes["x"].unit == "nanometer"

@@ -1,13 +1,14 @@
 """Reconciliation and validation of axis properties across coordinate systems."""
 
+import math
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Literal, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, List, Literal, Mapping, Optional, Sequence, Tuple, Union
 
 from clearscale._axis_values import AxisKey, OrderedAxes, Unit
 from clearscale.types import AxisKeyT
-from clearscale._services.units import is_same_unit
+from clearscale._services.units import is_same_unit, unit_conversion_factor
 
-from clearscale._services.axis_links import AxisLinks
+from clearscale._services.axis_links import IDENTITY_TOLERANCE, AxisLinks
 from clearscale._spatial_relations import SpatialRelation
 from clearscale._transforms._base import OmeZarrAxes, OmeZarrAxis
 
@@ -95,26 +96,48 @@ def merge_ome_zarr_axes(axes_list: Sequence[OmeZarrAxes], *, sources: str, confl
     return OmeZarrAxes([(a, OmeZarrAxis(name=a, **merged[a])) for a in axes])
 
 
+def _unit_mismatch(source_unit: str, target_unit: str, scale: float) -> Optional[str]:
+    """Why a target axis in `target_unit` cannot be `scale` times its source axis in `source_unit` (up to the sign,
+    which a flip changes), if it can't.
+
+    - If the axis is not scaled, the units must be the same.
+    - If it is, and the units differ, `scale` must be the factor that converts one to the other.
+    - If the units are the same, any scale is possible: Relating an image to an atlas can include real scaling.
+    - Units that are not known or cannot be converted (space to time) cannot be checked."""
+    if abs(abs(scale) - 1) <= IDENTITY_TOLERANCE:
+        return None if is_same_unit(source_unit, target_unit) else ""
+    if is_same_unit(source_unit, target_unit):
+        return None
+    try:
+        factor = unit_conversion_factor(source_unit, target_unit)
+    except ValueError:
+        return None
+    if math.isclose(abs(scale), factor, rel_tol=1e-9):
+        return None
+    return f"scaled by {abs(scale):g}, but {source_unit} to {target_unit} is {factor:g}"
+
+
 @dataclass(frozen=True)
 class _AxisPropertyValidation:
     """Validation policy for a single property of OmeZarrAxis"""
 
     field_name: str
-    only_if_unscaled: bool  # True if scaling an axis changes the property, so it can only be compared if it is not
-    is_same_value: Callable[[str, str], bool]  # usually just eq, but unit has its nickname-aware check
+    mismatch: Callable[[str, str, float], Optional[str]]
+    """(property_value_source, property_value_target, scaling_factor)
+    Both property values are non-empty. Return None if no mismatch, otherwise mismatch reason (or empty string)."""
     plural: str  # for error messages
     advice: str  # for error messages
 
 
 _VALIDATION_POLICIES = (
     _AxisPropertyValidation(
-        field_name="unit",
-        only_if_unscaled=True,
-        is_same_value=is_same_unit,
+        field_name="unit",  # OmeZarrAxis.unit
+        mismatch=_unit_mismatch,
         plural="units",
         advice=(
             "clearscale does not convert units. State the conversion explicitly, using an `Affine` "
-            "(e.g. `Affine.from_unit_conversion(source_unit, target_unit)`) in the relation, or use the same unit for both."
+            "(e.g. `Affine.from_unit_conversion(source_unit, target_unit)`) in the relation, or use the same unit for both. "
+            "If the Affine also scales for other reasons, leave one of the units unspecified."
         ),
     ),
 )
@@ -132,14 +155,13 @@ def require_consistent_axis_properties(
     Raise if `relation` can't be a true statement because source and target axis properties do not line up with the
     axis linkage implied by the relation.
 
-    Currently only validates that source and target unit agrees when the target is exactly that source, unscaled (see
-    `AxisLink.exact`).
+    Currently only validates source and target unit.
+    * When the target is exactly that source, unscaled (see `AxisLink.exact`): Unit must be same.
+    * When the target is exactly that source, scaled: Unit must be same, or scaling must be the conversion factor.
+    * Converting unit and simultaneously scaling by another factor is rejected.
     If x is in micrometer in one space, and nanometer in another, then there *must* be a scaling relation between them.
     `Affine` is the only SpatialRelation that can express scaling.
     The user has to state the scaling conversion explicitly as an `Affine`, rather than e.g. clearscale auto-inferring it.
-    When the user does provide a scaling Affine, whether its coefficients are numerically correct for the conversion
-    is not validated. Affines that mix axes bypass this validation, because there is no way to assess whether the
-    differing units are appropriate or not.
 
     Blank values mean "unspecified" (as in OME-Zarr), so they never conflict.
     Axes present on only one side (inserts, drops) never conflict.
@@ -151,17 +173,22 @@ def require_consistent_axis_properties(
     ), f"Received links for {links.target_axes!r}, not {tuple(target_axes)!r}."
 
     for policy in _VALIDATION_POLICIES:
-        conflicts: Dict[AxisKey, Tuple[str, str]] = {}
+        conflicts: List[str] = []
         for target, link in zip(links.target_axes, links.links):
-            if link.exact is None or (policy.only_if_unscaled and link.is_scaled):
+            if link.exact is None:
                 continue
-            source_value = getattr(source_axes[link.exact[0]], policy.field_name)
+            source, scale = link.exact
+            source_value = getattr(source_axes[source], policy.field_name)
             target_value = getattr(target_axes[target], policy.field_name)
-            if source_value and target_value and not policy.is_same_value(source_value, target_value):
-                conflicts[target] = (source_value, target_value)
+            if not (source_value and target_value):
+                continue
+            reason = policy.mismatch(source_value, target_value, scale)
+            if reason is not None:
+                conflicts.append(
+                    f"{target!r}: {source_value!r} vs {target_value!r}" + (f" ({reason})" if reason else "")
+                )
         if conflicts:
-            details = ", ".join(f"{axis!r}: {src!r} vs {tgt!r}" for axis, (src, tgt) in conflicts.items())
             raise ValueError(
-                f"The {policy.plural} of {source_label} and {target_label} differ ({details}), "
+                f"The {policy.plural} of {source_label} and {target_label} differ ({', '.join(conflicts)}), "
                 f"but no relation converts between them. {policy.advice}"
             )

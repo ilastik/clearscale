@@ -43,16 +43,88 @@ class TestUnitValidation:
         "relation",
         [
             Affine.from_factor({"x": 1000}),
-            Affine.from_factor({"x": 0.5}),
+            Affine.from_array(((-1000, 0),), "x"),  # flip as well
+            Affine.from_unit_conversion({"x": "um"}, {"x": "nm"}),
             SpatialRelationSequence((Translation(x=1), SpatialRelationSequence((Affine.from_factor({"x": 1000}),)))),
-            SpatialRelationSequence((Affine.from_factor({"x": 1000}), Affine.from_factor({"x": 2}))),
+            SpatialRelationSequence((Affine.from_factor({"x": 2000}), Affine.from_factor({"x": 0.5}))),
         ],
     )
-    def test_accepts_differing_units_with_scaling_affine(self, relation):
+    def test_accepts_differing_units_with_the_scale_that_converts_them(self, relation):
         require_consistent_axis_properties(
             _ome_axes_with_unit(x="um"),
             _ome_axes_with_unit(x="nm"),
             relation,
+            source_label="source",
+            target_label="target",
+        )
+
+    @pytest.mark.parametrize(
+        "relation, message",
+        [
+            (Affine.from_factor({"x": 100}), r"scaled by 100, but um to nm is 1000"),
+            (Affine.from_factor({"x": 0.001}), r"scaled by 0.001, but um to nm is 1000"),  # the wrong way around
+            (Affine.from_factor({"x": 0.5}), r"scaled by 0.5, but um to nm is 1000"),
+            (
+                SpatialRelationSequence((Affine.from_factor({"x": 1000}), Affine.from_factor({"x": 2}))),
+                r"scaled by 2000, but um to nm is 1000",
+            ),
+        ],
+    )
+    def test_rejects_differing_units_with_a_scale_that_does_not_convert_them(self, relation, message):
+        with pytest.raises(ValueError, match=rf"'x': 'um' vs 'nm' \({message}\).*leave one of the units unspecified"):
+            require_consistent_axis_properties(
+                _ome_axes_with_unit(x="um"),
+                _ome_axes_with_unit(x="nm"),
+                relation,
+                source_label="source",
+                target_label="target",
+            )
+
+    @pytest.mark.parametrize(
+        "source, target, factor",
+        [("um", "nm", 1000), ("nm", "um", 0.001), ("mm", "um", 1000), ("micron", "nanometer", 1000), ("s", "ms", 1000)],
+    )
+    def test_accepts_what_from_unit_conversion_produces(self, source, target, factor):
+        relation = Affine.from_unit_conversion({"x": source}, {"x": target})
+        require_consistent_axis_properties(
+            _ome_axes_with_unit(x=source), _ome_axes_with_unit(x=target), relation, source_label="s", target_label="t"
+        )
+        with pytest.raises(ValueError, match="scaled by"):
+            require_consistent_axis_properties(
+                _ome_axes_with_unit(x=source),
+                _ome_axes_with_unit(x=target),
+                Affine.from_factor({"x": factor * 3}),
+                source_label="s",
+                target_label="t",
+            )
+
+    @pytest.mark.parametrize(
+        "source, target, scale",
+        [
+            ("um", "um", 2.0),  # registration to an atlas can include real scaling
+            ("um", "micrometer", 0.5),
+            ("custom", "custom", 3.0),
+            ("custom", "other", 3.0),  # unknown units cannot be checked
+            ("um", "s", 3.0),  # cannot be converted: That is the type's business
+            ("um", None, 3.0),  # unspecified
+            (None, "nm", 3.0),
+        ],
+    )
+    def test_does_not_check_scales_it_cannot_judge(self, source, target, scale):
+        require_consistent_axis_properties(
+            _ome_axes_with_unit(x=source),
+            _ome_axes_with_unit(x=target),
+            Affine.from_factor({"x": scale}),
+            source_label="source",
+            target_label="target",
+        )
+
+    def test_does_not_check_mixed_axes(self):
+        rotation = Affine.from_array(((1, 1, 0), (-1, 1, 0)), "yx")
+        require_consistent_axis_properties(
+            _ome_axes_with_unit(y="um", x="um"),
+            _ome_axes_with_unit(y="nm", x="nm"),
+            rotation,
             source_label="source",
             target_label="target",
         )
