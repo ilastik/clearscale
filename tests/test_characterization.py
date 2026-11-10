@@ -26,6 +26,11 @@ from clearscale.characterization import (
 )
 
 
+def test_can_import_translating_functions():
+    # These are part of the public API through characterization
+    from clearscale.characterization import discrete_bin_center, first_value_decimation, half_pixel_space_preservation
+
+
 def _scale(pixel_size_items):
     """Shape should be irrelevant for all calculations.
     Pixel size will always be the precise source of information for what scaling was done."""
