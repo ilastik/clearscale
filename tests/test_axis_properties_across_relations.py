@@ -3,7 +3,7 @@ import pytest
 from clearscale import Affine, AxisRenaming, PermutationTo, ProjectionTo, Translation
 from clearscale._services.axis_links import AxisLinks
 from clearscale._services.axis_properties_across_relations import (
-    require_matching_units_or_affine_relation,
+    require_consistent_axis_properties,
     reconcile_axis_prop_params,
 )
 from clearscale._spatial_relations import SpatialRelationSequence
@@ -31,7 +31,7 @@ class TestUnitValidation:
         ],
     )
     def test_accepts_matching_or_unspecified_units(self, source, target):
-        require_matching_units_or_affine_relation(
+        require_consistent_axis_properties(
             _ome_axes_with_unit(x=source),
             _ome_axes_with_unit(x=target),
             None,
@@ -42,19 +42,87 @@ class TestUnitValidation:
     @pytest.mark.parametrize(
         "relation",
         [
-            Affine.identity("x"),
             Affine.from_factor({"x": 1000}),
-            SpatialRelationSequence((Translation(x=1), SpatialRelationSequence((Affine.identity("x"),)))),
+            Affine.from_factor({"x": 0.5}),
+            SpatialRelationSequence((Translation(x=1), SpatialRelationSequence((Affine.from_factor({"x": 1000}),)))),
+            SpatialRelationSequence((Affine.from_factor({"x": 1000}), Affine.from_factor({"x": 2}))),
         ],
     )
-    def test_accepts_differing_units_with_affine(self, relation):
-        require_matching_units_or_affine_relation(
+    def test_accepts_differing_units_with_scaling_affine(self, relation):
+        require_consistent_axis_properties(
             _ome_axes_with_unit(x="um"),
             _ome_axes_with_unit(x="nm"),
             relation,
             source_label="source",
             target_label="target",
         )
+
+    @pytest.mark.parametrize(
+        "relation",
+        [
+            Affine.identity("x"),
+            Affine.from_array(((-1, 0),), "x"),  # flip
+            SpatialRelationSequence((Translation(x=1), SpatialRelationSequence((Affine.identity("x"),)))),
+            SpatialRelationSequence((Affine.from_factor({"x": 1000}), Affine.from_factor({"x": 0.001}))),
+        ],
+    )
+    def test_rejects_differing_units_with_affine_that_does_not_scale(self, relation):
+        with pytest.raises(ValueError, match=r"source and target differ.*'x': 'um' vs 'nm'.*Affine"):
+            require_consistent_axis_properties(
+                _ome_axes_with_unit(x="um"),
+                _ome_axes_with_unit(x="nm"),
+                relation,
+                source_label="source",
+                target_label="target",
+            )
+
+    def test_rejects_differing_units_with_affine_that_does_not_scale_per_axis(self):
+        # Same as above but 2D. x is scaled by the Affine, so we can't know if the unit mismatch is correct or not.
+        # y is identity so its mismatch needs to be flagged.
+        with pytest.raises(ValueError, match=r"differ \('y': 'um' vs 'nm'\)"):
+            require_consistent_axis_properties(
+                _ome_axes_with_unit(y="um", x="um"),
+                _ome_axes_with_unit(y="nm", x="nm"),
+                Affine.from_factor({"y": 1, "x": 1000}),
+                source_label="source",
+                target_label="target",
+            )
+
+    def test_accepts_differing_units_for_mixed_axes_but_not_for_the_exact_one(self):
+        shear = Affine.from_array(((1, 0, 0), (1, 1, 0)), "yx")  # y' = y, x' = y + x
+        require_consistent_axis_properties(
+            _ome_axes_with_unit(y="um", x="um"),
+            _ome_axes_with_unit(y="um", x="nm"),
+            shear,
+            source_label="source",
+            target_label="target",
+        )
+        with pytest.raises(ValueError, match=r"differ \('y': 'um' vs 'nm'\)"):
+            require_consistent_axis_properties(
+                _ome_axes_with_unit(y="um", x="um"),
+                _ome_axes_with_unit(y="nm", x="nm"),
+                shear,
+                source_label="source",
+                target_label="target",
+            )
+
+    def test_follows_exact_links_through_permuting_affine(self):
+        swap = Affine.from_array(((0, 1, 0), (1, 0, 0)), "yx")  # y' = x, x' = y
+        require_consistent_axis_properties(
+            _ome_axes_with_unit(y="um", x="nm"),
+            _ome_axes_with_unit(y="nm", x="um"),
+            swap,
+            source_label="source",
+            target_label="target",
+        )
+        with pytest.raises(ValueError, match=r"differ \('y': 'nm' vs 'um', 'x': 'um' vs 'nm'\)"):
+            require_consistent_axis_properties(
+                _ome_axes_with_unit(y="um", x="nm"),
+                _ome_axes_with_unit(y="um", x="nm"),
+                swap,
+                source_label="source",
+                target_label="target",
+            )
 
     @pytest.mark.parametrize(
         "relation, source, target",
@@ -71,7 +139,7 @@ class TestUnitValidation:
         ],
     )
     def test_follows_axis_dependencies(self, relation, source, target):
-        require_matching_units_or_affine_relation(
+        require_consistent_axis_properties(
             _ome_axes_with_unit(**source),
             _ome_axes_with_unit(**target),
             relation,
@@ -84,7 +152,7 @@ class TestUnitValidation:
         with pytest.raises(
             ValueError, match=r"source and target differ.*'x': 'um' vs 'nm'.*State the conversion explicitly.*Affine"
         ):
-            require_matching_units_or_affine_relation(
+            require_consistent_axis_properties(
                 _ome_axes_with_unit(x="um"),
                 _ome_axes_with_unit(x="nm"),
                 relation,
@@ -94,7 +162,7 @@ class TestUnitValidation:
 
     def test_rejects_differing_unit_across_renaming(self):
         with pytest.raises(ValueError, match="'X': 'um' vs 'nm'"):
-            require_matching_units_or_affine_relation(
+            require_consistent_axis_properties(
                 _ome_axes_with_unit(x="um"),
                 _ome_axes_with_unit(X="nm"),
                 AxisRenaming(x="X"),
@@ -104,7 +172,7 @@ class TestUnitValidation:
 
     def test_reports_all_conflicting_axes_in_target_order(self):
         with pytest.raises(ValueError, match=r"'y': 'nanometer' vs 'um', 'x': 'nanometer' vs 'um'"):
-            require_matching_units_or_affine_relation(
+            require_consistent_axis_properties(
                 _ome_axes_with_unit(y="nanometer", x="nanometer"),
                 _ome_axes_with_unit(y="um", x="um"),
                 None,
@@ -114,7 +182,7 @@ class TestUnitValidation:
 
     def test_reordered_axes_do_not_hide_conflicts(self):
         with pytest.raises(ValueError, match="'y': 'nm' vs 'micron'"):
-            require_matching_units_or_affine_relation(
+            require_consistent_axis_properties(
                 _ome_axes_with_unit(x="micron", y="nm"),
                 _ome_axes_with_unit(y="micron", x="micron"),
                 PermutationTo("yx"),

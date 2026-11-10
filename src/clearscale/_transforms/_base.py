@@ -28,7 +28,7 @@ from clearscale._axis_values import (
     Unit,
 )
 from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscaleError
-from clearscale._services.matrices import DEFAULT_SINGULARITY_TOLERANCE, AxisIndices
+from clearscale._services.matrices import AxisIndices
 from clearscale._services.units import is_same_unit
 from clearscale._services.axis_links import AxisLink, AxisLinks
 
@@ -43,7 +43,6 @@ _RefT = TypeVar("_RefT")
 AxisDependencies = Tuple[AxisIndices, ...]
 """One entry per target axis (in target order), with the indices of the source axes it depends on."""
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
-IDENTITY_TOLERANCE = DEFAULT_SINGULARITY_TOLERANCE
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,9 +263,8 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
             if not link.sources:
                 return self._default(target)
             if link.exact is not None:
-                source, scale = link.exact
-                unit_is_preserved = abs(abs(scale) - 1) <= IDENTITY_TOLERANCE
-                return replace(self[source], name=str(target), unit=self[source].unit if unit_is_preserved else None)
+                source = self[link.exact[0]]
+                return replace(source, name=str(target), unit=source.unit if not link.is_scaled else None)
             if link.has_untraced_coupling:
                 return self._default(target)
             source_props = [self[d] for d in link.sources]

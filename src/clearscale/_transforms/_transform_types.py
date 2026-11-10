@@ -20,6 +20,7 @@ from clearscale._axis_values import (
     Translation,
 )
 from clearscale._errors import CannotConvertToAffineError
+from clearscale._services.axis_links import IDENTITY_TOLERANCE
 from clearscale._services.matrices import (
     AxisIndices,
     FloatMatrix,
@@ -42,7 +43,6 @@ from clearscale._services.matrices import (
     is_identity_scale,
 )
 from clearscale._transforms._base import (
-    IDENTITY_TOLERANCE,
     AxisDependencies,
     _EndpointDimensionConstraints,
     IdentityTransform,

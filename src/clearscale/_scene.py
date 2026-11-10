@@ -12,7 +12,7 @@ from clearscale._services.axis_properties_across_relations import (
     OmeZarrAxesParam,
     merge_ome_zarr_axes,
     reconcile_axis_prop_params,
-    require_matching_units_or_affine_relation,
+    require_consistent_axis_properties,
 )
 from clearscale._axis_values import AxisKey
 from clearscale._services.axis_links import AxisLinks
@@ -239,7 +239,7 @@ class Scene:
             conflict_hint="Specify the shared coordinate system's conflicting axis properties explicitly using `ome_zarr_axes=` (or `unit=` for units). Connections with different units must also provide a converting Affine relation.",
         )
         for i, (source, relation) in enumerate(zip(source_refs, relations)):
-            require_matching_units_or_affine_relation(
+            require_consistent_axis_properties(
                 cls._source_ome_zarr_axes(source),
                 shared_axes,
                 relation,
@@ -299,7 +299,7 @@ class Scene:
                 f"Applying `a_to_b` to the axes of `a` {a_ref.axes} produces {reached_axes}, "
                 f"but `b` has axes {b_ref.axes}."
             )
-        require_matching_units_or_affine_relation(
+        require_consistent_axis_properties(
             cls._source_ome_zarr_axes(a_ref),
             cls._source_ome_zarr_axes(b_ref),
             relation,

@@ -2,6 +2,7 @@ import math
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
+from clearscale._services.matrices import DEFAULT_SINGULARITY_TOLERANCE
 from clearscale.types import AxisKey, OrderedAxes
 
 AxisKeyDependencies = Tuple[Tuple[AxisKey, ...], ...]
@@ -11,6 +12,7 @@ One tuple of source axes per target axis, in target axis order.
 (s,) = target is s
 (a, b, ...) = target mixes source axes a, b, ...
 """
+IDENTITY_TOLERANCE = DEFAULT_SINGULARITY_TOLERANCE
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +45,12 @@ class AxisLink:
             assert source in self.sources, f"Exact source {source!r} not in sources {self.sources!r}"
             # Dependencies are only traced for coefficients that are not ~0, guard against overflow
             assert math.isfinite(scale) and scale != 0, f"Invalid scale {scale!r}"
+
+    @property
+    def is_scaled(self) -> bool:
+        """True if this target axis is a non-identity scaling of a single source (over tolerance, ignoring pure flip).
+        Properties that scaling changes (unit) must not carry over such links."""
+        return self.exact is not None and abs(abs(self.exact[1]) - 1) > IDENTITY_TOLERANCE
 
 
 @dataclass(frozen=True, slots=True)

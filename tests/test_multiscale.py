@@ -1217,8 +1217,8 @@ def _multiscale_with_unit(unit: str, axes="yx", size=4) -> Multiscale:
 def unit_validation_helper_mock(monkeypatch):
     import clearscale._multiscale as module
 
-    unit_helper_mock = mock.Mock(wraps=module.require_matching_units_or_affine_relation)
-    monkeypatch.setattr(module, "require_matching_units_or_affine_relation", unit_helper_mock)
+    unit_helper_mock = mock.Mock(wraps=module.require_consistent_axis_properties)
+    monkeypatch.setattr(module, "require_consistent_axis_properties", unit_helper_mock)
     return unit_helper_mock
 
 

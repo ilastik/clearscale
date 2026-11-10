@@ -285,8 +285,8 @@ class TestMultiscalesProperty:
 def unit_validation_mock(monkeypatch):
     import clearscale._scene as module
 
-    validator = mock.Mock(wraps=module.require_matching_units_or_affine_relation)
-    monkeypatch.setattr(module, "require_matching_units_or_affine_relation", validator)
+    validator = mock.Mock(wraps=module.require_consistent_axis_properties)
+    monkeypatch.setattr(module, "require_consistent_axis_properties", validator)
     return validator
 
 

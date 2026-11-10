@@ -76,7 +76,7 @@ from clearscale._services.axis_properties_across_relations import (
     normalize_ome_zarr_axes_param,
     reconcile_axis_prop_params,
     merge_ome_zarr_axes,
-    require_matching_units_or_affine_relation,
+    require_consistent_axis_properties,
 )
 from clearscale._services.units import unit_conversion_factor
 from clearscale.types import PixelSizingMethod, ShapeSource, TranslationShiftFunction, ShapeLike, FactorLike, AxisKeyT
@@ -1836,7 +1836,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         target_axes = relation.target_axes(source_axes) if relation else source_axes
         links = relation._axis_links(source_axes) if relation else AxisLinks.identity(source_axes)
         target_ome_axes = reconcile_axis_prop_params(target_axes, links, self.ome_zarr_axes, ome_zarr_axes, unit)
-        require_matching_units_or_affine_relation(
+        require_consistent_axis_properties(
             self.ome_zarr_axes,
             target_ome_axes,
             relation,
@@ -1890,7 +1890,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             raise ValueError(
                 f"Incompatible derivation: Provided relation chain would produce axes {relation.target_axes(self_axes)!r} from {self_axes!r}, but the source has {parent_axes!r}. {reached_by=!r}"
             )
-        require_matching_units_or_affine_relation(
+        require_consistent_axis_properties(
             self.ome_zarr_axes, other.ome_zarr_axes, relation, source_label="this Multiscale", target_label="`other`"
         )
         links = relation._bidirectional_axis_links(self_axes) if relation else AxisLinks.identity(parent_axes)
