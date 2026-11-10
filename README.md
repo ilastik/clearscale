@@ -1,6 +1,6 @@
 # clearscale
 
-`clearscale` is a small dependency-free Python package for clear multi-scale image metadata manipulation.
+`clearscale` is a small dependency-free Python package for clear multiscale image metadata manipulation.
 
 ## Features
 

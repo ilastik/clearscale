@@ -12,7 +12,7 @@ maintainers = [
     {name = "Benedikt T. Best", email = "benedikt.best@embl.de"},
     {name = "ilastik team", email = "team@ilastik.org"},
 ]
-description = "Abstractions for clear code about multiscale images"
+description = "Clear multiscale image metadata manipulation"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT OR Apache-2.0"
