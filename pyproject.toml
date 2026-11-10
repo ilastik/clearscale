@@ -33,6 +33,7 @@ classifiers = [
 
 [project.optional-dependencies]
 dev = ["pre-commit", "pytest", "pyright"]
+docs = ["zensical==0.0.74", "mkdocstrings-python==2.0.10"]
 
 [tool.hatch.version]
 source = "vcs"

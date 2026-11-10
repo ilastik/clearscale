@@ -1,0 +1,33 @@
+site_name: clearscale
+site_description: Clear, dependency-free multiscale image metadata in Python
+repo_url: https://github.com/ilastik/clearscale
+repo_name: ilastik/clearscale
+
+nav:
+  - Home: index.md
+  - OME-Zarr: ome_zarr.md
+  - Basics: basics.md
+  - Scaling methods: characterization.md
+  - Coordinate systems: space.md
+  - Scenes: scene.md
+  - Examples: examples.md
+
+plugins:
+  - search
+  - gh-admonitions
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            filters: public
+            inherited_members: true
+            show_if_no_docstring: true
+            merge_init_into_class: true
+            show_submodules: false
+            show_bases: false
+            docstring_style: null
+  - api-autonav:
+      modules: [src/clearscale]
+      exclude_private: true
+      nav_section_title: API Reference
