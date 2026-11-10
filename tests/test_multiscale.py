@@ -1322,7 +1322,7 @@ class TestPropertyCarryover:
         ms.ome.image_label = ome_zarr.ImageLabel(source="../../", labels=labels)
         return ms
 
-    @pytest.mark.parametrize("modify, expected_keys", zip(modifying_functions, expected_keys), ids=function_ids)
+    @pytest.mark.parametrize("modify, expected_keys", list(zip(modifying_functions, expected_keys)), ids=function_ids)
     def test_modification_keeps_ome_properties(self, read_multiscale, modify, expected_keys):
         result = modify(read_multiscale)
 
