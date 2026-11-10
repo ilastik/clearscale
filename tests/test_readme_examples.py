@@ -77,6 +77,7 @@ def test_downscale_2_example():
     assert len(written_ms_dict["coordinateSystems"]) == 1
     written_system_name = written_ms_dict["coordinateSystems"][0]["name"]  # Capture the randomly generated name
 
+    # Downscaled levels are shifted by the default half-pixel translation (the README's `skimage.transform.resize`)
     expected = {
         "coordinateSystems": [
             {
@@ -106,8 +107,11 @@ def test_downscale_2_example():
                     {
                         "input": {"path": "s1"},
                         "output": {"name": written_system_name},
-                        "scale": [5.0, 520.0, 1.06, 1.06],
-                        "type": "scale",
+                        "transformations": [
+                            {"scale": [5.0, 520.0, 1.06, 1.06], "type": "scale"},
+                            {"translation": [0.0, 130.0, 0.265, 0.265], "type": "translation"},
+                        ],
+                        "type": "sequence",
                     }
                 ],
                 "path": "s1",
@@ -117,8 +121,11 @@ def test_downscale_2_example():
                     {
                         "input": {"path": "s2"},
                         "output": {"name": written_system_name},
-                        "scale": [5.0, 1002.8571428571429, 2.12, 2.12],
-                        "type": "scale",
+                        "transformations": [
+                            {"scale": [5.0, 1002.8571428571429, 2.12, 2.12], "type": "scale"},
+                            {"translation": [0.0, 371.42857142857144, 0.795, 0.795], "type": "translation"},
+                        ],
+                        "type": "sequence",
                     }
                 ],
                 "path": "s2",
@@ -128,8 +135,11 @@ def test_downscale_2_example():
                     {
                         "input": {"path": "s3"},
                         "output": {"name": written_system_name},
-                        "scale": [5.0, 2005.7142857142858, 4.24, 4.24],
-                        "type": "scale",
+                        "transformations": [
+                            {"scale": [5.0, 2005.7142857142858, 4.24, 4.24], "type": "scale"},
+                            {"translation": [0.0, 872.8571428571429, 1.855, 1.855], "type": "translation"},
+                        ],
+                        "type": "sequence",
                     }
                 ],
                 "path": "s3",
@@ -197,8 +207,10 @@ def test_skimage_pyramid_gaussian_example():
         {"name": "x", "type": "space", "unit": "nanometer"},
     ]
     assert tuple(multiscale.keys()) == ("s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10")
+    # pyramid_gaussian resizes, so the default half-pixel shift applies: 0.5 * (new_pixel_size - base_pixel_size)
     assert written_ms_dict["datasets"][1]["coordinateTransformations"] == [
-        {"scale": [50.0, 480.0, 480.0], "type": "scale"}
+        {"scale": [50.0, 480.0, 480.0], "type": "scale"},
+        {"translation": [12.5, 120.0, 120.0], "type": "translation"},
     ]
 
 

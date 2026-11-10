@@ -37,7 +37,8 @@ def write_ome_zarr_like_ilastik(
         input_translation = input_scale.translation.with_axes(axes)
         export_ome_axes = input_scale.ome_zarr_axes.with_axes(axes, infer_inserted_types=True)
     export_scale = clearscale.Scale(export_shape, export_pixel_size, export_unit, input_translation, export_ome_axes)
-    multiscale = export_blueprint.apply_to_scale(export_scale)
+    # tbd on ilastik side: actually store the correct translation :) (it does "half_pixel_space_preservation")
+    multiscale = export_blueprint.apply_to_scale(export_scale, translating="first_value_decimation")
 
     crop_translation = None
     if export_offset:
@@ -129,6 +130,7 @@ def test_pixel_sizes_test_write_read_roundtrip_ome_zarr():
                 "c": ome_zarr.Axis(type="channel"),
             },
         ).with_axes("tczyx"),
+        translating="first_value_decimation",
     )
 
 

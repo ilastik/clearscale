@@ -27,7 +27,7 @@ Since OME-Zarr is the only serialization target, its minimum restrictions apply 
 Potential gotchas:
 
 * When describing relative scaling, `Factor` is a *multiplier* for `PixelSize` and a *divisor* for `Shape`. `Factor(x=2)` means "downscale by factor 2" - doubling pixel size and halving image shape. Dividing `Shape / Factor` needs to know how your scaling method rounds uneven divisions, so can only be called as `shape.scaled_by(factor, rounding="ceil")`. Note that many scaling methods like `scipy.ndimage.zoom` expect *shape multiplier* factors, so you'd need to pass `factor.inverted().values_tuple()`.
-* Scaled pixel size cannot be trivially determined. By default, `shape_ratio` is assumed (`output_spacing = input_spacing * input_shape / output_shape`), but some methods use `"corner_ratio"` or `"exact_factor"`.
+* Scaled pixel size cannot be trivially determined. For `BlueprintShapes`, `shape_ratio` is assumed by default (`output_spacing = input_spacing * input_shape / output_shape`), but some methods use `"corner_ratio"` or `"exact_factor"`. `BlueprintFactors` has no default, because there is no way to guess which one applies.
 * Scaling usually introduces a shift, or `Translation`, to the scaled image's origin in physical space. Methods that handle `Scale` objects (and hence `Scale.translation`) compute this using a `TranslationShiftFunction`
 
 All three characteristics (`rounding`, `pixel_sizing` and `translating`) can be determined for your particular method using [`clearscale.characterization`](characterization.md).
@@ -271,7 +271,10 @@ assert multiscale["s2"].shape == cs.Shape(z=40, y=128, x=128)
 assert multiscale["s2"].pixel_size == cs.PixelSize(z=0.5, y=1.0, x=1.0)
 ```
 
-By default, applying a blueprint to a Scale keeps the base Scale's translation for all derived Scales, and multiplies the pixel size by the `input_shape / output_shape` ratio.
+By default, applying a blueprint to a Scale multiplies the pixel size by the `input_shape / output_shape` ratio, and shifts the translation so that the scaled image covers the same physical extent as the base (`half_pixel_space_preservation`).
+This is how interpolating resize methods like `skimage.transform.resize` behave.
+
+If your scaling method just strides over the data (`data[::2]`), pass `translating="first_value_decimation"` for no shift.
 
 This may or may not be accurate.
 You can automatically determine the appropriate additional parameters (`pixel_sizing`, `translating`) for your specific scaling method using [scaling method characterization](characterization.md).

@@ -31,12 +31,15 @@ class TestResolve:
     def test_resolves_name_to_function(self, name):
         assert _translating.resolve_translating(name) is getattr(characterization, name)
 
-    def test_none_and_callables_pass_through(self):
+    def test_callables_pass_through(self):
         def custom(base, target):
             raise NotImplementedError
 
-        assert _translating.resolve_translating(None) is None
         assert _translating.resolve_translating(custom) is custom
+
+    def test_none_is_rejected_with_a_hint_for_the_old_no_shift_meaning(self):
+        with pytest.raises(TypeError, match="Use translating='first_value_decimation' for no shift"):
+            _translating.resolve_translating(None)  # type: ignore[arg-type]
 
     def test_unknown_name_lists_valid_names(self):
         with pytest.raises(ValueError, match="Unknown translating method 'half_pixel'.*half_pixel_space_preservation"):

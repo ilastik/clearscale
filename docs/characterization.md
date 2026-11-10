@@ -203,6 +203,9 @@ You can pass `pixel_sizing=` either:
 * `"shape_ratio"` if the output spacing is `input_length / output_length`
 * `"corner_ratio"` if the output spacing is `(input_length - 1) / (output_length - 1)` (the first and last pixel, i.e. the image corners, are preserved, and the rest are evenly spaced between them)
 
+`BlueprintShapes` defaults to `"shape_ratio"`.
+`BlueprintFactors` has no default and requires it to be provided explicitly.
+
 For factor-based scaling methods, there is one additional option:
 
 * `"exact_factor"` if the output spacing is `input_spacing / shape_factor`, respectively `input_spacing * step_factor`
@@ -218,6 +221,8 @@ Most common scaling methods apply one of the provided shift functions explained 
 * `discrete_bin_center`
 * `first_value_decimation`
 
+`BlueprintShapes` defaults to `half_pixel_space_preservation`.
+`BlueprintFactors` has no default and requires it to be provided explicitly.
 Pass the function itself or just its name as a string to `blueprint.apply_to_scale()`:
 
 ```python
@@ -365,7 +370,8 @@ These represent the space from `-0.125` to `0.875 micrometer` placing the pooled
 Use `first_value_decimation` when the scaled array keeps the first source value exactly, and evenly spaces the rest.
 For example, `data[::4, ::4]`.
 
-`translating=first_value_decimation` is equivalent to `translating=None`, but you can still pass it to make the choice explicit in your code.
+`translating=first_value_decimation` is how you express "no shift".
+`BlueprintShapes` assumes `half_pixel_space_preservation` by default, so pass it explicitly when your method strides.
 
 ```python
 from clearscale import (

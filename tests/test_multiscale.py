@@ -289,7 +289,9 @@ class TestBlueprintApply:
                     shape=Shape(c=3, y=4, x=3),
                     pixel_size=PixelSize(c=1.0, y=1.0, x=8.0),
                     unit=base.unit,
-                    translation=base.translation,
+                    # Default half-pixel shift on top of the base translation: 0.5 * (new - base pixel size)
+                    # c: 0.5 * (1.0 - 1.0) = 0.0, y: 0.5 * (1.0 - 0.5) = 0.25, x: 0.5 * (8.0 - 2.0) = 3.0
+                    translation=Translation(c=0.0, y=1.25, x=5.0),
                 ),
             }
         )
@@ -554,8 +556,20 @@ class TestScalingMethodRequirements:
             Multiscale.from_factors(self.factors, self.base, rounding="ceil", pixel_sizing="shape_ratio")  # type: ignore[call-arg]
 
     def test_factors_apply_to_scale_rejects_none_translating(self):
-        with pytest.raises(ValueError, match="requires `translating`"):
+        with pytest.raises(TypeError, match="Use translating='first_value_decimation' for no shift"):
             self.factors.apply_to_scale(self.base, rounding="ceil", pixel_sizing="shape_ratio", translating=None)  # type: ignore[arg-type]
+
+    def test_shapes_apply_to_scale_rejects_none_translating(self):
+        with pytest.raises(TypeError, match="Use translating='first_value_decimation' for no shift"):
+            self.shapes.apply_to_scale(self.base, translating=None)  # type: ignore[arg-type]
+
+    def test_shapes_default_to_shape_ratio_with_half_pixel_space_preservation(self):
+        explicit = self.shapes.apply_to_scale(
+            self.base, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation"
+        )
+        assert self.shapes.apply_to_scale(self.base) == explicit
+        assert Multiscale.from_shapes(self.shapes, base=self.base) == explicit
+        assert explicit["s1"].translation == Translation(y=0.5 * (2.0 - 1.0), x=0.5 * (2.0 - 1.0))
 
     @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
     def test_shapes_unspecified_use_the_blueprint_defaults(self, entry_point):

@@ -1,5 +1,5 @@
 import math
-from typing import Dict, Optional, Tuple, TYPE_CHECKING
+from typing import Dict, Tuple, TYPE_CHECKING
 
 from clearscale._axis_values import Translation
 from clearscale.types import TranslatingMethod, TranslationShiftFunction
@@ -99,10 +99,10 @@ SHIFT_FUNCTIONS_BY_NAME: Dict[str, TranslationShiftFunction] = {f.__name__: f fo
 """The string aliases accepted wherever a `translating` function is expected: the functions' own names."""
 
 
-def resolve_translating(translating: Optional[TranslatingMethod]) -> Optional[TranslationShiftFunction]:
+def resolve_translating(translating: TranslatingMethod) -> TranslationShiftFunction:
     """Turn a `translating` argument into a callable: names resolve to the built-in function of that name,
-    callables and None pass through unchanged."""
-    if translating is None or callable(translating):
+    callables pass through unchanged."""
+    if callable(translating):
         return translating
     if isinstance(translating, str):
         try:
@@ -112,6 +112,8 @@ def resolve_translating(translating: Optional[TranslatingMethod]) -> Optional[Tr
                 f"Unknown translating method {translating!r}. "
                 f"Use one of {list(SHIFT_FUNCTIONS_BY_NAME)} or pass your own function."
             ) from None
+    hint = " Use translating='first_value_decimation' for no shift." if translating is None else ""
     raise TypeError(
-        f"translating must be a function or one of {list(SHIFT_FUNCTIONS_BY_NAME)}, got {type(translating).__name__}"
+        f"translating must be a function or one of {list(SHIFT_FUNCTIONS_BY_NAME)}, got {type(translating).__name__}."
+        + hint
     )
