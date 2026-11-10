@@ -765,7 +765,7 @@ class TestMultiscaleAsDerivedFrom:
         donor_ms = _multiscale("xyz")
 
         with pytest.raises(
-            ValueError, match=re.escape("Cannot transfer coordinate systems from source with axes ('x', 'y', 'z')")
+            ValueError, match=re.escape("Cannot transfer coordinate systems from `other` with axes ('x', 'y', 'z')")
         ):
             caller_ms.as_derived_from(donor_ms)
 
@@ -870,7 +870,7 @@ class TestMultiscaleAsDerivedFrom:
         with pytest.raises(
             ValueError,
             match=re.escape(
-                "Provided relation chain would produce axes ('t', 'z', 'y', 'x') from ('t', 'y', 'x', 'z'), but the source has ('z', 'y', 'x')"
+                "Provided relation chain would produce axes ('t', 'z', 'y', 'x') from ('t', 'y', 'x', 'z'), but `other` has ('z', 'y', 'x')"
             ),
         ):
             caller_ms.as_derived_from(donor_ms, reached_by=relations)

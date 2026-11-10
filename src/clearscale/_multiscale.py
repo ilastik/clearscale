@@ -1872,17 +1872,16 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
         )
 
-    def as_derived_from(self, other: "Multiscale", *, reached_by: RelationsParam = None) -> "Multiscale":
+    def as_derived_from(self, original: "Multiscale", *, reached_by: RelationsParam = None) -> "Multiscale":
         """
-        Transfer `self` into the spatial context of `other`, carrying over axis properties, coordinate systems and
+        Transfer `self` into the spatial context of `original`, carrying over axis properties, coordinate systems and
         serialization convention.
 
-        `reached_by` describes how to reach the source `other` as a coordinate system:
-        `self --reached_by--> other`. It does not describe how the image was derived.
-        For changed axes, use e.g. `AxisRearrangementTo(other.axes)`.
-        Axes present only in the source are inserted at coordinate 0. For a slice at z=z0, follow the
-        insertion with `Translation(z=z0, ...)`. For a maximum projection, this plane is a representative position.
-        Blank axis properties of `self` are filled from `other`'s axes, against the direction of `reached_by`:
+        `reached_by` describes how to reach `original` as a coordinate system:
+        `self --reached_by--> original`, i.e. `self` is the relation's source and `original` its target.
+        It does not describe how the image was derived.
+
+        Blank axis properties of `self` are filled from `original`'s axes, against the direction of `reached_by`:
         Axes that the relation keeps carry everything, scaled axes everything but the unit (a scaling may or may not
         convert units), and mixed axes only the properties that all axes they are mixed with agree on, but not the unit.
         Properties that `self` has are kept, but must not contradict the relation: A different unit or type for an
@@ -1891,23 +1890,23 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Transferred coordinate systems are renamed if `self` already has a system of the same name.
         """
         relation = normalize_relations_param(reached_by)
-        parent_axes = other.axes
+        parent_axes = original.axes
         self_axes = self.axes
 
         if not relation:
             if parent_axes != self_axes:
                 raise ValueError(
-                    f"Cannot transfer coordinate systems from source with axes {parent_axes!r} to Multiscale with axes {self_axes!r}. Use `reached_by=AxisRearrangementTo(source.axes)` to reach the source axes."
+                    f"Cannot transfer coordinate systems from `other` with axes {parent_axes!r} to Multiscale with axes {self_axes!r}. Use `reached_by=AxisRearrangementTo(other.axes)` to reach the axes of `other`."
                 )
         elif relation.target_axes(self_axes) != parent_axes:
             raise ValueError(
-                f"Incompatible derivation: Provided relation chain would produce axes {relation.target_axes(self_axes)!r} from {self_axes!r}, but the source has {parent_axes!r}. {reached_by=!r}"
+                f"Incompatible derivation: Provided relation chain would produce axes {relation.target_axes(self_axes)!r} from {self_axes!r}, but `other` has {parent_axes!r}. {reached_by=!r}"
             )
         require_consistent_axis_properties(
-            self.ome_zarr_axes, other.ome_zarr_axes, relation, source_label="this Multiscale", target_label="`other`"
+            self.ome_zarr_axes, original.ome_zarr_axes, relation, source_label="this Multiscale", target_label="`other`"
         )
         links = relation._bidirectional_axis_links(self_axes) if relation else AxisLinks.identity(parent_axes)
-        carried_from_other = other.ome_zarr_axes.with_axes_carried_over(self_axes, links)
+        carried_from_other = original.ome_zarr_axes.with_axes_carried_over(self_axes, links)
         merged_ome_axes = self.ome_zarr_axes.with_blanks_filled_from(carried_from_other)
         if merged_ome_axes == self.ome_zarr_axes:
             intrinsic_ref = self._intrinsic_ref
@@ -1940,7 +1939,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             ]
 
         transferred_global_t_scale = None
-        if other._legacy_convention_global_t_scale:
+        if original._legacy_convention_global_t_scale:
             # Transfer the fact that we use the convention; but only if self can even be expressed using it
             # (i.e. has t, and isn't scaled across t). The actual value stored must be self's own t-scale.
             if "t" in self.axes and "t" not in self.scaled_axes:
@@ -1949,7 +1948,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         existing_refs = list(transform_graph.all_system_refs)
         other_unique = self._find_or_make_unique_ref(
-            other._intrinsic_ref.owner, other._intrinsic_ref.name, existing_refs
+            original._intrinsic_ref.owner, original._intrinsic_ref.name, existing_refs
         )
         reached_by_t = (relation_to_transform_canonic(relation, self_axes) if relation else IdentityTransform()).bound(
             source=intrinsic_ref, target=other_unique
@@ -1957,12 +1956,12 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         existing_refs.append(other_unique)
 
         to_merge_list: List[Transform] = []
-        for satellite in other._transform_graph.all_system_refs:
+        for satellite in original._transform_graph.all_system_refs:
             resolved_ref = self._find_or_make_unique_ref(satellite.owner, satellite.name, existing_refs)
             to_port = (
                 t
-                for t in other._transform_graph.transforms
-                if {satellite, other._intrinsic_ref} == {t.source, t.target}
+                for t in original._transform_graph.transforms
+                if {satellite, original._intrinsic_ref} == {t.source, t.target}
             )
             for t in to_port:
                 # Compose the connection derived -> source -> satellite whenever its direction permits.
@@ -1990,7 +1989,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 else:
                     # `self --reached_by_t--> other <--t-- satellite`; anything we do here would be an approximation
                     logger.debug(
-                        f"Cannot carry over a connection to {satellite.name!r}: Neither the source connection nor `reached_by` can be inverted."
+                        f"Cannot carry over a connection to {satellite.name!r}: Neither the stored connection nor `reached_by` can be inverted."
                     )
                     continue
 

@@ -204,9 +204,9 @@ remote_meta = clear.OmeZarrGroup.from_group(remote_group)
 assert remote_meta.kind is clear.GroupKind.MULTISCALE, "This tells us there is exactly one Multiscale in this group"
 assert remote_meta.version == "0.4", "OME-Zarr version is a property of the group, not of individual Multiscales"
 
-source_multiscale = remote_meta.multiscales[0]
-assert SCALE_KEY in source_multiscale, "Multiscale is dict-like, with the sub-paths to arrays as keys"
-assert source_multiscale[SCALE_KEY].shape == {"z": 357, "y": 405, "x": 430}
+remote_multiscale = remote_meta.multiscales[0]
+assert SCALE_KEY in remote_multiscale, "Multiscale is dict-like, with the sub-paths to arrays as keys"
+assert remote_multiscale[SCALE_KEY].shape == {"z": 357, "y": 405, "x": 430}
 
 # 2. Create the local target and download the data
 source_array = remote_group[SCALE_KEY]
@@ -215,10 +215,10 @@ print(f"Downloading {SCALE_KEY} data...")
 local_array = local_group.create_array(SCALE_KEY, data=source_array)
 
 # 3. Derive a new Multiscale from the chosen Scale entry in the existing Multiscale
-target_multiscale = source_multiscale.derive(SCALE_KEY)
+local_multiscale = remote_multiscale.derive(SCALE_KEY)
 
 # 4. Write the new metadata to the downloaded store
-local_group_meta = clear.OmeZarrGroup.from_single(target_multiscale)
+local_group_meta = clear.OmeZarrGroup.from_single(local_multiscale)
 local_group.attrs.update(local_group_meta.to_attrs(version="0.4"))
 ```
 

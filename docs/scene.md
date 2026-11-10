@@ -1,6 +1,9 @@
 # Scenes
 
-A [`Multiscale`](space.md) knows the spaces around *itself*: its coordinate systems.
+> [!NOTE]
+> Scenes are only supported by OME-Zarr 0.6.
+
+A `Multiscale` knows the spaces around *itself*: its [coordinate systems](space.md#what-is-a-coordinate-system).
 A `Scene` records how *several Multiscales* relate to each other: tiles that are placed into a mosaic, an image that was registered to an atlas, the outputs of the steps of a processing workflow.
 
 If the spaces you want to relate all belong to a single Multiscale, you don't need a Scene.
@@ -12,6 +15,9 @@ A Scene is a graph.
 Its nodes are *spaces*: the space of a Multiscale's data (or one of its other coordinate systems), and coordinate systems that belong to the Scene itself.
 Its edges are *spatial relations*, exactly the ones described in [Space](space.md#available-spatial-relations).
 See there for more details of how to think of relations and the specific types available.
+
+Similar to a Multiscale's scale keys, the Scene also records paths for each Multiscale it relates.
+Scene paths are relative to the zarr group whose attrs store the Scene's metadata, just as the Multiscale's scale keys are relative to the zarr group whose attrs store the Multiscale's metadata.
 
 Every Scene method reads relations the same way:
 
@@ -50,6 +56,8 @@ scene = Scene.from_multiscale_pair(
 `a_to_b` maps raw coordinates to atlas coordinates: here, add `(10, 20)`.
 It accepts a single relation or a list (applied first to last), or `None` if both are the same space.
 
+`a_path` and `b_path` are required: The Multiscales' paths within the Scene.
+
 ### Shared space: tiles
 
 ```python
@@ -65,13 +73,16 @@ scene = Scene.from_shared_coordinate_system(
     coordinate_system="stage",
     connections=[
         Scene.Connection(
-          tile, 
-          to_shared=offset * tile["s0"].pixel_size, path=path
+            tile,
+            to_shared=offset * tile["s0"].pixel_size,
+            path=path,
         )
         for tile, offset, path in positions
     ],
 )
 ```
+
+`path` is required for every connection: The Multiscales' paths within the Scene.
 
 This creates a new coordinate system, "stage", that all the tiles are connected to.
 Each connection says how the stage is reached from that tile, the same way as for `tile.with_coordinate_system("stage", reached_by=...)`:
@@ -125,9 +136,7 @@ For the chain above, `volume` to `cropped` is a `ProjectionTo`, then a `Translat
 * If there is no way to get from one to the other, it raises `ValueError`.
   This includes spaces reached by dropping axes, which can't be traced backwards: `relation_from(projection, to=volume)` fails while `relation_from(volume, to=projection)` works.
   It also raises if a space belongs to a Multiscale that is not resolved yet, because its axes are unknown (see below).
-* If the connection isn't a spatial relation at all, e.g. a coordinate lookup or a displacement field that was read from a file, it raises `CannotConvertToSpatialRelationError`.
-* `include_children=True` (the default) also follows the connections inside the Multiscales' own coordinate systems.
-  With `False`, only the connections of the Scene itself are followed.
+* If the connection has no spatial relation equivalent, e.g. a coordinate lookup or a displacement field that was read from a file, it raises `CannotConvertToSpatialRelationError`.
 
 ## Reading and writing
 
@@ -162,5 +171,3 @@ scene_metadata = scene.to_ome_zarr(version="0.6")
 
 zarr_group.attrs.update({"ome": {"version": "0.6", "scene": scene_metadata}})
 ```
-
-Scenes are only supported by OME-Zarr 0.6.

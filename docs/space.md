@@ -97,37 +97,38 @@ Things to know:
 
 The usual image-processing flow is: load a Multiscale, pick one of its scales, process the data, and write the result.
 
-"Deriving" in clearscale saves you the manual labor of carrying over properties from the source metadata to the output metadata.
+"Deriving" in clearscale saves you the manual labor of carrying over properties from the original's metadata to the output metadata.
 
 You might write only a single data array whose shape, pixel size, axis units and so on correspond exactly to the Scale whose data was processed.
 In this simple case, use `.derive`:
 
 ```python
-source = OmeZarrGroup.from_group(zarr_group).multiscales[0]   # has coordinate systems, e.g. "stage"
+original = OmeZarrGroup.from_group(zarr_group).multiscales[0]   # has coordinate systems, e.g. "stage"
 
-result = source.derive("s1")
+result = original.derive("s1")
 ```
 
-`derive` creates a new Multiscale from one scale of `source` (here `"s1"`), optionally expanded by a scaling `blueprint`, exactly like `Multiscale.from_single`.
+`derive` creates a new Multiscale from one scale of `original` (here `"s1"`), optionally expanded by a scaling `blueprint`, exactly like `Multiscale.from_single`.
 
-What makes it different from `from_single` is that the result inherits the spatial context of `source`.
-All the source's coordinate systems (`"stage"` and so on) are available on the result too, with their connections preserved.
+What makes it different from `from_single` is that the result inherits the spatial context of `original`.
+All of the original's coordinate systems (`"stage"` and so on) are available on the result too, with their connections preserved.
 
 When writing OME-Zarr 0.6, this is stored in the output metadata.
 
 > [!NOTE]
-> "Deriving" does *not* establish a connection between the source Multiscale and the derived Multiscale.
+> "Deriving" does *not* establish a connection between the original Multiscale and the derived Multiscale.
 > Multiscale-Multiscale relations are only possible in a [Scene](scene.md).
 
 ### Deriving with a spatial relation
 `derive` is a convenience shortcut for simple cases where the properties of the extracted Scale do not change.
 
-If something else changed between the source and the result — maybe you cropped the data, projected it along one axis, or otherwise transformed it — build the result yourself to accurately describe the result.
-Then use `as_derived_from` to inherit the unchanged properties, including any coordinate systems the parent might define.
+If something else changed between the original and the result — maybe you cropped the data, projected it along one axis, or otherwise transformed it — build the result yourself to accurately describe the result.
+Then use `as_derived_from` to inherit the unchanged properties, including any coordinate systems the original might define.
 
-In `as_derived_from`, the source acts as a new coordinate system.
-Specify how to reach the source from the result just like in `with_coordinate_system`: `result --reached_by--> source`.
-The relation you specify is chained before the original relation between the source and its coordinate systems:
+In `as_derived_from`, the original acts as a new coordinate system.
+Specify how to reach the original from the result just like in `with_coordinate_system`: `result --reached_by--> original`.
+As for every relation, its source is the space it starts from (here the result) and its target is the space it ends in (here the original).
+The relation you specify is chained before the connections that the original has to its own coordinate systems:
 
 ```python
 from clearscale import Multiscale, PixelSize, ProjectionTo, Scale, Shape
@@ -143,19 +144,19 @@ projection = (
 ```
 
 Without `reached_by`, both Multiscales must have identical axes.
-Blank axis properties on the result (type, unit, ...) are filled from the corresponding source axes.
+Blank axis properties on the result (type, unit, ...) are filled from the corresponding axes of the original.
 
-Source-only axes are inserted at coordinate 0.
+Axes that exist only in the original are inserted at coordinate 0.
 For example, if the result is a slice extracted at z=3.5, use `[ProjectionTo(volume.axes), Translation(z=3.5, y=0, x=0)]` (note Translation must be in physical units, i.e. `PixelOffset * PixelSize`).
-The expressive capabilities are limited: For example, it is not possible to distinguish a maximum projection (which represents all source slices) from a slice extracted at z=0.
+The expressive capabilities are limited: For example, it is not possible to distinguish a maximum projection (which represents all slices of the original) from a slice extracted at z=0.
 
-Axis properties are transferred from source to derived, which is the opposite direction of the relation.
+Axis properties are transferred from the original to the result, which is the opposite direction of the relation.
 What carries over depends on what the relation says about each axis: See [Axis properties across relations](#axis-properties-across-relations).
 This works for every relation, including an `Affine` whose matrix is singular.
 
-Source coordinate systems are carried over through `derived -> source -> system`.
-If a system came from another tool that stored it in the opposite direction `source <- system`, it can only be transferred to `derived` if either the `source <- system` connection or the provided `derived --reached_by--> source` can be inverted.
-A source connection stored in the reverse direction can still require an inverse that does not exist.
+The original's coordinate systems are carried over through `result -> original -> system`.
+Another tool may have stored a connection the other way around (`original <- system`). Chaining that takes one inverse: of the stored connection, or of your `reached_by`.
+clearscale inverts whichever is invertible (the stored connection first). If neither is, that coordinate system is left out of the result.
 
 ## Reading relations back
 
@@ -169,10 +170,10 @@ relation = multiscale.relation_to_coordinate_system("stage")
 ```
 
 Coordinate systems are carried over by derivation (see above), so they can still be retrieved after processing.
-Say `source` has axes `"zyx"`, and a coordinate system named `"stage"`, reached by a `Translation`, and the result is a maximum projection of it:
+Say `original` has axes `"zyx"`, and a coordinate system named `"stage"`, reached by a `Translation`, and the result is a maximum projection of it:
 
 ```python
-result = projection.as_derived_from(source, reached_by=ProjectionTo(source.axes))
+result = projection.as_derived_from(original, reached_by=ProjectionTo(original.axes))
 
 # result --relation--> "stage"
 relation = result.relation_to_coordinate_system("stage")
@@ -198,7 +199,7 @@ A spatial relation maps source coordinates to target coordinates.
 Lists apply first to last, so Affines compose as `A2 @ A1` for `[R1, R2]`.
 
 Both `as_derived_from` and `with_coordinate_system` describe how to reach another coordinate system from the
-current image. A crop whose corner is at `(0, 50, 100)` in source coordinates reaches its source through
+current image. A crop whose corner is at `(0, 50, 100)` in the coordinates of the original it was cropped from reaches the original through
 `Translation(z=0, y=50, x=100)`, whether recorded as a derivation or as a new coordinate system.
 
 Resampling uses the opposite direction: For example, scipy asks where each output pixel samples the input.
@@ -342,9 +343,6 @@ Affines with a scaling component are correct only in two main cases:
 * When the target system uses a different coordinate scale, such as the original dimensions of an expanded sample.
 * When converting units: `Affine.from_factor({"x": 0.001})` can represent e.g. going from `Unit(x="micrometer")` to `Unit(x="millimeter")`. `Affine.from_unit_conversion(source_unit, target_unit)` helps to get the direction right.
 
-Note that `Affine.from_factor` uses the provided values as-is, but its "push" convention is the opposite direction of clearscale's `Factor` class.
-If `Factor(x=2)` is "downscale by 2", then the corresponding downsampling (pull) Affine is `Affine.from_factor(factor.inverted())`.
-
 #### Example: expansion microscopy
 
 An expanded sample is imaged at its expanded size.
@@ -353,19 +351,21 @@ To record the sample's original dimensions in the output metadata, add a coordin
 ```python
 from clearscale import Affine, Factor
 
-expansion_factor = Factor.uniform("zyx", 4.2)  # Factor here does *not* mean "downscale by 4.2" like usual
+expansion_factor = Factor.uniform("zyx", 4.2)
+unexpansion = Affine.from_factor(expansion_factor.inverted())  # Distances in the original sample are 4.2 times smaller
 multiscale = multiscale.with_coordinate_system(
     "unexpanded",
-    reached_by=Affine.from_factor(expansion_factor),
-    unit=multiscale.unit,  # Must provide unit; clearscale cannot infer the unit stays unchanged because of the Affine scaling 
+    reached_by=unexpansion,
+    unit=multiscale.unit,  # Must provide unit; clearscale cannot infer the unit stays unchanged, due to the Affine scaling 
 )
 
 # Pixel size of the image in unexpanded sample space:
-unexpanded_pixel_size = multiscale["s0"].pixel_size * expansion_factor
+unexpanded_pixel_size = multiscale["s0"].pixel_size * expansion_factor.inverted()
 ```
 
-Note that the factor here *divides* the pixel size, because it represents a change of coordinate system rather than an image resampling operation.
-Downsampling changes how many pixels cover the same physical distance; a scaling Affine changes the coordinate values assigned to the same pixels, without resampling the image.
+The expanded sample is larger than the original, so reaching the original's dimensions *shrinks* coordinates, by the inverse of the expansion factor.
+A scaling `Affine` multiplies coordinates, and with them the pixel size, by its values, just like a `Factor` multiplies the pixel size of an image that it downscales.
+But unlike downsampling, which changes how many pixels cover the same physical distance, it changes the coordinate values assigned to the same pixels, without resampling the image.
 
 #### A matrix that places an image in a world space
 
@@ -474,16 +474,17 @@ For a scipy pull matrix, this means the *input* acts as the *target* and the out
 The Affine returned by the constructor will then be accurately converted to physical, but still in "pull" direction, so it needs to be inverted to obtain an accurate "push" Affine relation:
 
 ```python
-affine = Affine.from_linear_and_offset(
+pull_affine = Affine.from_linear_and_offset(
     matrix,
     offset,
     "yx",
-    source=input_scale,
-    target=output_scale
+    source=output_scale,
+    target=input_scale,
 )
+push_affine = pull_affine.inverted()
 ```
 
-The resulting Affine maps physical input coordinates to physical output coordinates.
+`push_affine` maps physical input coordinates to physical output coordinates.
 `Affine.from_array` accepts a combined `[matrix | offset]` array with exactly the same convention.
 Without source/target, both constructors take values as is and assume they are physical; invert the resulting Affine if those values are pull values.
 
@@ -532,19 +533,19 @@ If your matrix does not follow the "push" or "forward" physical coordinate mappi
 ### `Translation`
 
 `Translation(t)` maps each source coordinate to `source + t` in the target system.
-For example, in the context of a crop reaching its source as a coordinate system, t is the crop start in the source image.
+For example, in the context of a crop reaching the original it was cropped from as a coordinate system, t is the crop start in the original image.
 
 `Translation` is in physical units (use `PixelOffset * PixelSize` to convert a pixel offset, such as a crop offset).
 
 Use it for crops, for placing tiles into a shared space, and for moving to the origin of a reference.
 
-For example, a crop of a Multiscale `source`, with its own pyramid:
+For example, a crop of a Multiscale `original`, with its own pyramid:
 
 ```python
 from dataclasses import replace
 from clearscale import BlueprintShapes, Multiscale, PixelOffset, Shape
 
-s0 = source["s0"]
+s0 = original["s0"]
 crop_offset = PixelOffset(z=10, y=100, x=200)  # where the crop starts, in s0 pixels
 crop_shape = Shape(z=20, y=128, x=128)
 
@@ -552,10 +553,10 @@ crop_shape = Shape(z=20, y=128, x=128)
 cropped = Multiscale.from_single(
     replace(s0, shape=crop_shape),  # same pixel size and unit, but the cropped shape
     blueprint=BlueprintShapes.downscale_powers_of_2_xyz(base_shape=crop_shape, rounding="ceil"),
-).as_derived_from(source, reached_by=crop_offset * s0.pixel_size)  # PixelOffset * PixelSize = Translation
+).as_derived_from(original, reached_by=crop_offset * s0.pixel_size)  # PixelOffset * PixelSize = Translation
 ```
 
-The cropped Multiscale's own origin is the crop corner, and the relation says where that corner lies in the source:
+The cropped Multiscale's own origin is the crop corner, and the relation says where that corner lies in the original:
 With a pixel size of 2.0/0.5/0.5 micrometer, `reached_by` is `Translation(z=20.0, y=50.0, x=100.0)`.
 
 If you set `Scale.translation` manually, make sure to keep this consistent (i.e. mutually exclusive) with any `Translation` relations. `Scale.translation` records shifts that come from resampling (`translating=`), while the offset of a crop belongs in the relation.
