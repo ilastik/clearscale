@@ -1,5 +1,3 @@
-"""Multiscale abstractions for clearly coded metadata provenance"""
-
 from clearscale import ome_zarr
 from clearscale._spatial_relations import (
     SpatialRelation,
