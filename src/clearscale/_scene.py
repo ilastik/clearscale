@@ -346,10 +346,6 @@ class Scene:
 
     @classmethod
     def from_ome_zarr(cls, scene_attrs: Mapping[str, Any]) -> "Scene":
-        # TODO: accept an optional callable get_multiscale_meta;
-        #  where the default provided implementation simply chooses
-        #  the first entry in the multiscales-array at the path.
-        #  Problem: will also need shape_source for Multiscale.from_ome_zarr :)
         transform_dicts = scene_attrs.get("coordinateTransformations", [])
         system_dicts = scene_attrs.get("coordinateSystems", [])
         graph = TransformGraph.from_ome_zarr(transform_dicts, system_dicts)
