@@ -80,8 +80,11 @@ Each connection says how the stage is reached from that tile, the same way as fo
 A tile whose origin sits at p on the stage reaches stage coordinates through `Translation(p)`.
 
 The axes of the shared system are what the relations produce, so all connections must produce the same axes.
-Its axis properties (units, types) are taken from the connected Multiscales.
-They may differ in properties that are blank, but contradicting values raise an error, unless you set them explicitly with `unit=` or `ome_zarr_axes=`.
+Its axis properties (units, types) are taken from the connected Multiscales, as far as each relation allows: See [Axis properties across relations](space.md#axis-properties-across-relations).
+For example, a connection through a scaling `Affine` doesn't contribute its unit to the stage, but a connection that keeps the axes does.
+Connections may differ in properties that are blank, but contradicting values raise an error.
+Set the properties explicitly with `unit=` or `ome_zarr_axes=` for the stage to have any that no connection provides.
+Explicitly provided properties are still validated for consistency with the provided relation.
 
 ### Several derivations of one original
 

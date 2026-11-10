@@ -89,7 +89,7 @@ Things to know:
 * Both new systems above are connected directly to the Multiscale's own space.
     You describe each one relative to the Multiscale, not relative to each other.
 * `unit` and/or `ome_zarr_axes` set the axis properties of the new system.
-    Properties that you don't set are carried over from the Multiscale's own axes.
+    Properties that you don't set are carried over from the Multiscale's own axes, as far as the relation allows (see [Axis properties across relations](#axis-properties-across-relations)).
 * Names must be unique among the Multiscale's coordinate systems.
 * Like most methods in clearscale, `with_coordinate_system` returns a new object and leaves the original untouched.
 
@@ -150,7 +150,8 @@ For example, if the result is a slice extracted at z=3.5, use `[ProjectionTo(vol
 The expressive capabilities are limited: For example, it is not possible to distinguish a maximum projection (which represents all source slices) from a slice extracted at z=0.
 
 Axis properties are transferred from source to derived, which is the opposite direction of the relation.
-Non-invertible relations (e.g. Affine with a singular matrix) cannot be used in `as_derived_from` as a consequence.
+What carries over depends on what the relation says about each axis: See [Axis properties across relations](#axis-properties-across-relations).
+This works for every relation, including an `Affine` whose matrix is singular.
 
 Source coordinate systems are carried over through `derived -> source -> system`.
 If a system came from another tool that stored it in the opposite direction `source <- system`, it can only be transferred to `derived` if either the `source <- system` connection or the provided `derived --reached_by--> source` can be inverted.
@@ -203,21 +204,110 @@ current image. A crop whose corner is at `(0, 50, 100)` in source coordinates re
 Resampling uses the opposite direction: For example, scipy asks where each output pixel samples the input.
 Refer to Affine constructor method docstrings for details on how to convert.
 
+### Axis properties across relations
+
+A relation tells clearscale how the axes of one space relate to the axes of another.
+Blank axis properties (type, unit, long_name, ...) are carried over from one space to the other, and properties that you provide are checked against the relation.
+What clearscale can carry over or check depends on what the relation says about each axis:
+
+| The relation...                  | Examples                                                                             | Carried over                             | Checked                                                       |
+|----------------------------------|--------------------------------------------------------------------------------------|------------------------------------------|---------------------------------------------------------------|
+| **keeps** an axis                | `Translation`, `PermutationTo`, `AxisRenaming`; an `Affine` with coefficient 1 or -1 | everything                               | type and unit must be the same                                |
+| **scales** an axis               | an `Affine` with coefficient other than 1                                            | everything except the unit               | type must be the same; differing units must match coefficient |
+| **mixes** axes                   | an `Affine` that rotates or shears them                                              | everything (if agreeing) except the unit | nothing                                                       |
+| **inserts** or **drops** an axis | `ProjectionTo`, `AxisRearrangementTo`                                                | nothing                                  | nothing                                                       |
+| **mixes** axes with insert/drop  | an `Affine` that mixes an axis inserted earlier or dropped later                     | nothing                                  | nothing                                                       |
+
+Carrying over means filling in blank fields, it never overwrites.
+`with_coordinate_system` and `Scene` carry along the relation, from the Multiscale into the new system.
+`as_derived_from` carries from the original back to the derived Multiscale, against the direction of the relation.
+Anything you set explicitly overrides carryover (but is then checked against what the relation says, so it can't contradict it).
+Carryover is generally defensive: When in doubt (some Affine cases), the field is left blank.
+It's generally more reliable to provide explicit properties with `unit=` or `ome_zarr_axes=`.
+
+Unit can be changed through a relation by providing a converting `Affine` alongside (see [Unit](#units))
+Axis type can generally not be changed.
+If `"c"` is a channel axis in one space, it is a channel axis in the other.
+Differing types are accepted with a mixing `Affine` alongside: A shear that mixes space and time is legitimate.
+Properties that merely describe an axis (long name, discrete) are never checked.
+To relate an axis to a *different* axis that has the same name, drop and insert it using two `ProjectionTo`.
+
+```python
+import math
+from clearscale import Affine, Multiscale, PixelSize, Scale, Shape, Translation, Unit
+
+micrometer = Unit(y="micrometer", x="micrometer")
+image = Multiscale.from_single(
+    Scale(shape=Shape(y=512, x=512), pixel_size=PixelSize(y=0.5, x=0.5), unit=micrometer)
+)
+
+# Kept: Translations, flips and swaps of axes carry the unit
+shifted = image.with_coordinate_system("shifted", reached_by=Translation(y=10.0, x=10.0))
+assert shifted.coordinate_system_ome_zarr_axes("shifted").get_unit() == micrometer
+
+quarter_turn = Affine.from_array([[0, -1, 0], [1, 0, 0]], "yx")
+turned = image.with_coordinate_system("turned", reached_by=quarter_turn)
+assert turned.coordinate_system_ome_zarr_axes("turned").get_unit() == micrometer
+
+# Scaled: Say which unit it is in (here, an expansion factor leaves it as it is)
+expanded = image.with_coordinate_system(
+    "expanded", reached_by=Affine.from_factor({"y": 4.2, "x": 4.2}), unit=micrometer
+)
+
+# Mixed: A rotation other than 90°: Provide the unit
+angle = math.radians(30)
+rotation = Affine.from_array(
+    [[math.cos(angle), -math.sin(angle), 0], [math.sin(angle), math.cos(angle), 0]], "yx"
+)
+rotated = image.with_coordinate_system("rotated", reached_by=rotation)
+assert rotated.coordinate_system_ome_zarr_axes("rotated").get_unit() == Unit(y="", x=""), "Nothing carried over"
+rotated = image.with_coordinate_system("rotated", reached_by=rotation, unit=micrometer)
+```
+
 ### Units
 
-clearscale does not convert units.
+clearscale does not automatically convert units.
 
-Trying to relate a source and target with different units in `with_coordinate_system` or `as_derived_from` generally raises a `ValueError`.
+Relating spaces with different units in `with_coordinate_system`, `as_derived_from` or a `Scene` raises a `ValueError` if the relation keeps or scales the axes in question (see [Axis properties across relations](#axis-properties-across-relations)):
+
+An empty unit (like `Unit(x="")`) means "unspecified" and never causes an error. Axes that exist on only one side are not compared.
+Different spellings of the same unit count as the same unit: `"nm"` and `"NANOMETER"`, or `"um"`, `"µm"` and `"micron"`.
+Unrecognized units only match by string equality (e.g. `"a.u."` does not match `"A.U."`).
 
 Intentional conversions from one unit to another need to be explicitly specified as a relation.
 Without a conversion, a coordinate in one space would be assumed to equal the same number in the other.
 The appropriate relation for a unit conversion is a scaling `Affine` (see [Affine](#affine), specifically [Unit conversion](#unit-conversion)).
 
-Things to know:
+When the units differ between source and target, the relation you specified is checked for its overall scaling per axis, and must match the expected conversion factor.
+A wrong factor, such as 100 for micrometer to nanometer, is an error.
+Mind the direction: Micrometer to nanometer is 1000, nanometer to micrometer is 0.001.
 
-* An empty unit (like `Unit(x="")`) means "unspecified" and never causes an error. Axes that exist on only one side are not compared.
-* Different spellings of the same unit count as the same unit: `"nm"` and `"NANOMETER"`, or `"um"`, `"µm"` and `"micron"`. Unrecognized units only match by string equality (e.g. `"a.u."` does not match `"A.U."`).
-* Any `Affine` bypasses the check. clearscale does not verify that it converts correctly.
+`Affine` scaling between axes *with the same unit* accepts any factor, since registering an image to an atlas or an expanded sample can include real scaling.
+This means an *incorrect* scaling Affine between axes with the same unit cannot be detected:
+
+```python
+import clearscale as cs
+ms = cs.Multiscale.from_single(
+    cs.Scale(
+        shape=cs.Shape.all_singletons("yx"), 
+        unit={"y": "nanometer", "x": "nanometer"}
+    )
+)
+# This works, because factor 0.001 along x *could* mean "convert nanometer to micrometer", 
+# but it could also be a legitimate 0.001 scaling to a space that is 1000 times smaller than `ms` along x.
+ms.with_coordinate_system(
+    "x_scaled", 
+    reached_by=cs.Affine.from_factor({"y": 1, "x": 0.001}),
+    # Without unit=, the unit for x would come out empty (""), because clearscale can't tell whether this is meant to convert units or otherwise scale.
+    unit={"y": "nanometer", "x": "nanometer"} 
+)
+```
+
+The `Affine` factor likewise cannot be validated when a unit is unrecognized, or when one is a space unit and the other time.
+
+`Affine` relations that mix axes (rotation, shear) are not validated: There is no information about what the result should be.
+Units are generally left blank in such cases; provide them explicitly.
+Rotations by 90 degree are a special case; they are not considered "mixing" because they just flip or permute.
 
 ## Available spatial relations
 
@@ -240,7 +330,7 @@ To chain relations, pass a list; they are applied in order.
 Its values are stored in the same direction as coordinate transformations, also known as "push" or "forward".
 The columns of `linear` are the source space's axes, rows are target axes, and `translation` is the source origin in the target space.
 Singular matrices are accepted for forward mappings.
-Invertibility is required when retrieving the reverse, explicitly converting between push and pull mappings, or carrying properties in `as_derived_from`.
+Invertibility is required when retrieving the reverse, or explicitly converting between push and pull mappings.
 
 An `Affine` is only a *true* statement if it carries information that the pixel sizes and translations of the Scales do not already hold.
 Resampling is not such information: a downscaled image has a larger pixel size, and that is all there is to say about it.
@@ -267,6 +357,7 @@ expansion_factor = Factor.uniform("zyx", 4.2)  # Factor here does *not* mean "do
 multiscale = multiscale.with_coordinate_system(
     "unexpanded",
     reached_by=Affine.from_factor(expansion_factor),
+    unit=multiscale.unit,  # Must provide unit; clearscale cannot infer the unit stays unchanged because of the Affine scaling 
 )
 
 # Pixel size of the image in unexpanded sample space:
@@ -293,6 +384,9 @@ image_to_world = Affine.from_array(registration_matrix, "yx")
 
 multiscale.with_coordinate_system("world", reached_by=image_to_world)
 ```
+
+This matrix is a quarter turn with a shift, so each axis is mapped to exactly one other axis and keeps its unit.
+For a rotation by any other angle the axes are mixed, and the unit of the world space has to be set with `unit=`.
 
 #### Unit conversion
 

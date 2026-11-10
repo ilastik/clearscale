@@ -1826,7 +1826,16 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         ome_zarr_axes: Optional[OmeZarrAxesParam] = "infer",
     ) -> "Multiscale":
-        """Add a coordinate system to this Multiscale's spatial context."""
+        """
+        Add a coordinate system to this Multiscale's spatial context.
+
+        `reached_by` describes how to reach the new system from this Multiscale's own space.
+        Blank axis properties of the new system are carried over from this Multiscale's axes as far as the relation
+        allows: Axes that it keeps carry everything, scaled axes everything but the unit (a scaling may or may not
+        convert units), and mixed axes only the properties that all axes they are mixed with agree on, but not the unit.
+        Set `unit` and `ome_zarr_axes` to specify others. They must not contradict the relation: A different unit or
+        type for an axis that it keeps raises ValueError, and so does a unit that its scaling does not convert to.
+        """
 
         if name == self._intrinsic_ref.name or name in self.coordinate_systems:
             raise ValueError(f"Coordinate system name {name!r} already exists on this Multiscale.")
@@ -1873,7 +1882,11 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         For changed axes, use e.g. `AxisRearrangementTo(other.axes)`.
         Axes present only in the source are inserted at coordinate 0. For a slice at z=z0, follow the
         insertion with `Translation(z=z0, ...)`. For a maximum projection, this plane is a representative position.
-        Properties carry over from the source axes that an Affine mixes only where they all agree.
+        Blank axis properties of `self` are filled from `other`'s axes, against the direction of `reached_by`:
+        Axes that the relation keeps carry everything, scaled axes everything but the unit (a scaling may or may not
+        convert units), and mixed axes only the properties that all axes they are mixed with agree on, but not the unit.
+        Properties that `self` has are kept, but must not contradict the relation: A different unit or type for an
+        axis that it keeps raises ValueError, and so does a unit that its scaling does not convert to.
 
         Transferred coordinate systems are renamed if `self` already has a system of the same name.
         """

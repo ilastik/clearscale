@@ -188,6 +188,8 @@ class Scene:
         The axis properties of the shared system (`unit`, `ome_zarr_axes`) are determined like in
         `Multiscale.with_coordinate_system`, inheriting blank fields from all connections.
         All connections must agree on properties they define for the same axis on the shared system.
+        A connection defines the properties that its relation carries to the shared system: Not the unit, if it
+        scales or mixes the axis.
 
         You can override or supply additional properties of the shared coordinate system using `unit=` and
         `ome_zarr_axes=` as in Multiscale.with_coordinate_system.
