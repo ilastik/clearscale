@@ -8,7 +8,7 @@ Use it as a guideline.
 It's dependency-free :)
 Clone the repo, `pip install -e .[dev]`, and start coding.
 
-`pre-commit install` to get black autoformat, run tests with `pytest`, typecheck with `pyright`. 
+`pre-commit install` to get black autoformat, run tests with `pytest`, typecheck with `pyright`.
 
 # Feature scope
 Planned future development ("deferred" features):
