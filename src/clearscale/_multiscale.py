@@ -378,6 +378,11 @@ class Scale:
             )
 
 
+def _require_valid_coordinate_system_name(name: object) -> None:
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"A coordinate system name must be a non-empty string. Received: {name!r}")
+
+
 def _require_non_increasing_shapes(items: Sequence[Tuple[ScaleKey, Shape]], owner: str) -> None:
     """
     All existing multiscale formats require scales to be ordered from largest to smallest (shape).
@@ -1877,7 +1882,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Set `unit` and `ome_zarr_axes` to specify others. They must not contradict the relation: A different unit or
         type for an axis that it keeps raises ValueError, and so does a unit that its scaling does not convert to.
         """
-
+        _require_valid_coordinate_system_name(name)
         if name == self._intrinsic_ref.name or name in self.coordinate_system_names:
             raise ValueError(f"Coordinate system name {name!r} already exists on this Multiscale.")
 
@@ -1943,6 +1948,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         Other transferred coordinate systems are renamed if `self` already has a system of the same name.
         """
+        if original_system_name is not None:
+            _require_valid_coordinate_system_name(original_system_name)
         relation = normalize_relations_param(reached_by)
         parent_axes = original.axes
         self_axes = self.axes

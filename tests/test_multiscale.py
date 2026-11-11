@@ -18,6 +18,7 @@ from clearscale import (
     Factor,
     ome_zarr,
 )
+from clearscale._multiscale import _require_valid_coordinate_system_name
 from clearscale._services.ome_zarr import MultiscaleProperties
 from clearscale.characterization import (
     discrete_bin_center,
@@ -93,6 +94,17 @@ class TestConstructionAxisRequirements:
 
 def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
     return CoordinateSystem(OmeZarrAxes.fromkeys(axes).with_types_inferred())._as_ref(name)
+
+
+class TestRequireValidCoordinateSystemName:
+    @pytest.mark.parametrize("name", ["a", "physical", "with space", "0", " ", "ü/-_."])
+    def test_accepts_non_empty_strings(self, name):
+        _require_valid_coordinate_system_name(name)
+
+    @pytest.mark.parametrize("name", ["", None, 0, 5, 1.5, b"a", ("a",), ["a"], object()])
+    def test_rejects_the_empty_string_and_everything_that_is_not_a_string(self, name):
+        with pytest.raises(ValueError, match="non-empty string"):
+            _require_valid_coordinate_system_name(name)
 
 
 class TestEqAndHash:
