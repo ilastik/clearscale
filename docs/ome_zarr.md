@@ -38,12 +38,12 @@ Fully supported:
 | image-label        | ✅             | ✅          | ✅     |
 | Coordinate systems | ✅             | ✅          | ✅     |
 | Transform graphs   | ✅             | ✅          | ✅     |
+| Scene              | ✅             | ✅          | ✅     |
 
 Partial support:
 
 |                | Read existing | Create new | Write | Note                                                  |
 |----------------|---------------|------------|-------|-------------------------------------------------------|
-| Scene          | ✅             | (✅)        | ✅     | Creation only through private (unstable) API          |
 | labels groups  | ✅             | (✅)        | (✅)   | Creation/writing possible but not optimized or tested |
 | HCS plates     | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only         |
 | bioformats2raw | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only         |

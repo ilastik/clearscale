@@ -39,6 +39,10 @@ In all of them, a `source` or `a` can be a Multiscale (meaning the space of its 
 Every Multiscale also needs a unique storage path relative to the group that stores the Scene.
 Applying a relation to the axes of the space it starts from must produce the axes of the space it ends in, otherwise the constructor raises.
 
+Scenes relate the specific Multiscale *instances* you pass.
+This means if you later make modified variants of the Multiscales you passed to a Scene (e.g. adding another coordinate system through `.with_coordinate_system`), or even exact copies, a Scene you made with the old instances knows nothing of the new instances.
+You would then need to make a new Scene with the new Multiscale instances.
+
 ### A pair: registration or provenance
 
 ```python
@@ -164,14 +168,78 @@ assert scene.is_fully_resolved
 
 `with_resolved` also verifies that each Multiscale you provide has the coordinate system the Scene expects at its path.
 
-`scene.multiscales` lists the Multiscales a Scene knows, in order of appearance.
-For a Scene you made yourself these are the ones you passed in; for one you read, they are the ones you have resolved so far.
+`scene.multiscales` lists the Multiscales a Scene knows, and `scene.multiscale_paths` is a read-only mapping like `{path: Multiscale}`.
+For a Scene you made yourself, both contain the paths and Multiscales you passed in.
+For a Scene you read, they contain the ones you have resolved so far.
 
-`scene.multiscale_paths` is a read-only mapping from paths to resolved Multiscales.
-Writing uses the paths supplied during construction or read from metadata:
+### Writing a Scene
+
+A Scene is stored like any other OME-Zarr object: In the attrs of a zarr group, which you get from an `OmeZarrGroup`.
+Wrap the Scene with `OmeZarrGroup.from_single` and call `to_attrs`, exactly as you would for a Multiscale:
 
 ```python
-scene_metadata = scene.to_ome_zarr(version="0.6")
+import zarr  # assuming you use zarr-python 3.*
+import clearscale as cs
 
-zarr_group.attrs.update({"ome": {"version": "0.6", "scene": scene_metadata}})
+raw_ms = (...)  # one Multiscale
+atlas_ms = (...)  # another Multiscale
+
+scene = cs.Scene.from_multiscale_pair(
+  a=raw_ms, 
+  b=atlas_ms, 
+  a_to_b=cs.Translation(y=10.0, x=20.0), 
+  a_path="raw", 
+  b_path="atlas"
+)
+
+scene_group = zarr.open_group(
+  "registration_scene.zarr", 
+  mode="w", 
+  zarr_format=3
+)
+scene_group.attrs.update(
+  cs.OmeZarrGroup
+  .from_single(scene)
+  .to_attrs(version="0.6")
+)
 ```
+
+This writes *only* the Scene's own metadata: the relations, and the Multiscale paths they refer to.
+The metadata of the Multiscales themselves, and their arrays, are zarr groups nested inside the scene group. 
+You must create them at exactly those paths, relative to the Scene's group.
+`scene.multiscale_paths` has what you need, so you can write each Multiscale the usual way, one group per path:
+
+```python
+for path, multiscale in scene.multiscale_paths.items():
+    multiscale_group = scene_group.require_group(path)
+    multiscale_group.attrs.update(
+      cs.OmeZarrGroup
+      .from_single(multiscale)
+      .to_attrs(version="0.6")
+    )
+    for scale_key in multiscale:
+        ...  # write the array for this scale at multiscale_group[scale_key]
+```
+
+For the pair above, the result looks like this:
+
+```
+registration_scene.zarr/
+├── zarr.json         <- "ome": {"version": "0.6", "scene": {...}}
+├── raw/
+│   ├── zarr.json     <- "ome": {"multiscales": [...]} of raw_ms
+│   └── s0/           <- array
+└── atlas/
+    ├── zarr.json     <- "ome": {"multiscales": [...]} of atlas_ms
+    └── s0/           <- array
+```
+
+Keep in mind:
+
+* Write the Scene and its Multiscales from the same objects (Multiscale instances).
+  The Scene refers to each Multiscale's coordinate systems by name, and a Multiscale you create without naming its coordinate system gets a generated one.
+  A Multiscale that you re-create later, even from identical parameters, has a different generated name.
+  The Scene would then no longer find its space in the metadata you wrote, and `with_resolved` rejects it when reading.
+* Use `scene.multiscale_paths` rather than writing the paths out a second time, so that the layout can't drift from the Scene's metadata.
+* A Scene whose Multiscales are not all resolved (see above) can still be written with `to_attrs`, but it can only tell you where the missing Multiscales are supposed to be (`unresolved_paths`), not write them.
+* Scenes need OME-Zarr 0.6: `to_attrs(version=...)` raises for earlier versions.
