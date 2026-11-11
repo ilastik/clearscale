@@ -9,7 +9,7 @@ clearscale supports Python 3.10 and newer and has no runtime dependencies.
 Install the 0.9.0 release candidate from PyPI:
 
 ```bash
-python -m pip install clearscale==0.9.0rc1
+pip install clearscale==0.9.0rc3
 ```
 
 ## Get started
