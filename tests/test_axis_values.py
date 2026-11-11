@@ -5,6 +5,14 @@ from typing import cast
 from clearscale import Factor, PixelOffset, PixelSize, Shape, Translation
 
 
+def test_shape_non_singleton_axes():
+    shape = Shape(c=5, x=4, t=1, y=3, z=1)
+    assert shape.non_singleton_axes() == ("c", "x", "y")
+    assert shape.non_singleton_axes("x") == ("x",)
+    shape2 = Shape(z=1, y=1, x=1)
+    assert shape2.non_singleton_axes() == ()
+
+
 def assert_axis_values(value, expected_type, expected_items):
     assert type(value) is expected_type
     assert list(value.items()) == expected_items

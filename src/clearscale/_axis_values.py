@@ -787,12 +787,13 @@ class Shape(_AxisValues[AxisKey, int]):
             shared &= set(only)
         return all(self[axis] == other[axis] for axis in shared)
 
-    def non_singleton_axes(self, axes: Optional[Axes] = None) -> List[AxisKey]:
-        """Return axes along which this Shape is singleton (value is 1).
+    def non_singleton_axes(self, axes: Optional[Axes] = None) -> Tuple[AxisKey, ...]:
+        """Return axes along which this Shape is not singleton (value is not 1).
 
-        :param axes: (Optional) Return subset of `axes` along which this Shape is singleton."""
+        Optionally: Return subset of `axes` along which this Shape is not singleton."""
         axes = axes if axes is not None else self.keys()
-        return [a for a in axes if a in self and self[a] != self._default()]
+        non_singleton = {a for a, size in self.items() if size != self._default()}
+        return tuple(a for a in axes if a in non_singleton)
 
     def scaled_by(self, factor: Union[Factor, Mapping[AxisKey, float]], *, rounding: RoundingMethod) -> "Shape":
         """
