@@ -7,12 +7,11 @@
 * Zero dependencies, pure Python
 * Compatible with Python 3.10+
 * Read OME-Zarr metadata and even Neuroglancer Precomputed (very basic support)
-* Read all OME-Zarr versions (0.1 to 0.6) using one code path - no version branching, future versions come for free
+* Read all OME-Zarr versions (0.1 to 0.6) using one code path - no specific handling per version (unless you want to)
 * Write OME-Zarr versions 0.4, 0.5 and 0.6
 * Virtually no knowledge about OME-Zarr required
 * Create, manipulate, save and load multiscale metadata
-* Make sure metadata are correct for any scaling method
-* Find out how exactly your scaling method resamples with [characterization](docs/characterization.md)
+* Find out how your scaling method resamples with [characterization](docs/characterization.md)
 * Read and write multiscale transformations into alternate [coordinate systems](docs/space.md)
 * Read and write transformations between multiscales using [scenes](docs/scene.md)
 
@@ -109,14 +108,14 @@ zarr_group = zarr.open_group(os.path.expanduser("demo-output/sweet.ome.zarr"), m
 
 ## Install
 
-`clearscale` is considered in "beta" status for a short time, with 1.0 release intended soon(TM), when we have some feedback from first users.
+`clearscale` is considered in "beta" status (0.9) for a short time, with 1.0 release intended soon(TM), when we have some feedback from first users.
 
 Please try it and let us know if you encounter anything unclear!
 
-Install the 0.9.0 release candidate from PyPI:
+Install from PyPI:
 
 ```bash
-python -m pip install clearscale==0.9.0rc1
+pip install clearscale==0.9.0
 ```
 
 Or add to your conda `env.yaml`:
@@ -125,17 +124,18 @@ Or add to your conda `env.yaml`:
 dependencies:
   - pip
   - pip:
-      - clearscale==0.9.0rc1
+      - clearscale==0.9.0
 ```
 
 Note that until we publish 1.0, the API is considered subject to change so we can ensure it "solidifies" with as much convenience and robustness as possible.
-Though we hope there won't be too many changes necessary at this point :)
+We hope there won't be too many changes necessary at this point.
 
 ## Documentation
 
 Rendered guides (OME-Zarr how-to, core concepts, metadata scaling, ...) and automatically generated API Reference are in the [clearscale documentation](https://clearscale.readthedocs.io/).
 
-The handwritten guides are also directly under [`docs/`](docs/index.md) in this repository.
+The guides are also directly under [`docs/`](docs/index.md) in the repository (on GitHub).
+[`docs/ome_zarr.md`](docs/ome_zarr.md) also contains an overview of clearscale's OME-Zarr feature coverage.
 
 ## End-to-end examples
 
@@ -246,16 +246,19 @@ Python libraries include e.g.
 [ngio](https://biovisioncenter.github.io/ngio/stable/),
 [ome-zarr-py](https://github.com/ome/ome-zarr-py), and
 [yaozarrs](https://github.com/tlambert03/yaozarrs).
-Several of these handle not only the metadata, but also data manipulation all in one.
+Several of these handle not only the metadata, but also data processing all in one.
+
+clearscale may not be the *most convenient* solution for your specific needs.
+It aims to provide a solution that works for *any* tool or script.
 
 ### Dependencies are hard
 
-But maybe you can't, or don't want to, use any of the above.
+It's not always straightforward to figure out which of the existing tools you can even use for your project:
 
-* Technical reasons (dependency conflicts)
-* Legal reasons (licensing conflicts, commercial use)
-* You already have data processing in place that you don't want to reimplement or risk adapting inefficiently.
-* You just want to minimise bloat.
+* Dependency conflicts
+* Legal conflicts (licenses, commercial use)
+* You already have data processing in place that you don't want to reimplement or risk adapting inefficiently
+* You want to minimise bloat
 
 clearscale is tiny, dependency-free, permissively licensed, and works around your existing data processing.
 
@@ -268,9 +271,10 @@ There
 [packages](https://github.com/constantinpape/z5)
 your application or script might use for reading and writing zarr data.
 Implementing data processing in an efficient, chunk-wise (shard-wise) manner is complex on its own.
-You shouldn't need to learn the OME metadata specification on top to make your datasets accessible to others, or interoperable with other tools.
 
-With clearscale, no matter how you handle zarr *data*, handling multiscale *metadata* like OME-Zarr looks the same.
+This is separate from the OME-Zarr metadata that helps with data discovery and physical properties like pixel size, making large datasets accessible to others, and interoperable with other tools.
+
+With clearscale, no matter how you handle zarr *data*, handling multiscale *metadata* looks the same.
 
 ### Custom applications
 
@@ -278,18 +282,11 @@ There are thousands of ways to scale or otherwise transform an image.
 Maybe none of the existing libraries that can write OME-Zarr implements quite what you need, so you have to roll your own.
 
 clearscale isn't tied to data processing.
-Whatever you're doing, clearscale can simplify metadata manipulation.
-
-### Should I use `clearscale` in my project right now?
-
-If you're willing to adapt to future changes in the API: Yes, please do try it!
-
-If you are looking for a stable API, please wait until the first formal release to PyPI.
-After that point, API changes will follow semver and deprecations will be avoided or give appropriate notice through DeprecationWarnings.
+Whatever you're doing, clearscale should help simplify your metadata handling.
 
 ## Contributing / Feature scope
 Any form of feedback, issues, bug reports, feature requests, pull requests and other contributions are welcome!
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) on GitHub.
 
 ## License
 
