@@ -1551,7 +1551,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return f"{type(self).__name__}(\n" + "\n".join(parts) + "\n)"
 
     def __str__(self):
-        systems = f" -> {', '.join(self.coordinate_systems)}" if self.coordinate_systems else ""
+        systems = f" -> {', '.join(self.coordinate_system_names)}" if self.coordinate_system_names else ""
         scales = "\n".join(f"  {scale.to_display_string(key)}" for key, scale in self.items())
         return f"{type(self).__name__}(\n{scales}\n){systems}"
 
@@ -1817,7 +1817,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return tuple(scaled)
 
     @cached_property
-    def coordinate_systems(self) -> Tuple[CoordinateSystemName, ...]:
+    def coordinate_system_names(self) -> Tuple[CoordinateSystemName, ...]:
         """Spaces, other than the multiscale's own, into which it can be transformed."""
         return tuple(ref.name for ref in self._transform_graph.all_system_refs if ref is not self._intrinsic_ref)
 
@@ -1878,7 +1878,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         type for an axis that it keeps raises ValueError, and so does a unit that its scaling does not convert to.
         """
 
-        if name == self._intrinsic_ref.name or name in self.coordinate_systems:
+        if name == self._intrinsic_ref.name or name in self.coordinate_system_names:
             raise ValueError(f"Coordinate system name {name!r} already exists on this Multiscale.")
 
         relation = normalize_relations_param(reached_by)
@@ -2099,7 +2099,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         """
         Derive a new Multiscale from one of this Multiscale's own scale levels.
 
-        Deriving keeps the new Multiscale in the spatial context of `self`. This means `.coordinate_systems` are
+        Deriving keeps the new Multiscale in the spatial context of `self`. This means its coordinate systems are
         transferred, and `self` becomes a coordinate system on the child.
         If `self` follows the nifti-zarr convention, this is also transferred.
 
@@ -2143,7 +2143,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         direction (`relation_from_coordinate_system` is the other direction), or it consists of transformations that
         have no SpatialRelation equivalent, such as displacement fields. Rotations, shears and flips are expressed as
         `Affine`.
-        Raises ValueError if `name` is not one of `self.coordinate_systems`.
+        Raises ValueError if `name` is not one of `self.coordinate_system_names`.
         """
         return self._relation_with_coordinate_system(name, towards_system=True)
 
@@ -2158,7 +2158,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         See `relation_to_coordinate_system` for the canonical form of the result, and when it is `SameSpace()`
         or None.
-        Raises ValueError if `name` is not one of `self.coordinate_systems`.
+        Raises ValueError if `name` is not one of `self.coordinate_system_names`.
         """
         return self._relation_with_coordinate_system(name, towards_system=False)
 
