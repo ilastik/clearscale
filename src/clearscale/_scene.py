@@ -8,7 +8,7 @@ from typing import Optional, List
 
 from clearscale._errors import CannotConvertToSpatialRelationError, MismatchingMultiscaleError
 from clearscale._axis_values import Unit
-from clearscale._multiscale import Multiscale
+from clearscale._multiscale import Multiscale, _require_valid_coordinate_system_name
 from clearscale._services.axis_properties_across_relations import (
     OmeZarrAxesParam,
     merge_ome_zarr_axes,
@@ -195,8 +195,7 @@ class Scene:
         You can override or supply additional properties of the shared coordinate system using `unit=` and
         `ome_zarr_axes=` as in Multiscale.with_coordinate_system.
         """
-        if not isinstance(coordinate_system, str) or not coordinate_system:
-            raise ValueError(f"The shared coordinate system needs a name. Received: {coordinate_system!r}")
+        _require_valid_coordinate_system_name(coordinate_system)
         entries = list(connections)
         if not entries:
             raise ValueError("Need at least one connection to a Multiscale.")

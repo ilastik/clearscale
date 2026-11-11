@@ -574,7 +574,7 @@ class TestFromSharedCoordinateSystem:
 
     @pytest.mark.parametrize("name", ["", None, 5])
     def test_rejects_invalid_shared_system_name(self, name):
-        with pytest.raises(ValueError, match="needs a name"):
+        with pytest.raises(ValueError, match="non-empty string"):
             Scene.from_shared_coordinate_system(
                 coordinate_system=name, connections=[(_multiscale(y=2, x=3), SameSpace(), "tile")]  # type: ignore[arg-type]
             )
