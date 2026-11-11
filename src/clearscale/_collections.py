@@ -14,9 +14,11 @@ from clearscale._services.ome_zarr import (
     Omero,
     InvalidObject,
 )
+from clearscale._version import __version__ as clearscale_version
 from clearscale.types import ZarrGroup, ShapeSource, Json
 
 logger = logging.getLogger(__name__)
+CLEARSCALE_SIGNATURE = {"_ome_writer": {"name": "clearscale", "version": clearscale_version}}
 
 
 class GroupKind(str, Enum):
@@ -332,9 +334,10 @@ class OmeZarrGroup:
             else:
                 raise NotImplementedError("No version of OME-Zarr currently supports collections.")
         if version == "0.4":
+            ome.update(CLEARSCALE_SIGNATURE)
             return ome
         ome["version"] = version
-        return {"ome": ome}
+        return {"ome": ome, **CLEARSCALE_SIGNATURE}
 
     def _validate_for_version(self, version: Literal["0.4", "0.5", "0.6"], override_multi_multiscales):
         assert self.kind is not None, "should skip if empty"

@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 from clearscale import Multiscale, OmeZarrGroup, ChildRef, Scene
+from clearscale._collections import CLEARSCALE_SIGNATURE
 from clearscale._services.ome_zarr import MultiscaleProperties
 
 
@@ -21,9 +22,9 @@ def test_ome_zarr_group_to_attrs_empty(version):
 @pytest.mark.parametrize(
     "version, expected",
     [
-        ("0.4", {"multiscales": [{"ms": "meta"}]}),
-        ("0.5", {"ome": {"version": "0.5", "multiscales": [{"ms": "meta"}]}}),
-        ("0.6", {"ome": {"version": "0.6", "multiscales": [{"ms": "meta"}]}}),
+        ("0.4", {"multiscales": [{"ms": "meta"}], **CLEARSCALE_SIGNATURE}),
+        ("0.5", {"ome": {"version": "0.5", "multiscales": [{"ms": "meta"}]}, **CLEARSCALE_SIGNATURE}),
+        ("0.6", {"ome": {"version": "0.6", "multiscales": [{"ms": "meta"}]}, **CLEARSCALE_SIGNATURE}),
     ],
 )
 def test_ome_zarr_group_to_attrs_multiscale(version, expected):
@@ -51,16 +52,16 @@ def test_ome_zarr_group_to_attrs_scene():
     scene.to_ome_zarr.return_value = {"scene": "meta"}
     group = OmeZarrGroup(scenes=(scene,))
     result = group.to_attrs("0.6")
-    assert result == {"ome": {"version": "0.6", "scene": {"scene": "meta"}}}
+    assert result == {"ome": {"version": "0.6", "scene": {"scene": "meta"}}, **CLEARSCALE_SIGNATURE}
     scene.to_ome_zarr.assert_called_once_with(version="0.6")
 
 
 @pytest.mark.parametrize(
     "version, expected",
     [
-        ("0.4", {"labels": ["labels/a", "labels/b"]}),
-        ("0.5", {"ome": {"version": "0.5", "labels": ["labels/a", "labels/b"]}}),
-        ("0.6", {"ome": {"version": "0.6", "labels": ["labels/a", "labels/b"]}}),
+        ("0.4", {"labels": ["labels/a", "labels/b"], **CLEARSCALE_SIGNATURE}),
+        ("0.5", {"ome": {"version": "0.5", "labels": ["labels/a", "labels/b"]}, **CLEARSCALE_SIGNATURE}),
+        ("0.6", {"ome": {"version": "0.6", "labels": ["labels/a", "labels/b"]}, **CLEARSCALE_SIGNATURE}),
     ],
 )
 def test_ome_zarr_group_to_attrs_labels(version, expected):
@@ -88,9 +89,9 @@ def test_ome_zarr_group_to_attrs_multiple_multiscales_rejected_by_default(versio
 @pytest.mark.parametrize(
     "version, expected",
     [
-        ("0.4", {"multiscales": [{"id": 0}, {"id": 1}]}),
-        ("0.5", {"ome": {"version": "0.5", "multiscales": [{"id": 0}, {"id": 1}]}}),
-        ("0.6", {"ome": {"version": "0.6", "multiscales": [{"id": 0}, {"id": 1}]}}),
+        ("0.4", {"multiscales": [{"id": 0}, {"id": 1}], **CLEARSCALE_SIGNATURE}),
+        ("0.5", {"ome": {"version": "0.5", "multiscales": [{"id": 0}, {"id": 1}]}, **CLEARSCALE_SIGNATURE}),
+        ("0.6", {"ome": {"version": "0.6", "multiscales": [{"id": 0}, {"id": 1}]}, **CLEARSCALE_SIGNATURE}),
     ],
 )
 def test_ome_zarr_group_to_attrs_multiple_multiscales_with_override(version, expected):
@@ -128,11 +129,11 @@ def test_ome_zarr_group_to_attrs_rejects_unsupported_version(version):
 def test_ome_zarr_group_to_attrs_0_4_does_not_add_group_version():
     multiscale = _mock_ms_with_to_ome_zarr({"version": "0.4", "datasets": []})
     result = OmeZarrGroup(multiscales=(multiscale,)).to_attrs("0.4")
-    assert result == {"multiscales": [{"version": "0.4", "datasets": []}]}
+    assert result == {"multiscales": [{"version": "0.4", "datasets": []}], **CLEARSCALE_SIGNATURE}
     assert "version" not in result
 
 
 def test_ome_zarr_group_to_attrs_0_5_wraps_metadata_in_ome_and_adds_group_version():
     multiscale = _mock_ms_with_to_ome_zarr({"datasets": []})
     result = OmeZarrGroup(multiscales=(multiscale,)).to_attrs("0.5")
-    assert result == {"ome": {"version": "0.5", "multiscales": [{"datasets": []}]}}
+    assert result == {"ome": {"version": "0.5", "multiscales": [{"datasets": []}]}, **CLEARSCALE_SIGNATURE}

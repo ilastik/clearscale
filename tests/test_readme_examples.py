@@ -1,3 +1,5 @@
+from clearscale._collections import CLEARSCALE_SIGNATURE
+
 from typing import Any, Dict
 from unittest.mock import Mock, MagicMock
 
@@ -43,7 +45,8 @@ def test_simple_dump_example():
                 }
             ],
             "version": "0.5",
-        }
+        },
+        **CLEARSCALE_SIGNATURE,
     }
 
     assert written == expected
@@ -256,7 +259,8 @@ def test_extract_single_scale_example():
                 ],
                 "version": "0.4",
             }
-        ]
+        ],
+        **CLEARSCALE_SIGNATURE,
     }
 
     array_mock = Mock()
