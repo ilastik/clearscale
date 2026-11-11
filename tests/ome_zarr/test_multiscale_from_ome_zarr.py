@@ -80,7 +80,7 @@ def test_from_ome_zarr_parses_valid_0_4_global_scale_as_coordinate_system():
 
     read = Multiscale.from_ome_zarr(input_metadata, shape_source=lambda path: (1, 2))
 
-    assert read.coordinate_systems == (SYNTHETIC_EXTERNAL_NAME,)
+    assert read.coordinate_system_names == (SYNTHETIC_EXTERNAL_NAME,)
 
     expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
     dangling = TransformSequence(
@@ -110,7 +110,7 @@ def test_from_ome_zarr_parses_valid_0_4_global_translation_as_coordinate_system(
 
     read = Multiscale.from_ome_zarr(input_metadata, shape_source=lambda path: (1, 2))
 
-    assert read.coordinate_systems == (SYNTHETIC_EXTERNAL_NAME,)
+    assert read.coordinate_system_names == (SYNTHETIC_EXTERNAL_NAME,)
 
     expected_base = Multiscale({"s0": Scale(shape=Shape(y=1, x=2))})
     dangling = TransformSequence(
@@ -679,7 +679,7 @@ def test_from_ome_zarr_preserves_chained_coordinate_systems():
 
     read = Multiscale.from_ome_zarr(metadata, shape_source=lambda path: (1, 2))
 
-    assert set(read.coordinate_systems) == {"world", "mm"}
+    assert set(read.coordinate_system_names) == {"world", "mm"}
     assert read.to_ome_zarr(version="0.6") == metadata
 
 

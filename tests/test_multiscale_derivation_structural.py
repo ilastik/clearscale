@@ -80,7 +80,7 @@ def test_as_derived_from_carries_source_system_per_structural_combination(source
     result = derived_ms.as_derived_from(source_ms, reached_by=to_source)
     assert len(recwarn) == 0
     if system_name is not None:
-        assert system_name in result.coordinate_systems
+        assert system_name in result.coordinate_system_names
 
 
 def test_as_derived_from_cannot_carry_over_inverted_axis_dropping_system():
@@ -97,7 +97,7 @@ def test_as_derived_from_cannot_carry_over_inverted_axis_dropping_system():
     derived_ms = _multiscale(derived_axes)
 
     result = derived_ms.as_derived_from(source_ms, reached_by=to_source)
-    assert system_name not in result.coordinate_systems
+    assert system_name not in result.coordinate_system_names
 
 
 def test_as_derived_from_preserves_derived_ms_own_existing_system():
@@ -106,8 +106,8 @@ def test_as_derived_from_preserves_derived_ms_own_existing_system():
 
     result = derived_ms.as_derived_from(source_ms, reached_by=ProjectionTo("zyx"))
 
-    assert "derived_own" in result.coordinate_systems
-    assert "system" in result.coordinate_systems
+    assert "derived_own" in result.coordinate_system_names
+    assert "system" in result.coordinate_system_names
 
 
 def test_as_derived_from_is_idempotent_when_source_intrinsic_already_connected():

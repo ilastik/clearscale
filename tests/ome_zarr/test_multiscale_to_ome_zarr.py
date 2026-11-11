@@ -233,7 +233,7 @@ class TestCoordinateSystems06:
 
         names = {s["name"] for s in result["coordinateSystems"]}
         assert names == {ms._intrinsic_ref.name, "world", "mm", "proj"}, "json export must include all"
-        assert ms.coordinate_systems == ("world", "mm", "proj"), "public API must exclude intrinsic"
+        assert ms.coordinate_system_names == ("world", "mm", "proj"), "public API must exclude intrinsic"
 
         proj_axes = [a["name"] for a in next(s for s in result["coordinateSystems"] if s["name"] == "proj")["axes"]]
         assert proj_axes == ["z", "y", "x"], "AxisRearrangementTo inserts z"
@@ -261,7 +261,7 @@ class TestCoordinateSystems06:
         assert mm_units == ["mm", "mm"]
 
         read_back = Multiscale.from_ome_zarr(result, shape_source=lambda p: (4, 4))
-        assert set(read_back.coordinate_systems) == {"world", "mm", "proj"}
+        assert set(read_back.coordinate_system_names) == {"world", "mm", "proj"}
         assert read_back == ms
         assert read_back.to_ome_zarr(version="0.6") == result
 
@@ -281,7 +281,7 @@ class TestCoordinateSystems06:
         assert names == {derived._intrinsic_ref.name, "world", "other"}
 
         read_back = Multiscale.from_ome_zarr(result, shape_source=lambda p: (2, 2, 2))
-        assert set(read_back.coordinate_systems) == {"world", "other"}
+        assert set(read_back.coordinate_system_names) == {"world", "other"}
         assert read_back == derived
         assert read_back.to_ome_zarr(version="0.6") == result
 

@@ -23,7 +23,7 @@ Every Multiscale has exactly one coordinate system of its own, its "intrinsic" s
 This is the space in which the `Scale` values are correct: `pixel_size` and `translation` tell you how array indices map to coordinates in this space.
 The intrinsic system has an automatically generated name that you normally never see or need.
 
-A Multiscale can additionally know about any number of other coordinate systems, listed in `multiscale.coordinate_systems`.
+A Multiscale can additionally know about any number of other coordinate systems, listed in `multiscale.coordinate_system_names`.
 Each of them is connected to the intrinsic system by one coordinate transformation, so coordinates can be converted between them.
 
 ### What are they for?
@@ -78,7 +78,7 @@ multiscale = multiscale.with_coordinate_system(
     unit=converted_unit,
 )
 
-assert set(multiscale.coordinate_systems) == {"stage", "millimeter"}
+assert set(multiscale.coordinate_system_names) == {"stage", "millimeter"}
 ```
 
 Things to know:
@@ -185,7 +185,7 @@ relation = result.relation_to_coordinate_system("stage")
 * It describes the same transformation as the one that was specified, but in canonical form: Relations may be merged or reordered (renamings come last), and values may differ by floating point rounding.
 * Units and other axis properties of the other coordinate system are not part of a relation. Use `coordinate_system_ome_zarr_axes(name)` for these.
 * The result is `None` if no relation expresses the connection, such as displacement fields read from OME-Zarr metadata written by other tools. Rotations, shears and flips are expressed as `Affine`. `None` is not a relation, so it cannot be passed back to `reached_by`.
-* Names that are not in `coordinate_systems` (including the Multiscale's own space) raise `ValueError`.
+* Names that are not in `coordinate_system_names` (including the Multiscale's own space) raise `ValueError`.
 
 Tools other than clearscale may write connections in the opposite direction (`"stage" -> multiscale`).
 In this case, `relation_to_coordinate_system` returns the inverse of the stored connection for invertible connections like `Translation`.

@@ -104,7 +104,7 @@ def test_relation_to_coordinate_system_inverts_as_derived_from(relation, derived
     volume = _volume()
     cube = _cube(derived_axes)
     derived_ms = cube.as_derived_from(volume, reached_by=relation)
-    (source_name,) = derived_ms.coordinate_systems
+    (source_name,) = derived_ms.coordinate_system_names
     retrieved = derived_ms.relation_to_coordinate_system(source_name)
     assert retrieved is not None
     assert retrieved.target_axes(derived_ms.axes) == volume.axes
@@ -115,7 +115,7 @@ def test_relation_to_coordinate_system_inverts_as_derived_from(relation, derived
 def test_invertible_derivation_is_retrievable_in_both_directions_when_invertible():
     volume = _volume()
     derived = _cube("zyx").as_derived_from(volume, reached_by=scaled(z=1, y=2, x=2))
-    (name,) = derived.coordinate_systems
+    (name,) = derived.coordinate_system_names
     assert derived.relation_to_coordinate_system(name) == scaled(z=1.0, y=2.0, x=2.0)
     assert derived.relation_from_coordinate_system(name) == scaled(z=1.0, y=0.5, x=0.5)
 
@@ -123,7 +123,7 @@ def test_invertible_derivation_is_retrievable_in_both_directions_when_invertible
 def test_derivation_that_drops_axes_only_has_the_to_direction():
     volume = _volume()
     derived = _plane("tzyx").as_derived_from(volume, reached_by=ProjectionTo("zyx"))
-    (name,) = derived.coordinate_systems
+    (name,) = derived.coordinate_system_names
     assert derived.relation_to_coordinate_system(name) == ProjectionTo("zyx")
     assert derived.relation_from_coordinate_system(name) is None
 
@@ -190,7 +190,7 @@ def test_legacy_global_transforms_are_retrievable_through_their_synthetic_system
         },
         shape_source="singletons",
     )
-    (name,) = ms.coordinate_systems
+    (name,) = ms.coordinate_system_names
     # Both diagonal and translation values preserve the stored push values.
     assert ms.relation_to_coordinate_system(name) == SpatialRelationSequence(
         (scaled(y=2.0, x=2.0), Translation(y=4.0, x=8.0))
@@ -200,7 +200,7 @@ def test_legacy_global_transforms_are_retrievable_through_their_synthetic_system
 def test_system_carried_over_a_dropping_derivation_is_retrievable_to_but_not_from():
     source_zyx = _volume().with_coordinate_system("stage", reached_by=Translation(z=100.0, y=250.0, x=250.0))
     result_tzyx = _plane("tzyx").as_derived_from(source_zyx, reached_by=ProjectionTo(source_zyx.axes))
-    assert "stage" in result_tzyx.coordinate_systems
+    assert "stage" in result_tzyx.coordinate_system_names
     assert result_tzyx.relation_to_coordinate_system("stage") == SpatialRelationSequence(
         (ProjectionTo("zyx"), Translation(z=100.0, y=250.0, x=250.0))
     )

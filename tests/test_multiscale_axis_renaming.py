@@ -100,7 +100,7 @@ class TestWithCoordinateSystem:
         with_renamed = ms.with_coordinate_system("renamed", reached_by=AxisRenaming(z="Z"))
         assert with_renamed.axes == ms.axes
         assert list(with_renamed["s0"].shape) == ["z", "y", "x"]
-        assert with_renamed.coordinate_systems == ("renamed",)
+        assert with_renamed.coordinate_system_names == ("renamed",)
 
     def test_renamed_coordinate_system_roundtrips_through_ome_zarr_0_6(self):
         ms = _multiscale_zyx().with_coordinate_system(
@@ -117,7 +117,7 @@ class TestWithCoordinateSystem:
         assert len(recovered_group.multiscales) == 1
 
         recovered = recovered_group.multiscales[0]
-        assert recovered.coordinate_systems == ("renamed",)
+        assert recovered.coordinate_system_names == ("renamed",)
         assert list(recovered.coordinate_system_ome_zarr_axes("renamed")) == ["Z", "y", "x"]
 
 

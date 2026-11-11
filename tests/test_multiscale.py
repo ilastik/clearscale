@@ -693,7 +693,7 @@ def test_multiscale_ome_properties_separate_across_instances():
 
 def test_multiscale_coordinate_systems_empty_by_default():
     ms = _multiscale()
-    assert ms.coordinate_systems == ()
+    assert ms.coordinate_system_names == ()
 
 
 def _with_intrinsic_system_name(ms: Multiscale, name: str) -> Multiscale:
@@ -711,7 +711,7 @@ def _with_extra_system(ms: Multiscale, name: str) -> Multiscale:
 
 def test_multiscale_coordinate_systems_does_not_contain_own_intrinsic():
     ms = _with_extra_system(_multiscale(), "world")
-    assert ms.coordinate_systems == ("world",)
+    assert ms.coordinate_system_names == ("world",)
 
 
 class TestMultiscaleAsDerivedFrom:
@@ -723,7 +723,7 @@ class TestMultiscaleAsDerivedFrom:
 
         assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
-        assert "world" in result.coordinate_systems
+        assert "world" in result.coordinate_system_names
 
     def test_does_not_accumulate_on_repetition(self):
         source_ms = _with_extra_system(_multiscale(), "world")
@@ -734,7 +734,7 @@ class TestMultiscaleAsDerivedFrom:
         assert source_ms._intrinsic_ref not in derived_ms._transform_graph.all_system_refs
         assert middle_ms._intrinsic_ref not in derived_ms._transform_graph.all_system_refs
         assert len(derived_ms._transform_graph.transforms) == len(middle_ms._transform_graph.transforms) == 1
-        assert "world" in derived_ms.coordinate_systems
+        assert "world" in derived_ms.coordinate_system_names
 
     def test_preserves_existing_systems_on_caller(self):
         caller_ms = _with_extra_system(_multiscale(), "caller_space")
@@ -742,8 +742,8 @@ class TestMultiscaleAsDerivedFrom:
 
         result = caller_ms.as_derived_from(donor_ms)
 
-        assert "caller_space" in result.coordinate_systems
-        assert "world" in result.coordinate_systems
+        assert "caller_space" in result.coordinate_system_names
+        assert "world" in result.coordinate_system_names
 
     def test_preserves_caller_on_noop(self):
         caller_ms = _with_extra_system(_multiscale(), "only_space")
@@ -767,7 +767,7 @@ class TestMultiscaleAsDerivedFrom:
         derived_ms = _multiscale()
         result = derived_ms.as_derived_from(source_ms)
 
-        assert "world" in result.coordinate_systems
+        assert "world" in result.coordinate_system_names
         assert len(result._transform_graph.transforms) == 1
         non_coordinate_system_bound = [
             t
@@ -820,7 +820,7 @@ class TestMultiscaleAsDerivedFrom:
 
         assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
-        assert "world" in result.coordinate_systems
+        assert "world" in result.coordinate_system_names
 
     def test_with_system_transferred_by_derivation_retains_other(self):
         source_ms = _with_extra_system(_multiscale(), "world")
@@ -830,7 +830,7 @@ class TestMultiscaleAsDerivedFrom:
 
         assert source_ms._intrinsic_ref in result._transform_graph.all_system_refs
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
-        assert "world" in result.coordinate_systems
+        assert "world" in result.coordinate_system_names
 
     def test_with_no_system_transferred_but_derivation_retains_other(self):
         source_ms = _multiscale()
@@ -850,7 +850,7 @@ class TestMultiscaleAsDerivedFrom:
         assert len(result._transform_graph.all_system_refs) == 2
         assert derived_ms._intrinsic_ref in result._transform_graph.all_system_refs
         assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
-        assert result.coordinate_systems == ("physical-1",)
+        assert result.coordinate_system_names == ("physical-1",)
 
     def test_with_derivation_renames_duplicate_intrinsic_system_name_and_carries_systems(self):
         derived_ms = _with_intrinsic_system_name(_multiscale(), "physical")
@@ -859,7 +859,7 @@ class TestMultiscaleAsDerivedFrom:
 
         result = derived_ms.as_derived_from(source_ms, reached_by=relation)
 
-        assert set(result.coordinate_systems) == {"physical-1", "world"}
+        assert set(result.coordinate_system_names) == {"physical-1", "world"}
         assert result.relation_to_coordinate_system("physical-1") == relation
         assert result.relation_to_coordinate_system("world") == relation
 
@@ -871,7 +871,7 @@ class TestMultiscaleAsDerivedFrom:
 
         result = derived_ms.as_derived_from(source_ms, original_system_name="source", **kwargs)
 
-        assert set(result.coordinate_systems) == {"source", "world"}
+        assert set(result.coordinate_system_names) == {"source", "world"}
         assert result.relation_to_coordinate_system("source") == SameSpace()
         assert result.coordinate_system_ome_zarr_axes("source") == source_ms.ome_zarr_axes
 
@@ -881,7 +881,7 @@ class TestMultiscaleAsDerivedFrom:
         once = _multiscale().as_derived_from(source_ms, original_system_name="source")
         twice = once.as_derived_from(source_ms, original_system_name="source")
 
-        assert twice.coordinate_systems == ("source",)
+        assert twice.coordinate_system_names == ("source",)
         assert len(twice._transform_graph.transforms) == 1
 
     def test_original_system_name_rejects_clash_with_own_system(self):
@@ -908,7 +908,7 @@ class TestMultiscaleAsDerivedFrom:
 
         result = _multiscale().as_derived_from(source_ms, original_system_name="world")
 
-        assert set(result.coordinate_systems) == {"world", "world-1"}
+        assert set(result.coordinate_system_names) == {"world", "world-1"}
         assert result.coordinate_system_ome_zarr_axes("world") == source_ms.ome_zarr_axes
         assert result.relation_to_coordinate_system("world") == SameSpace()
 
@@ -918,8 +918,8 @@ class TestMultiscaleAsDerivedFrom:
 
         result = caller_ms.as_derived_from(donor_ms)
 
-        assert "world" in result.coordinate_systems
-        assert "world-1" in result.coordinate_systems
+        assert "world" in result.coordinate_system_names
+        assert "world-1" in result.coordinate_system_names
         assert donor_ms._intrinsic_ref not in result._transform_graph.all_system_refs
 
     def test_rejects_differing_axes_without_derivation(self):
@@ -988,7 +988,7 @@ class TestMultiscaleAsDerivedFrom:
 
         result = derived_ms.as_derived_from(source_ms, reached_by=relations)
 
-        assert "world" in result.coordinate_systems
+        assert "world" in result.coordinate_system_names
         world_refs = tuple(ref for ref in source_ms._transform_graph.all_system_refs if ref.name == "world")
         assert len(world_refs) == 1, "names must be unique inside the graph"
         world = next(iter(world_refs))
@@ -1045,7 +1045,7 @@ class TestMultiscaleWithCoordinateSystem:
         result = ms.with_coordinate_system("world")
 
         assert result is not ms
-        assert "world" in result.coordinate_systems
+        assert "world" in result.coordinate_system_names
         world_refs = [ref for ref in result._transform_graph.all_system_refs if ref.name == "world"]
         assert len(world_refs) == 1
         world = world_refs[0]
@@ -1103,9 +1103,9 @@ class TestMultiscaleWithCoordinateSystem:
             "second", reached_by=Affine.from_factor({"z": 0.5, "y": 0.5, "x": 0.5})
         )
 
-        assert "first" not in original.coordinate_systems
+        assert "first" not in original.coordinate_system_names
         assert not original._transform_graph.transforms
-        assert set(with_both.coordinate_systems) == {"first", "second"}
+        assert set(with_both.coordinate_system_names) == {"first", "second"}
         assert len(with_both._transform_graph.transforms) == 2
         assert with_first._transform_graph.transforms[0] in with_both._transform_graph.transforms
 
@@ -1120,7 +1120,7 @@ class TestMultiscaleWithCoordinateSystem:
 
     def test_accepts_untyped_extra_axes_alongside_two_space_axes(self):
         ms = _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("iyx"))
-        assert ms.coordinate_systems == ("w",)
+        assert ms.coordinate_system_names == ("w",)
 
     def test_rejects_too_few_axes(self):
         with pytest.raises(ValueError, match="2 to 5 axes, but coordinate system 'w'"):
