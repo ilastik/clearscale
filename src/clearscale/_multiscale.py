@@ -1789,7 +1789,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     def ome_zarr_axes(self) -> OmeZarrAxes:
         return OmeZarrAxes(self._intrinsic_ref.owner)
 
-    def coordinate_system_ome_zarr_axes(self, name: str) -> OmeZarrAxes:
+    def coordinate_system_ome_zarr_axes(self, name: CoordinateSystemName) -> OmeZarrAxes:
         """Return axis properties of the coordinate system named `name`"""
         refs = self._transform_graph.all_system_refs
         matching = [ref for ref in refs if ref.name == name and ref is not self._intrinsic_ref]
@@ -1817,7 +1817,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return tuple(scaled)
 
     @cached_property
-    def coordinate_systems(self) -> Tuple[str, ...]:
+    def coordinate_systems(self) -> Tuple[CoordinateSystemName, ...]:
         """Spaces, other than the multiscale's own, into which it can be transformed."""
         return tuple(ref.name for ref in self._transform_graph.all_system_refs if ref is not self._intrinsic_ref)
 
@@ -1860,7 +1860,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     def with_coordinate_system(
         self,
-        name: str,
+        name: CoordinateSystemName,
         *,
         reached_by: RelationsParam = SameSpace(),
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
@@ -1918,7 +1918,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         original: "Multiscale",
         *,
         reached_by: RelationsParam = SameSpace(),
-        original_system_name: Optional[str] = None,
+        original_system_name: Optional[CoordinateSystemName] = None,
     ) -> "Multiscale":
         """
         Transfer `self` into the spatial context of `original`, carrying over axis properties, coordinate systems and
@@ -2126,7 +2126,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         new_ms.has_shapes = self.has_shapes or blueprint is not None
         return new_ms.as_derived_from(self)
 
-    def relation_to_coordinate_system(self, name: str) -> Optional[SpatialRelation]:
+    def relation_to_coordinate_system(self, name: CoordinateSystemName) -> Optional[SpatialRelation]:
         """
         The spatial relation that describes how the coordinate system `name` is reached from this Multiscale's own
         space: `self --relation--> name`.
@@ -2147,7 +2147,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         """
         return self._relation_with_coordinate_system(name, towards_system=True)
 
-    def relation_from_coordinate_system(self, name: str) -> Optional[SpatialRelation]:
+    def relation_from_coordinate_system(self, name: CoordinateSystemName) -> Optional[SpatialRelation]:
         """
         The spatial relation that describes how this Multiscale is reached from the coordinate system `name`:
         `name --relation--> self`.
@@ -2282,7 +2282,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         """
         return self._as_ref(self._intrinsic_ref.name)
 
-    def _relation_with_coordinate_system(self, name: str, *, towards_system: bool) -> Optional[SpatialRelation]:
+    def _relation_with_coordinate_system(
+        self, name: CoordinateSystemName, *, towards_system: bool
+    ) -> Optional[SpatialRelation]:
         matches = [ref for ref in self._transform_graph.all_system_refs if ref.name == name]
         satellites = [ref for ref in matches if ref is not self._intrinsic_ref]
         if not satellites:

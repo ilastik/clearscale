@@ -31,10 +31,9 @@ from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscal
 from clearscale._services.matrices import AxisIndices
 from clearscale._services.units import is_same_unit
 from clearscale._services.axis_links import AxisLink, AxisLinks
-from clearscale.types import Json
+from clearscale.types import Json, CoordinateSystemName
 
 RelativePath = str  # 0.6: scene["coordinateTransformations"][]["input"]["path"]
-CoordinateSystemName = str  # str from ["input"]["name"]
 NodesByPath = Mapping[RelativePath, "TransformGraphNode"]
 TransformGraphNodeT = TypeVar("TransformGraphNodeT", bound="TransformGraphNode", covariant=True)
 _TransformSelf = TypeVar("_TransformSelf", bound="Transform")

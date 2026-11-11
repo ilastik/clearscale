@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from clearscale._axis_values import Factor, PixelSize, Shape, Translation
     from clearscale._multiscale import Scale
 
+CoordinateSystemName: TypeAlias = str
+"""The name of a coordinate system, unique within the Multiscale or Scene that has it."""
 AxisKey = Hashable
 AxisKeyT = TypeVar("AxisKeyT", bound=AxisKey)
 AxisKeyT_co = TypeVar("AxisKeyT_co", bound=AxisKey, covariant=True)
@@ -99,6 +101,7 @@ class ZarrGroup(ShapeSourceMap, Protocol):
 
 
 __all__ = [
+    "CoordinateSystemName",
     "AxisKey",
     "AxisKeyT",
     "AxisKeyT_co",
