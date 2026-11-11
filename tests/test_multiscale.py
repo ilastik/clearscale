@@ -863,6 +863,55 @@ class TestMultiscaleAsDerivedFrom:
         assert result.relation_to_coordinate_system("physical-1") == relation
         assert result.relation_to_coordinate_system("world") == relation
 
+    @pytest.mark.parametrize("use_affine", [False, True], ids=["SameSpace", "identity_affine"])
+    def test_original_system_name_keeps_original_system_under_given_name(self, use_affine):
+        source_ms = _with_extra_system(_multiscale(), "world")
+        derived_ms = _multiscale()
+        kwargs = {"reached_by": Affine.identity(derived_ms.axes)} if use_affine else {}
+
+        result = derived_ms.as_derived_from(source_ms, original_system_name="source", **kwargs)
+
+        assert set(result.coordinate_systems) == {"source", "world"}
+        assert result.relation_to_coordinate_system("source") == SameSpace()
+        assert result.coordinate_system_ome_zarr_axes("source") == source_ms.ome_zarr_axes
+
+    def test_original_system_name_is_idempotent_for_same_name(self):
+        source_ms = _multiscale()
+
+        once = _multiscale().as_derived_from(source_ms, original_system_name="source")
+        twice = once.as_derived_from(source_ms, original_system_name="source")
+
+        assert twice.coordinate_systems == ("source",)
+        assert len(twice._transform_graph.transforms) == 1
+
+    def test_original_system_name_rejects_clash_with_own_system(self):
+        caller_ms = _with_extra_system(_multiscale(), "taken")
+
+        with pytest.raises(ValueError, match="already has a coordinate system by that name"):
+            caller_ms.as_derived_from(_multiscale(), original_system_name="taken")
+
+    def test_original_system_name_rejects_clash_with_own_intrinsic_name(self):
+        caller_ms = _with_intrinsic_system_name(_multiscale(), "physical")
+
+        with pytest.raises(ValueError, match="already has a coordinate system by that name"):
+            caller_ms.as_derived_from(_multiscale(), original_system_name="physical")
+
+    def test_original_system_name_rejects_renaming_already_held_original(self):
+        source_ms = _multiscale()
+        once = _multiscale().as_derived_from(source_ms, original_system_name="source")
+
+        with pytest.raises(ValueError, match="under another name"):
+            once.as_derived_from(source_ms, original_system_name="other")
+
+    def test_original_system_name_wins_over_carried_system_of_same_name(self):
+        source_ms = _with_extra_system(_multiscale(), "world")
+
+        result = _multiscale().as_derived_from(source_ms, original_system_name="world")
+
+        assert set(result.coordinate_systems) == {"world", "world-1"}
+        assert result.coordinate_system_ome_zarr_axes("world") == source_ms.ome_zarr_axes
+        assert result.relation_to_coordinate_system("world") == SameSpace()
+
     def test_retains_identically_named_but_distinct_external_systems(self):
         caller_ms = _with_extra_system(_multiscale(), "world")
         donor_ms = _with_extra_system(_multiscale(), "world")

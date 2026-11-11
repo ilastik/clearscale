@@ -1913,7 +1913,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
         )
 
-    def as_derived_from(self, original: "Multiscale", *, reached_by: RelationsParam = SameSpace()) -> "Multiscale":
+    def as_derived_from(
+        self,
+        original: "Multiscale",
+        *,
+        reached_by: RelationsParam = SameSpace(),
+        original_system_name: Optional[str] = None,
+    ) -> "Multiscale":
         """
         Transfer `self` into the spatial context of `original`, carrying over axis properties, coordinate systems and
         serialization convention.
@@ -1929,7 +1935,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Properties that `self` has are kept, but must not contradict the relation: A different unit or type for an
         axis that it keeps raises ValueError, and so does a unit that its scaling does not convert to.
 
-        Transferred coordinate systems are renamed if `self` already has a system of the same name.
+        `original_system_name`: Optionally, the name under which to keep `original`'s own coordinate system on the
+        result. Without it, that system is kept only if `reached_by` is not the identity, under an auto-generated name.
+        With it, it is kept under this name even if `reached_by` is the identity (`SameSpace`).
+        Raises ValueError if `self` already has a coordinate system of that name, or already holds `original`'s
+        coordinate system under another name.
+
+        Other transferred coordinate systems are renamed if `self` already has a system of the same name.
         """
         relation = normalize_relations_param(reached_by)
         parent_axes = original.axes
@@ -1989,9 +2001,22 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         unchanged_t_scale = transferred_global_t_scale == self._legacy_convention_global_t_scale
 
         existing_refs = list(transform_graph.all_system_refs)
-        other_unique = self._find_or_make_unique_ref(
-            original._intrinsic_ref.owner, original._intrinsic_ref.name, existing_refs
-        )
+        if original_system_name is None:
+            other_unique = self._find_or_make_unique_ref(
+                original._intrinsic_ref.owner, original._intrinsic_ref.name, existing_refs
+            )
+        else:
+            existing_other = next((ref for ref in existing_refs if ref.owner is original._intrinsic_ref.owner), None)
+            if existing_other is not None and existing_other.name == original_system_name:
+                other_unique = existing_other
+            elif existing_other is not None or original_system_name in {ref.name for ref in existing_refs}:
+                raise ValueError(
+                    f"Cannot keep the coordinate system of `original` under the name {original_system_name!r}: "
+                    f"this Multiscale already has a coordinate system by that name, or already holds `original`'s "
+                    f"under another name. Existing: {[ref.name for ref in existing_refs]}."
+                )
+            else:
+                other_unique = original._intrinsic_ref.owner._as_ref(original_system_name)
         # Bound to original ref for correct chaining
         reached_by_t = relation_to_transform_canonic(relation, self_axes).bound(
             source=intrinsic_ref, target=original._intrinsic_ref
@@ -2040,7 +2065,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     existing_refs.append(resolved_ref)
                     to_merge_list.append(edge)
 
-        if not isinstance(relation, SameSpace):
+        if not isinstance(relation, SameSpace) or original_system_name is not None:
             reached_by_t_standalone = reached_by_t.bound(source=intrinsic_ref, target=other_unique)
             if reached_by_t_standalone not in transform_graph.transforms + tuple(to_merge_list):
                 to_merge_list.append(reached_by_t_standalone)
