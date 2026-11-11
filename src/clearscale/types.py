@@ -35,8 +35,8 @@ class _Ordered(Protocol[AxisKeyT_co]):
 
 
 OrderedAxes = _Ordered[AxisKey]
-ShapeLike = Union["Shape", Mapping[AxisKeyT, int]]
-FactorLike = Union["Factor", Mapping[AxisKeyT, float]]
+ShapeLike = Union["Shape[AxisKeyT]", Mapping[AxisKeyT, int]]
+FactorLike = Union["Factor[AxisKeyT]", Mapping[AxisKeyT, float]]
 TranslationShiftFunction = Callable[["Scale", "Scale"], "Translation"]
 """
 base_scale: the reference scale being transformed from

@@ -238,8 +238,8 @@ def _require_identical_axes(left: Iterable[AxisKey], right: Iterable[AxisKey]) -
 
 
 def _require_axes_present(
-    container: Mapping[AxisKey, object],
-    required: Mapping[AxisKey, object],
+    container: Collection[AxisKey],
+    required: Collection[AxisKey],
     *,
     container_name: str,
     required_name: str,
@@ -275,7 +275,7 @@ def _normalize_rounding(rounding: RoundingMethod) -> RoundingFunction:
     return rounding
 
 
-class _AxisFloats(_AxisValues[AxisKey, float], ABC):
+class _AxisFloats(_AxisValues[AxisKeyT, float], ABC):
     """
     Base for Scaling, Resolution and Translation. Ensures values are floats.
     """
@@ -290,7 +290,7 @@ class _AxisFloats(_AxisValues[AxisKey, float], ABC):
                 raise TypeError(f"All values must be float. Got {type(value).__name__} for axis '{axis}'.")
 
 
-class Factor(_AxisFloats):
+class Factor(_AxisFloats[AxisKeyT]):
     """
     Describes relative scaling factors from some shape to another.
     The values are in units of "raw pixels per scaled pixel".
@@ -305,7 +305,7 @@ class Factor(_AxisFloats):
     def _default(cls) -> float:
         return 1.0
 
-    def with_axes(self, axes: OrderedAxes) -> "Factor":
+    def with_axes(self, axes: OrderedAxesT) -> "Factor[AxisKeyT]":
         """
         Reorder to `axes`.
 
@@ -319,7 +319,7 @@ class Factor(_AxisFloats):
         return super().with_axes(axes)
 
     @classmethod
-    def identity(cls, axes: OrderedAxes) -> "Factor":
+    def identity(cls, axes: OrderedAxesT) -> "Factor[AxisKeyT]":
         """Create a new identity Scaling (1.0 along all axes) with `axes`."""
         return super().fromkeys(axes)
 
@@ -330,7 +330,7 @@ class Factor(_AxisFloats):
                 raise ValueError(f"Scaling factor cannot be 0 or negative (got {value} for axis '{axis}').")
 
     @classmethod
-    def uniform(cls, axes: OrderedAxes, factor: Scalar) -> "Factor":
+    def uniform(cls, axes: OrderedAxesT, factor: Scalar) -> "Factor[AxisKeyT]":
         """Create a new Scaling with `axes` and all values being `factor`."""
         return Factor(zip(axes, [factor] * len(axes)))
 
@@ -352,15 +352,17 @@ class Factor(_AxisFloats):
         return math.prod(self.values()) < 1
 
     @overload
-    def __mul__(self, other: "Factor") -> "Factor": ...
+    def __mul__(self, other: "Factor[AxisKeyT]") -> "Factor[AxisKeyT]": ...
 
     @overload
-    def __mul__(self, other: "PixelSize") -> "PixelSize": ...
+    def __mul__(self, other: "PixelSize[AxisKeyT]") -> "PixelSize[AxisKeyT]": ...
 
     @overload
-    def __mul__(self, other: "Translation") -> "Translation": ...
+    def __mul__(self, other: "Translation[AxisKeyT]") -> "Translation[AxisKeyT]": ...
 
-    def __mul__(self, other: object) -> Union["Factor", "PixelSize", "Translation", NotImplementedType]:
+    def __mul__(
+        self, other: object
+    ) -> Union["Factor[AxisKeyT]", "PixelSize[AxisKeyT]", "Translation[AxisKeyT]", NotImplementedType]:
         if isinstance(other, Factor):
             _require_identical_axes(self, other)
             return Factor((a, self[a] * other[a]) for a in self)
@@ -370,26 +372,26 @@ class Factor(_AxisFloats):
             return other.scaled_by(self)
         return NotImplemented
 
-    def __truediv__(self, other: object) -> Union["Factor", NotImplementedType]:
+    def __truediv__(self, other: object) -> Union["Factor[AxisKeyT]", NotImplementedType]:
         if not isinstance(other, Factor):
             return NotImplemented
         _require_identical_axes(self, other)
         return Factor((a, self[a] / other[a]) for a in self)
 
-    def with_identity(self, axes: Axes) -> "Factor":
+    def with_identity(self, axes: Axes) -> "Factor[AxisKeyT]":
         """Reset the values for `axes` to 1.0."""
         return super().with_default(axes)
 
-    def with_identity_except(self, axes: Axes) -> "Factor":
+    def with_identity_except(self, axes: Axes) -> "Factor[AxisKeyT]":
         """Reset the values for all axes except `axes` to 1.0."""
         return super().with_default_except(axes)
 
-    def inverted(self) -> "Factor":
+    def inverted(self) -> "Factor[AxisKeyT]":
         """Axis-wise 1/factor."""
         inverted_items = [(a, 1 / self[a]) for a in self]
         return self.__class__(inverted_items)
 
-    def to_physical(self, base: "PixelSize") -> "PixelSize":
+    def to_physical(self, base: "PixelSize[AxisKeyT]") -> "PixelSize[AxisKeyT]":
         """
         Convert relative scaling factor to absolute physical pixel size.
         Identical to base.scaled_by(self).
@@ -397,7 +399,7 @@ class Factor(_AxisFloats):
         return PixelSize(base).scaled_by(self)
 
 
-class PixelSize(_AxisFloats):
+class PixelSize(_AxisFloats[AxisKeyT]):
     """
     Describes absolute scaling factors, i.e. physical pixel size.
     The values are in "units (e.g. nanometer) per pixel".
@@ -408,12 +410,12 @@ class PixelSize(_AxisFloats):
         return 1.0
 
     @classmethod
-    def identity(cls, axes: OrderedAxes) -> "PixelSize":
+    def identity(cls, axes: OrderedAxesT) -> "PixelSize[AxisKeyT]":
         """Create a new identity PixelSize (1.0 along all axes) with `axes`."""
         return super().fromkeys(axes)
 
     @classmethod
-    def from_vigra(cls, vigra_axistags: Any) -> "PixelSize":
+    def from_vigra(cls, vigra_axistags: Any) -> "PixelSize[AxisKeyT]":
         """Extract AxisInfo.resolution from the provided `vigra.AxisTags`"""
         vigra_default_resolution = 0.0
         axes = []
@@ -433,11 +435,11 @@ class PixelSize(_AxisFloats):
         """True if this PixelSize is the unit size (1.0 along all axes)."""
         return super().is_default()
 
-    def with_identity(self, axes: Axes) -> "PixelSize":
+    def with_identity(self, axes: Axes) -> "PixelSize[AxisKeyT]":
         """Reset the values for `axes` to 1.0."""
         return super().with_default(axes)
 
-    def with_identity_except(self, axes: Axes) -> "PixelSize":
+    def with_identity_except(self, axes: Axes) -> "PixelSize[AxisKeyT]":
         """Reset the values for all axes except `axes` to 1.0."""
         return super().with_default_except(axes)
 
@@ -461,7 +463,7 @@ class PixelSize(_AxisFloats):
                 tags.setResolution(tag.key, self[tag.key])
         return tags
 
-    def scaled_by(self, factor: Union[Factor, Mapping[AxisKey, float], Scalar]) -> "PixelSize":
+    def scaled_by(self, factor: Union[Factor[AxisKeyT], Mapping[AxisKeyT, float], Scalar]) -> "PixelSize[AxisKeyT]":
         """
         Scale this PixelSize by factor to obtain a scaled PixelSize.
         This is an axis-wise operation:
@@ -488,14 +490,14 @@ class PixelSize(_AxisFloats):
         scaled_items = [(a, reordered[a] * self[a]) for a in self]
         return PixelSize(scaled_items)
 
-    def __mul__(self, other: object) -> Union["PixelSize", "Translation", NotImplementedType]:
+    def __mul__(self, other: object) -> Union["PixelSize[AxisKeyT]", "Translation[AxisKeyT]", NotImplementedType]:
         if isinstance(other, Factor):
             return self.scaled_by(other)
         if isinstance(other, PixelOffset):
             return other.to_physical(self)
         return NotImplemented
 
-    def __truediv__(self, other: object) -> Union["PixelSize", "Factor", NotImplementedType]:
+    def __truediv__(self, other: object) -> Union["PixelSize[AxisKeyT]", "Factor[AxisKeyT]", NotImplementedType]:
         if isinstance(other, Factor):
             return self.scaled_by(other.inverted())
         if isinstance(other, PixelSize):
@@ -504,7 +506,7 @@ class PixelSize(_AxisFloats):
         return NotImplemented
 
 
-class Translation(_AxisFloats, SpatialRelation):
+class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
     """
     Describes a shift in physical units.
     As a spatial relation, it can express e.g. a crop offset. Don't also put such an offset into `Scale.translation`.
@@ -514,7 +516,7 @@ class Translation(_AxisFloats, SpatialRelation):
     def _default(cls) -> float:
         return 0.0
 
-    def with_axes(self, axes: OrderedAxes) -> "Translation":
+    def with_axes(self, axes: OrderedAxesT) -> "Translation[AxisKeyT]":
         """
         Reorder to `axes`.
 
@@ -535,7 +537,7 @@ class Translation(_AxisFloats, SpatialRelation):
         return AxisLinks.identity(self.target_axes(source_axes))
 
     @classmethod
-    def identity(cls, axes: OrderedAxes) -> "Translation":
+    def identity(cls, axes: OrderedAxesT) -> "Translation[AxisKeyT]":
         """Create a new identity Translation (0.0 along all axes) with `axes`."""
         return super().fromkeys(axes)
 
@@ -549,42 +551,42 @@ class Translation(_AxisFloats, SpatialRelation):
             return True
         return self.with_axes(axes).is_identity()
 
-    def __add__(self, other: object) -> Union["Translation", NotImplementedType]:
+    def __add__(self, other: object) -> Union["Translation[AxisKeyT]", NotImplementedType]:
         if not isinstance(other, Translation):
             return NotImplemented
         _require_identical_axes(self, other)
         return Translation((a, self[a] + other[a]) for a in self)
 
-    def __sub__(self, other: object) -> Union["Translation", NotImplementedType]:
+    def __sub__(self, other: object) -> Union["Translation[AxisKeyT]", NotImplementedType]:
         if not isinstance(other, Translation):
             return NotImplemented
         _require_identical_axes(self, other)
         return Translation((a, self[a] - other[a]) for a in self)
 
-    def __mul__(self, other: object) -> Union["Translation", NotImplementedType]:
+    def __mul__(self, other: object) -> Union["Translation[AxisKeyT]", NotImplementedType]:
         if isinstance(other, Factor):
             return self.scaled_by(other)
         return NotImplemented
 
-    def __truediv__(self, other: object) -> Union["Translation", NotImplementedType]:
+    def __truediv__(self, other: object) -> Union["Translation[AxisKeyT]", NotImplementedType]:
         if isinstance(other, Factor):
             return self.scaled_by(other.inverted())
         return NotImplemented
 
-    def with_identity(self, axes: Axes) -> "Translation":
+    def with_identity(self, axes: Axes) -> "Translation[AxisKeyT]":
         """Reset the values for `axes` to 0.0."""
         return super().with_default(axes)
 
-    def with_identity_except(self, axes: Axes) -> "Translation":
+    def with_identity_except(self, axes: Axes) -> "Translation[AxisKeyT]":
         """Reset the values for all axes except `axes` to 0.0."""
         return super().with_default_except(axes)
 
-    def inverted(self) -> "Translation":
+    def inverted(self) -> "Translation[AxisKeyT]":
         """Axis-wise translation * -1."""
         inverted_items = [(a, -self[a]) for a in self]
         return self.__class__(inverted_items)
 
-    def scaled_by(self, factor: Union[Factor, Mapping[AxisKey, float], Scalar]) -> "Translation":
+    def scaled_by(self, factor: Union[Factor[AxisKeyT], Mapping[AxisKeyT, float], Scalar]) -> "Translation[AxisKeyT]":
         """
         Scale this Translation by factor to obtain a scaled Translation.
         This is an axis-wise operation:
@@ -614,10 +616,10 @@ class Translation(_AxisFloats, SpatialRelation):
 
     def to_pixel_offset(
         self,
-        pixel_size: Union[PixelSize, Mapping[AxisKey, float]],
+        pixel_size: Union[PixelSize[AxisKeyT], Mapping[AxisKeyT, float]],
         *,
         rounding: RoundingMethod,
-    ) -> "PixelOffset":
+    ) -> "PixelOffset[AxisKeyT]":
         """
         Convert this Translation from physical units to a PixelOffset.
 
@@ -628,7 +630,7 @@ class Translation(_AxisFloats, SpatialRelation):
         return PixelOffset((a, rounding(self[a] / pixel_size[a])) for a in self)
 
 
-class Unit(_AxisValues[AxisKey, str]):
+class Unit(_AxisValues[AxisKeyT, str]):
     """
     Describes the physical units of the image's axes.
     Together with a PixelSize, this can form a complete pixel size description.
@@ -646,7 +648,7 @@ class Unit(_AxisValues[AxisKey, str]):
             if not isinstance(value, str):
                 raise TypeError(f"All values must be strings. Got {type(value).__name__} for axis '{axis}'.")
 
-    def with_axes(self, axes: OrderedAxes) -> "Unit":
+    def with_axes(self, axes: OrderedAxesT) -> "Unit[AxisKeyT]":
         """
         Reorder to `axes`.
 
@@ -660,18 +662,18 @@ class Unit(_AxisValues[AxisKey, str]):
         return super().with_axes(axes)
 
     @classmethod
-    def empty(cls, axes: OrderedAxes) -> "Unit":
+    def empty(cls, axes: OrderedAxesT) -> "Unit[AxisKeyT]":
         """Create a new Unit with `axes` and empty string values."""
         return super().fromkeys(axes)
 
-    def normalized(self) -> "Unit":
+    def normalized(self) -> "Unit[AxisKeyT]":
         """
         The same Unit with every recognized unit spelled as OME-Zarr names it: "nm", "um" and "micron" become
         "nanometer", "micrometer" and "micrometer". Unrecognized and unspecified units are left as they are.
         """
         return self.__class__((axis, units.normalized_unit(unit)) for axis, unit in self.items())
 
-    def abbreviated(self) -> "Unit":
+    def abbreviated(self) -> "Unit[AxisKeyT]":
         """
         The same Unit with every recognized unit as its standard short symbol, e.g. for display:
         "nanometer" becomes "nm", "micron" becomes "\u00b5m" (with the micro sign U+00B5), "minute" becomes "min".
@@ -681,7 +683,7 @@ class Unit(_AxisValues[AxisKey, str]):
         return self.__class__((axis, units.abbreviated_unit(unit)) for axis, unit in self.items())
 
 
-class PixelOffset(_AxisValues[AxisKey, int]):
+class PixelOffset(_AxisValues[AxisKeyT, int]):
     """
     Describes the number of pixels of distance from some reference point to another.
     """
@@ -697,7 +699,7 @@ class PixelOffset(_AxisValues[AxisKey, int]):
                 raise TypeError(f"All values must be integer. Got {type(value).__name__} for axis '{axis}'.")
             self._mapping[axis] = int(value)
 
-    def with_axes(self, axes: OrderedAxes) -> "PixelOffset":
+    def with_axes(self, axes: OrderedAxesT) -> "PixelOffset[AxisKeyT]":
         """
         Reorder to `axes`.
 
@@ -710,7 +712,7 @@ class PixelOffset(_AxisValues[AxisKey, int]):
         """
         return super().with_axes(axes)
 
-    def to_physical(self, pixel_size: Union[PixelSize, Mapping[AxisKey, float]]) -> Translation:
+    def to_physical(self, pixel_size: Union[PixelSize[AxisKeyT], Mapping[AxisKeyT, float]]) -> Translation[AxisKeyT]:
         """
         Multiply with `resolution` to obtain this PixelOffset as a Translation in physical units.
         """
@@ -718,25 +720,25 @@ class PixelOffset(_AxisValues[AxisKey, int]):
         items_in_physical_units = [(a, self[a] * pixel_size[a]) for a in self]
         return Translation(items_in_physical_units)
 
-    def __add__(self, other: object) -> Union["PixelOffset", NotImplementedType]:
+    def __add__(self, other: object) -> Union["PixelOffset[AxisKeyT]", NotImplementedType]:
         if not isinstance(other, PixelOffset):
             return NotImplemented
         _require_identical_axes(self, other)
         return PixelOffset((a, self[a] + other[a]) for a in self)
 
-    def __sub__(self, other: object) -> Union["PixelOffset", NotImplementedType]:
+    def __sub__(self, other: object) -> Union["PixelOffset[AxisKeyT]", NotImplementedType]:
         if not isinstance(other, PixelOffset):
             return NotImplemented
         _require_identical_axes(self, other)
         return PixelOffset((a, self[a] - other[a]) for a in self)
 
-    def __mul__(self, other: object) -> Union["Translation", NotImplementedType]:
+    def __mul__(self, other: object) -> Union["Translation[AxisKeyT]", NotImplementedType]:
         if not isinstance(other, PixelSize):
             return NotImplemented
         return self.to_physical(other)
 
 
-class Shape(_AxisValues[AxisKey, int]):
+class Shape(_AxisValues[AxisKeyT, int]):
     """
     Describes the number of pixels in the image.
     """
@@ -755,10 +757,10 @@ class Shape(_AxisValues[AxisKey, int]):
             self._mapping[axis] = int(value)
 
     @classmethod
-    def all_singletons(cls, axes: OrderedAxes) -> "Shape":
+    def all_singletons(cls, axes: OrderedAxesT) -> "Shape[AxisKeyT]":
         return super().fromkeys(axes)
 
-    def with_axes(self, axes: OrderedAxes) -> "Shape":
+    def with_axes(self, axes: OrderedAxesT) -> "Shape[AxisKeyT]":
         """
         Reorder to `axes`.
 
@@ -771,7 +773,7 @@ class Shape(_AxisValues[AxisKey, int]):
         """
         return super().with_axes(axes)
 
-    def with_ones(self, axes: Axes) -> "Shape":
+    def with_ones(self, axes: Axes) -> "Shape[AxisKeyT]":
         """Reset the values for `axes` to 1."""
         return super().with_default(axes)
 
@@ -787,7 +789,7 @@ class Shape(_AxisValues[AxisKey, int]):
             shared &= set(only)
         return all(self[axis] == other[axis] for axis in shared)
 
-    def non_singleton_axes(self, axes: Optional[Axes] = None) -> Tuple[AxisKey, ...]:
+    def non_singleton_axes(self, axes: Optional[Axes] = None) -> Tuple[AxisKeyT, ...]:
         """Return axes along which this Shape is not singleton (value is not 1).
 
         Optionally: Return subset of `axes` along which this Shape is not singleton."""
@@ -795,7 +797,9 @@ class Shape(_AxisValues[AxisKey, int]):
         non_singleton = {a for a, size in self.items() if size != self._default()}
         return tuple(a for a in axes if a in non_singleton)
 
-    def scaled_by(self, factor: Union[Factor, Mapping[AxisKey, float]], *, rounding: RoundingMethod) -> "Shape":
+    def scaled_by(
+        self, factor: Union[Factor[AxisKeyT], Mapping[AxisKeyT, float]], *, rounding: RoundingMethod
+    ) -> "Shape[AxisKeyT]":
         """
         Returns the Shape of this image when scaled by `factor`.
 
@@ -820,7 +824,7 @@ class Shape(_AxisValues[AxisKey, int]):
         scaled_shape = self.__class__([(a, _rescale_size(size, factor[a])) for a, size in self.items()])
         return scaled_shape
 
-    def scaling_to(self, resized: "Shape") -> "Factor":
+    def scaling_to(self, resized: "Shape[AxisKeyT]") -> "Factor[AxisKeyT]":
         """
         Returns the Scaling factors of this Shape that would produce the `resized` shape.
         """
@@ -829,7 +833,7 @@ class Shape(_AxisValues[AxisKey, int]):
         # (factor 2.0 means half the shape).
         return Factor((a, self[a] / resized[a]) for a in self)
 
-    def __truediv__(self, other: object) -> Union["Factor", NotImplementedType]:
+    def __truediv__(self, other: object) -> Union["Factor[AxisKeyT]", NotImplementedType]:
         if not isinstance(other, Shape):
             return NotImplemented
         return self.scaling_to(other)

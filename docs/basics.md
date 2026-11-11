@@ -8,13 +8,14 @@ The core idea is simple: always keep axis keys with the values they describe, in
 
 If you've been coding for a bit already, you most likely just need to know:
 * Shape, Factor, PixelSize, Unit etc. are immutable, ordered `Mapping[AxisKey, <int/float/str respectively>]`
-* AxisKey just aliases `Hashable`. Examples in these docs and common practice uses single lowercase letters `"tczyx"`, but you can use any str-convertible object (with caveat*)
+* The mappings are generic over axis key type:
+  * You can narrow e.g. `Shape[str]` to match `Mapping[str, int]`.
+  * You can use any hashable type as key.
+  * For interoperability, your keys should be, or should str-convert to, single lowercase letters ("t", "c", "z", "y", "x"), like in the examples throughout these docs. Other keys and axis orders are generally badly supported in the OME-Zarr ecosystem.
 * `.with_axes(new_axis_keys)` reorders, inserts and drops as needed. Each class has its respective default value for inserted axes (`1` for Shape, `""` for Unit etc.)
 * Mathematical operations are axis-wise (PixelSize * Factor, etc.)
 * Blueprints and Multiscale are immutable, ordered `Mapping[ScaleKey, <Shape/Factor/Scale respectively>]`
 * Multiscale is the central (smart) metadata class; Scale is the dumb bag-of-metadata you use to describe an individual data array
-
-*Caveat: Axis keys (and orders) other than "tczyx" are generally badly supported across the OME-Zarr ecosystem.
 
 Since OME-Zarr is the only serialization target, its minimum restrictions apply to Multiscale construction (so you don't end up with a Multiscale that you then can't write as valid OME-Zarr):
 
