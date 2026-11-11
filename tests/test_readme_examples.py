@@ -1,23 +1,20 @@
 from typing import Any, Dict
 from unittest.mock import Mock, MagicMock
 
-from clearscale import Shape, PixelSize, Unit, Scale, BlueprintShapes, Multiscale, OmeZarrGroup, GroupKind
+import clearscale as cs
 
 
-def test_simple_dump_example():
-    from clearscale import OmeZarrGroup, Multiscale, Scale
-
-    image = Mock(shape=(128, 1024, 1024))
-
-    # Write data
+def test_minimal_ome_zarr_example():
+    # 1. Data: Make a group and write the array into it
+    # (no clearscale involved)
     array_path = "s0"
 
-    # Write metadata
-    # Make a Scale, expand it to a Multiscale, put that in an OME-Zarr group.
-    scale = Scale.from_lists("zyx")  # Axis keys are the minimum you really must specify
-    written: Dict[str, Any] = OmeZarrGroup.from_single(Multiscale.from_single(scale, scale_key=array_path)).to_attrs(
-        version="0.5"
-    )
+    # 2. Metadata: Scale -> Multiscale -> Group -> attrs
+    written: Dict[str, Any] = cs.OmeZarrGroup.from_single(  # Group = one zarr group's OME metadata
+        cs.Multiscale.from_single(  # Multiscale = an image
+            scale=cs.Scale.from_lists("zyx"), scale_key=array_path  # Scale = an array
+        )
+    ).to_attrs(version="0.5")
 
     assert "ome" in written
     assert "multiscales" in written["ome"]
@@ -49,28 +46,26 @@ def test_simple_dump_example():
     assert written == expected
 
 
-def test_downscale_2_example():
+def test_metadata_first_example():
     my_data = Mock(shape=(3, 54, 1024, 1024))
 
-    # 1. Annotate
-    shape = Shape(zip("tzyx", my_data.shape))
-    pixel_size = PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
-    unit = Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
-
-    # 2. Define operation plan
-    scaling_blueprint = BlueprintShapes.downscale_powers_of_2_xyz(
+    # 1. Define operation plan (the scaling "blueprint")
+    shape = cs.Shape(zip("tzyx", my_data.shape))
+    scaling_blueprint = cs.BlueprintShapes.downscale_powers_of_2_xyz(
         base_shape=shape,
         rounding="ceil",
-        limit_all=Shape(z=8, y=128, x=128),
+        limit_all=cs.Shape(z=8, y=128, x=128),
     )
 
-    # 3. Scale data according to the blueprint
-    # noop for this test
+    # 2. Scale data according to the metadata
 
-    # 4. Expand and write metadata
-    base = Scale(shape, pixel_size, unit)
-    ms = Multiscale.from_single(base, blueprint=scaling_blueprint)
-    written: Dict[str, Any] = OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
+    # 3. Write metadata: Scale -> Multiscale -> Group -> attrs
+    pixel_size = cs.PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
+    unit = cs.Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
+    base = cs.Scale(shape, pixel_size, unit)
+
+    ms = cs.Multiscale.from_single(base, blueprint=scaling_blueprint)
+    written: Dict[str, Any] = cs.OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 
     assert "ome" in written
     assert "multiscales" in written["ome"]
@@ -154,7 +149,7 @@ def test_downscale_2_example():
     assert written_ms_dict == expected
 
 
-def test_skimage_pyramid_gaussian_example():
+def test_record_as_you_go_example():
     # 1. Generate a pyramid
     image = Mock(shape=(128, 1024, 1024))
     pyramid = [
@@ -173,17 +168,19 @@ def test_skimage_pyramid_gaussian_example():
             (1, 1, 1),
         ]
     ]
+    # In this example we write OME-Zarr 0.4, which requires zarr_format v2
+    ome_zarr_version = "0.4"
+    zarr_group = MagicMock()  # Mock instead of open_group("example.ome.zarr", mode="w")
 
     # 2. Write arrays to zarr on disk and record scaled shapes
-    group = MagicMock()  # Mock instead of open_group("example.ome.zarr", mode="w")
     scaled_shapes = []
     for i, level in enumerate(pyramid):
         scale_key = f"s{i}"
-        group.create_array(scale_key, data=level)
-        scaled_shapes.append((scale_key, Shape(zip("zyx", level.shape))))
+        zarr_group.create_array(scale_key, data=level)
+        scaled_shapes.append((scale_key, cs.Shape(zip("zyx", level.shape))))
 
     # 3. Describe the full-resolution image
-    base = Scale.from_lists(
+    base = cs.Scale.from_lists(
         keys="zyx",
         shape=image.shape,
         pixel_size=[25, 240, 240],
@@ -191,19 +188,18 @@ def test_skimage_pyramid_gaussian_example():
     )
 
     # 4. Use the recorded scale shapes as a blueprint to expand a Multiscale
-    blueprint = BlueprintShapes(scaled_shapes)
-    multiscale = Multiscale.from_single(base, blueprint=blueprint)
+    blueprint = cs.BlueprintShapes(scaled_shapes)
+    multiscale = cs.Multiscale.from_single(base, blueprint=blueprint)
 
     # 5. Save OME-Zarr metadata
-    group_meta = OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5")
-    group.attrs.update(group_meta)
+    group_meta = cs.OmeZarrGroup.from_single(multiscale).to_attrs(version=ome_zarr_version)
 
     written: Dict[str, Any] = group_meta
-    assert "ome" in written
-    assert "multiscales" in written["ome"]
-    assert "version" in written["ome"] and written["ome"]["version"] == "0.5"
-    assert len(written["ome"]["multiscales"]) == 1
-    written_ms_dict = written["ome"]["multiscales"][0]
+    assert "ome" not in written
+    assert "multiscales" in written
+    assert len(written["multiscales"]) == 1
+    written_ms_dict = written["multiscales"][0]
+    assert "version" in written_ms_dict and written_ms_dict["version"] == "0.4"
     assert written_ms_dict["axes"] == [
         {"name": "z", "type": "space", "unit": "micrometer"},
         {"name": "y", "type": "space", "unit": "nanometer"},
@@ -274,8 +270,8 @@ def test_extract_single_scale_example():
 
     # 1. Discover what's on the server
     remote_group = zarr.open_group(URL)
-    remote_meta = OmeZarrGroup.from_group(remote_group)
-    assert remote_meta.kind is GroupKind.MULTISCALE, "This tells us there is exactly one Multiscale in this group"
+    remote_meta = cs.OmeZarrGroup.from_group(remote_group)
+    assert remote_meta.kind is cs.GroupKind.MULTISCALE, "This tells us there is exactly one Multiscale in this group"
     assert remote_meta.version == "0.4"
     source_multiscale = remote_meta.multiscales[0]
     assert SCALE_KEY in source_multiscale, "Multiscale is dict-like, with the sub-paths to arrays as keys"
@@ -288,7 +284,7 @@ def test_extract_single_scale_example():
 
     # 3. Extract the correct scale metadata and upgrade it to valid independent metadata
     target_multiscale = source_multiscale.derive(SCALE_KEY)
-    local_group_meta = OmeZarrGroup.from_single(target_multiscale)
+    local_group_meta = cs.OmeZarrGroup.from_single(target_multiscale)
 
     # 4. Write the new metadata to the downloaded store
     local_group.attrs.update(local_group_meta.to_attrs(version="0.4"))
