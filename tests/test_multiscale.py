@@ -852,6 +852,17 @@ class TestMultiscaleAsDerivedFrom:
         assert source_ms._intrinsic_ref not in result._transform_graph.all_system_refs
         assert result.coordinate_systems == ("physical-1",)
 
+    def test_with_derivation_renames_duplicate_intrinsic_system_name_and_carries_systems(self):
+        derived_ms = _with_intrinsic_system_name(_multiscale(), "physical")
+        source_ms = _with_extra_system(_with_intrinsic_system_name(_multiscale(), "physical"), "world")
+        relation = Affine.from_factor({"y": 0.5, "x": 0.5})
+
+        result = derived_ms.as_derived_from(source_ms, reached_by=relation)
+
+        assert set(result.coordinate_systems) == {"physical-1", "world"}
+        assert result.relation_to_coordinate_system("physical-1") == relation
+        assert result.relation_to_coordinate_system("world") == relation
+
     def test_retains_identically_named_but_distinct_external_systems(self):
         caller_ms = _with_extra_system(_multiscale(), "world")
         donor_ms = _with_extra_system(_multiscale(), "world")

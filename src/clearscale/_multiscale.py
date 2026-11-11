@@ -1992,8 +1992,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         other_unique = self._find_or_make_unique_ref(
             original._intrinsic_ref.owner, original._intrinsic_ref.name, existing_refs
         )
+        # Bound to original ref for correct chaining
         reached_by_t = relation_to_transform_canonic(relation, self_axes).bound(
-            source=intrinsic_ref, target=other_unique
+            source=intrinsic_ref, target=original._intrinsic_ref
         )
         existing_refs.append(other_unique)
 
@@ -2039,10 +2040,10 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     existing_refs.append(resolved_ref)
                     to_merge_list.append(edge)
 
-        if not isinstance(relation, SameSpace) and reached_by_t not in transform_graph.transforms + tuple(
-            to_merge_list
-        ):
-            to_merge_list.append(reached_by_t)
+        if not isinstance(relation, SameSpace):
+            reached_by_t_standalone = reached_by_t.bound(source=intrinsic_ref, target=other_unique)
+            if reached_by_t_standalone not in transform_graph.transforms + tuple(to_merge_list):
+                to_merge_list.append(reached_by_t_standalone)
         if not to_merge_list and unchanged_t_scale and intrinsic_ref == self._intrinsic_ref:
             return self
         to_merge = tuple(to_merge_list)
