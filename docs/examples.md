@@ -22,12 +22,22 @@ base_scale = cs.Scale(
 )
 
 blueprint = cs.BlueprintShapes(recorded_shapes)
-multiscale = cs.Multiscale.from_single(base_scale, blueprint=blueprint)
+multiscale = cs.Multiscale.from_single(
+    base_scale,
+    blueprint=blueprint,
+    # How were these arrays scaled? These values describe interpolating resizing, like skimage.transform.resize.
+    pixel_sizing="shape_ratio",
+    translating="half_pixel_space_preservation",
+)
 
 zarr_group.attrs.update(
     cs.OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5")
 )
 ```
+
+Array shapes cannot reveal how the arrays were scaled, so clearscale cannot guess `pixel_sizing` and `translating` for you.
+If you did not run the scaling yourself, or are unsure how it behaves, [characterize it](characterization.md).
+For methods that scale by an exact factor (binning, striding), use a `BlueprintFactors` instead.
 
 ## Reuse a multiscale's scaling pattern for a new image
 
@@ -67,7 +77,12 @@ blueprint = cs.BlueprintShapes.from_multiscale_rescaled(
     rounding="ceil",
 ).with_axes("tczyx")
 
-target_multiscale = blueprint.apply_to_scale(target_base)
+# Describe how the new image's data will be scaled. These values are for interpolating resizing.
+target_multiscale = blueprint.apply_to_scale(
+    target_base,
+    pixel_sizing="shape_ratio",
+    translating="half_pixel_space_preservation",
+)
 
 assert target_multiscale["s0"].shape == cs.Shape(t=65, c=3, z=40, y=2048, x=2048)
 assert target_multiscale["s1"].shape == cs.Shape(t=65, c=3, z=20, y=1024, x=1024)

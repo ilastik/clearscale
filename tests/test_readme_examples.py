@@ -64,7 +64,12 @@ def test_metadata_first_example():
     unit = cs.Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
     base = cs.Scale(shape, pixel_size, unit)
 
-    ms = cs.Multiscale.from_single(base, blueprint=scaling_blueprint)
+    ms = cs.Multiscale.from_single(
+        base,
+        blueprint=scaling_blueprint,
+        pixel_sizing="shape_ratio",  # skimage.transform.resize scales pixel size by the shape ratio...
+        translating="half_pixel_space_preservation",  # ...and keeps the image's extent in place
+    )
     written: Dict[str, Any] = cs.OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 
     assert "ome" in written
@@ -75,7 +80,7 @@ def test_metadata_first_example():
     assert len(written_ms_dict["coordinateSystems"]) == 1
     written_system_name = written_ms_dict["coordinateSystems"][0]["name"]  # Capture the randomly generated name
 
-    # Downscaled levels are shifted by the default half-pixel translation (the README's `skimage.transform.resize`)
+    # Downscaled levels are shifted by the half-pixel translation that describes the README's `skimage.transform.resize`
     expected = {
         "coordinateSystems": [
             {
