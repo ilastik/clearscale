@@ -117,17 +117,17 @@ Being dependency-free means:
 
 This provides full flexibility for data processing, but it comes at the risk of desynchronization between data and metadata.
 
-You can mitigate this by coupling data processing to the metadata.
-We generate the metadata first, and then scale the data according to that, but you could also first write the data and record metadata as you go.
-See the examples below.
+You can mitigate this by coupling data processing to the metadata:
+We generate the metadata first, and then scale the data according to that.
+See the example below.
+If your arrays already exist, see [Add metadata to existing arrays](docs/examples.md#add-metadata-to-existing-arrays).
+Describing data after the fact only works if you know how your scaling method behaves, which you can [characterize](docs/characterization.md).
 
 ## Copy-and-paste examples
 
 These examples assume you have `numpy`, `scikit-image` and `zarr-python 3.*` (and of course `clearscale`) installed.
 
 ### Downsample a numpy array and save as OME-Zarr multiscale
-
-#### Metadata-first variant
 
 ```python
 import os, numpy, skimage, zarr
@@ -161,51 +161,6 @@ base       = cs.Scale(shape, pixel_size, unit)
 
 ms         = cs.Multiscale.from_single(base, blueprint=scaling_blueprint)
 group_meta = cs.OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
-zarr_group.attrs.update(group_meta)
-```
-
-#### Record-as-you-go variant
-
-```python
-import numpy as np
-import zarr
-from skimage.transform import pyramid_gaussian
-
-import clearscale as cs
-
-# 1. Generate a pyramid
-image = np.random.random((128, 1024, 1024)).astype(np.float32)
-pyramid = [level.astype(np.float32) for level in pyramid_gaussian(image, downscale=2)]
-# In this example we write OME-Zarr 0.4, which requires zarr_format v2
-ome_zarr_version = "0.4"
-zarr_group = zarr.open_group("demo-output/data_first.ome.zarr", mode="w", zarr_format=2)
-
-# 2. Write arrays to zarr group on disk and record scaled shapes
-scaled_shapes = []
-for i, level in enumerate(pyramid):
-    scale_key = f"s{i}"
-    zarr_group.create_array(scale_key, data=level)
-    scaled_shapes.append(
-        (
-            scale_key,
-            cs.Shape(zip("zyx", level.shape))
-        )
-    )
-
-# 3. Describe the full-resolution image
-base = cs.Scale.from_lists(
-    keys="zyx",
-    shape=image.shape,
-    pixel_size=[25, 240, 240],
-    unit=["micrometer", "nanometer", "nanometer"],
-)
-
-# 4. Use the recorded scale shapes as a blueprint to expand a Multiscale
-blueprint = cs.BlueprintShapes(scaled_shapes)
-multiscale = cs.Multiscale.from_single(base, blueprint=blueprint)
-
-# 5. Save OME-Zarr metadata
-group_meta = cs.OmeZarrGroup.from_single(multiscale).to_attrs(version=ome_zarr_version)
 zarr_group.attrs.update(group_meta)
 ```
 
