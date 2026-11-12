@@ -6,3 +6,7 @@ __pycache__/
 src/clearscale/_version.py
 site/
 .cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
