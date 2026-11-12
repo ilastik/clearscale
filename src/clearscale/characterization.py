@@ -14,7 +14,7 @@ from typing import (
     Literal,
 )
 
-from clearscale._axis_values import PixelSize, RoundingMethod, Shape
+from clearscale._axis_values import PixelSize, Shape
 from clearscale._multiscale import Scale
 from clearscale._services.translating import (
     discrete_bin_center,
@@ -22,7 +22,7 @@ from clearscale._services.translating import (
     half_pixel_space_preservation,
     known_shift_functions,
 )
-from clearscale.types import PixelSizingMethod, TranslationShiftFunction
+from clearscale.types import PixelSizingMethod, TranslationShiftFunction, RoundingMethod
 
 
 class ShapeScalingKwargs(TypedDict):
