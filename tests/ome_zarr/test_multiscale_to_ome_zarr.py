@@ -269,6 +269,8 @@ class TestCoordinateSystems06:
         source = Multiscale.from_single(
             Scale(shape=Shape(z=4, y=4, x=4), pixel_size=PixelSize(z=2, y=1, x=1)),
             blueprint=BlueprintShapes({"s0": Shape(z=4, y=4, x=4), "s1": Shape(z=2, y=2, x=2)}),
+            pixel_sizing="shape_ratio",
+            translating="half_pixel_space_preservation",
         )
         source = source.with_coordinate_system("world", reached_by=Translation(z=1, y=2, x=3))
         source = source.with_coordinate_system("other", reached_by=Affine.from_factor({"z": 1, "y": 0.5, "x": 0.5}))

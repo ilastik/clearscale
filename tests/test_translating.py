@@ -56,8 +56,10 @@ class TestAliasesInPublicMethods:
 
     @pytest.mark.parametrize("name", ALL_NAMES)
     def test_shapes_apply_to_scale_matches_passing_the_function(self, name):
-        by_name = self.shapes.apply_to_scale(self.base, translating=name)
-        by_function = self.shapes.apply_to_scale(self.base, translating=getattr(characterization, name))
+        by_name = self.shapes.apply_to_scale(self.base, pixel_sizing="shape_ratio", translating=name)
+        by_function = self.shapes.apply_to_scale(
+            self.base, pixel_sizing="shape_ratio", translating=getattr(characterization, name)
+        )
         assert by_name == by_function
 
     @pytest.mark.parametrize("name", ALL_NAMES)
@@ -82,13 +84,17 @@ class TestAliasesInPublicMethods:
         # Validation happens at the entry point, not lazily per target scale
         single = BlueprintShapes({"s0": Shape(y=8, x=8)})
         with pytest.raises(ValueError, match="Unknown translating method"):
-            single.apply_to_scale(self.base, translating="nope")  # type: ignore[arg-type]
+            single.apply_to_scale(self.base, pixel_sizing="shape_ratio", translating="nope")  # type: ignore[arg-type]
 
     def test_from_single_accepts_names(self):
-        ms = Multiscale.from_single(self.base, blueprint=self.shapes, translating="half_pixel_space_preservation")
+        ms = Multiscale.from_single(
+            self.base, blueprint=self.shapes, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation"
+        )
         assert ms["s1"].translation == Translation(y=11.0, x=-0.5)
 
     def test_derive_accepts_names(self):
         parent = Multiscale.from_single(self.base)
-        derived = parent.derive("s0", blueprint=self.shapes, translating="half_pixel_space_preservation")
+        derived = parent.derive(
+            "s0", blueprint=self.shapes, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation"
+        )
         assert derived["s1"].translation == Translation(y=11.0, x=-0.5)
