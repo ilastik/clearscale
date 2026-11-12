@@ -280,6 +280,10 @@ class _AxisFloats(_AxisValues[AxisKeyT, float], ABC):
     Base for Scaling, Resolution and Translation. Ensures values are floats.
     """
 
+    @overload
+    def __init__(self: "_AxisFloats[str]", **kwargs: float) -> None: ...
+    @overload
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
@@ -323,6 +327,10 @@ class Factor(_AxisFloats[AxisKeyT]):
         """Create a new identity Scaling (1.0 along all axes) with `axes`."""
         return super().fromkeys(axes)
 
+    @overload
+    def __init__(self: "Factor[str]", **kwargs: float) -> None: ...
+    @overload
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
@@ -425,6 +433,10 @@ class PixelSize(_AxisFloats[AxisKeyT]):
             resolutions.append(tag.resolution if tag.resolution != vigra_default_resolution else cls._default())
         return cls(zip(axes, resolutions))
 
+    @overload
+    def __init__(self: "PixelSize[str]", **kwargs: float) -> None: ...
+    @overload
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
@@ -642,6 +654,10 @@ class Unit(_AxisValues[AxisKeyT, str]):
     def _default(cls) -> str:
         return ""
 
+    @overload
+    def __init__(self: "Unit[str]", **kwargs: str) -> None: ...
+    @overload
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
@@ -692,6 +708,10 @@ class PixelOffset(_AxisValues[AxisKeyT, int]):
     def _default(cls) -> int:
         return 0
 
+    @overload
+    def __init__(self: "PixelOffset[str]", **kwargs: int) -> None: ...
+    @overload
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
@@ -747,6 +767,10 @@ class Shape(_AxisValues[AxisKeyT, int]):
     def _default(cls) -> int:
         return 1
 
+    @overload
+    def __init__(self: "Shape[str]", **kwargs: int) -> None: ...
+    @overload
+    def __init__(self, *args: Any, **kwargs: Any) -> None: ...
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():

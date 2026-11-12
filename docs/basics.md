@@ -12,6 +12,7 @@ If you've been coding for a bit already, you most likely just need to know:
   * You can narrow e.g. `Shape[str]` to match `Mapping[str, int]`.
   * You can use any hashable type as key.
   * For interoperability, your keys should be, or should str-convert to, single lowercase letters ("t", "c", "z", "y", "x"), like in the examples throughout these docs. Other keys and axis orders are generally badly supported in the OME-Zarr ecosystem.
+  * If you do use str keys, `import clearscale.str_axis_keys as cs` gives you everything in `clearscale` with these classes already specialized to `str` (for `isinstance` checks, use the unspecialized `clearscale.Shape` etc.).
 * `.with_axes(new_axis_keys)` reorders, inserts and drops as needed. Each class has its respective default value for inserted axes (`1` for Shape, `""` for Unit etc.)
 * Mathematical operations are axis-wise (PixelSize * Factor, etc.)
 * Blueprints and Multiscale are immutable, ordered `Mapping[ScaleKey, <Shape/Factor/Scale respectively>]`
