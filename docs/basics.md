@@ -267,20 +267,26 @@ blueprint = cs.BlueprintShapes.uniform_steps(
 #for scale_key, target_shape in blueprint.items():
 #    scaled_data = do_my_scaling(raw_data, target_shape.values_tuple())
 
-multiscale = cs.Multiscale.from_single(base, blueprint=blueprint)
+multiscale = cs.Multiscale.from_single(
+    base,
+    blueprint=blueprint,
+    pixel_sizing="shape_ratio",
+    translating="half_pixel_space_preservation",
+)
 
 assert list(multiscale.keys()) == ["s0", "s1", "s2"]
 assert multiscale["s2"].shape == cs.Shape(z=40, y=128, x=128)
 assert multiscale["s2"].pixel_size == cs.PixelSize(z=0.5, y=1.0, x=1.0)
 ```
 
-By default, applying a blueprint to a Scale multiplies the pixel size by the `input_shape / output_shape` ratio, and shifts the translation so that the scaled image covers the same physical extent as the base (`half_pixel_space_preservation`).
+The shapes alone do not say how your data was scaled, so you have to describe your scaling method with `pixel_sizing` and `translating`.
+The values above multiply the pixel size by the `input_shape / output_shape` ratio (`shape_ratio`), and shift the translation so that the scaled image covers the same physical extent as the base (`half_pixel_space_preservation`).
 This is how interpolating resize methods like `skimage.transform.resize` behave.
 
 If your scaling method just strides over the data (`data[::2]`), pass `translating="first_value_decimation"` for no shift.
 
-This may or may not be accurate.
-You can automatically determine the appropriate additional parameters (`pixel_sizing`, `translating`) for your specific scaling method using [scaling method characterization](characterization.md).
+Wrong values can produce valid-looking but inaccurate metadata.
+You can automatically determine the appropriate parameters for your specific scaling method using [scaling method characterization](characterization.md).
 
 If your processing code naturally thinks in scaling factors instead of output shapes, use `BlueprintFactors`.
 
@@ -334,9 +340,15 @@ factors = shapes.to_factors()
 #for scale_key, scale_factor in factors.items():
 #    scaled_data = do_my_scaling_by_factor(raw_data, scale_factor.values_tuple())
 
-# Whether you use the `shapes` or `factors` blueprint now makes no difference.
-# But with `shapes` you don't have to provide `rounding` :)
-multiscale = cs.Multiscale.from_single(base, blueprint=shapes)
+# For a method that is told the output shape (like `resize`), `shapes` is all you need,
+# and you don't have to provide `rounding` :)
+# Methods that bin or stride by an exact factor need `factors`: Only they can compute `pixel_sizing="exact_factor"`.
+multiscale = cs.Multiscale.from_single(
+    base,
+    blueprint=shapes,
+    pixel_sizing="shape_ratio",
+    translating="half_pixel_space_preservation",
+)
 
 assert tuple(multiscale.keys()) == ("s0", "s1", "s2")
 assert multiscale["s2"].shape == cs.Shape(z=40, y=128, x=128)

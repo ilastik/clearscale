@@ -159,7 +159,12 @@ pixel_size = cs.PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
 unit       = cs.Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
 base       = cs.Scale(shape, pixel_size, unit)
 
-ms         = cs.Multiscale.from_single(base, blueprint=scaling_blueprint)
+ms = cs.Multiscale.from_single(
+    base,
+    blueprint=scaling_blueprint,
+    pixel_sizing="shape_ratio",  # skimage.transform.resize scales pixel size by the shape ratio...
+    translating="half_pixel_space_preservation",  # ...and preserves the image's extent
+)
 group_meta = cs.OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
 zarr_group.attrs.update(group_meta)
 ```

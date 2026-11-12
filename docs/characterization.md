@@ -222,10 +222,10 @@ Pass the function itself or just its name as a string to `blueprint.apply_to_sca
 
 ```python
 # Both ok
-multiscale = blueprint.apply_to_scale(base, translating="half_pixel_space_preservation")
+multiscale = blueprint.apply_to_scale(base, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation")
 
 from clearscale.characterization import half_pixel_space_preservation
-multiscale = blueprint.apply_to_scale(base, translating=half_pixel_space_preservation)
+multiscale = blueprint.apply_to_scale(base, pixel_sizing="shape_ratio", translating=half_pixel_space_preservation)
 ```
 
 If your scaling method applies a different shift, you need to implement your own function as a `Callable[[Scale, Scale], Translation]`.
@@ -278,6 +278,7 @@ blueprint = BlueprintShapes.uniform_steps(
 
 multiscale = blueprint.apply_to_scale(
     base,
+    pixel_sizing="shape_ratio",
     translating=half_pixel_space_preservation,
 )
 
