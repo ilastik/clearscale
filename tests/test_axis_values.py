@@ -8,7 +8,7 @@ from clearscale import Factor, PixelOffset, PixelSize, Shape, Translation
 def test_shape_non_singleton_axes():
     shape = Shape(c=5, x=4, t=1, y=3, z=1)
     assert shape.non_singleton_axes() == ("c", "x", "y")
-    assert shape.non_singleton_axes("x") == ("x",)
+    assert shape.non_singleton_axes("yx") == ("x", "y"), "maintain shape's order, not param order"
     shape2 = Shape(z=1, y=1, x=1)
     assert shape2.non_singleton_axes() == ()
 
