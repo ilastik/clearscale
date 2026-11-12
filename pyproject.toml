@@ -45,8 +45,11 @@ source = "vcs"
 [tool.hatch.build.hooks.vcs]
 version-file = "src/clearscale/_version.py"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/clearscale"]
+
 [tool.hatch.build.targets.sdist]
-exclude = ["/AGENTS.md", "/.github", "/tests"]
+exclude = ["/AGENTS.md", "/.github"]
 
 [tool.hatch.version.raw-options]
 git_describe_command = [
