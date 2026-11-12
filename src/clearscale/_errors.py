@@ -1,6 +1,6 @@
 class NoSuchCoordinateSystemError(ValueError):
-    """
-    Raised by Multiscale._as_ref when called with a name that does not match any of the Multiscale's coordinate systems.
+    """Raised by Multiscale._as_ref when called with a name that does not match any of the Multiscale's
+    coordinate systems.
     """
 
     def __init__(self, name):
@@ -8,8 +8,7 @@ class NoSuchCoordinateSystemError(ValueError):
 
 
 class MismatchingMultiscaleError(ValueError):
-    """
-    Raised by Transform.with_resolved when a Multiscale provided for `path`
+    """Raised by Transform.with_resolved when a Multiscale provided for `path`
     does not have a coordinate system named `name` as expected.
     """
 
@@ -23,10 +22,10 @@ class MismatchingMultiscaleError(ValueError):
 
 
 class CannotConvertToAffineError(ValueError):
-    """
-    Raised by AffineRepresentableTransform.to_affine_transform when the transform's payload is missing
+    """Raised by AffineRepresentableTransform._to_affine_transform when the transform's payload is missing
     (path given instead).
-    In case of ProjectAxisTransform.to_affine_transform, raised when the provided ndim params are nonsense.
+
+    In case of ProjectAxisTransform._to_affine_transform, raised when the provided ndim params are nonsense.
     """
 
     def __init__(self, transform: object):
@@ -35,10 +34,10 @@ class CannotConvertToAffineError(ValueError):
 
 
 class CannotConvertToSpatialRelationError(ValueError):
-    """
-    Raised by transform_to_relation when a Transform cannot be expressed as SpatialRelation(s), for reasons that are
+    """Raised by transform_to_relation when a Transform cannot be expressed as SpatialRelation(s), for reasons that are
     properties of the *metadata* and that callers may expect and handle: unsupported transform type, path-backed or
     non-positive scale values, intermediate axes that cannot be named.
+
     Transforms that don't fit the axes they are converted for raise plain ValueError instead (caller error), and
     violated internal invariants are assertions.
     """

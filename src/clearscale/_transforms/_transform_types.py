@@ -122,7 +122,7 @@ def _require_int_or_empty_tuple(value: Any, field_name: str, *, transform_type: 
 
 
 def _covers_all_indices(values: Iterable[int]) -> bool:
-    """Whether `values` contains every index of an array as long as itself"""
+    """Whether `values` contains every index of an array as long as itself."""
     values = tuple(values)
     return set(values) == set(range(len(values)))
 
@@ -134,7 +134,7 @@ def _validate_unique(values: AxisIndices, field_name: str) -> None:
 
 @dataclass(frozen=True, slots=True, repr=False)
 class AffineRepresentableTransform(Transform, ABC):
-    """Mixin-ish for transforms that can also be represented by an affine matrix, to deduplicate composed_with logic"""
+    """Mixin-ish for transforms that can also be represented by an affine matrix, to deduplicate composed_with logic."""
 
     @abstractmethod
     def _to_affine_transform(
@@ -177,8 +177,7 @@ AffineRepresentableSubtypes = Union[
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ScaleTransform(AffineRepresentableTransform):
-    """
-    ScaleTransform usually represents a simple scaling, i.e its values are positive.
+    """ScaleTransform usually represents a simple scaling, i.e its values are positive.
     E.g. ScaleTransform((2.0, 2.0)) downscales 2D by half.
     Negative values can make the Scale effectively a reflection. Such Scales are only constructed through
     AffineTransform.simplified within clearscale.
@@ -195,7 +194,7 @@ class ScaleTransform(AffineRepresentableTransform):
 
     @property
     def is_invertible(self) -> bool:
-        """Scale is invertible unless its values are unloaded, or it scales any axis to 0"""
+        """Scale is invertible unless its values are unloaded, or it scales any axis to 0."""
         return bool(self.scale) and not AffineTransform._are_any_zeros(self.scale, tolerance=IDENTITY_TOLERANCE)
 
     def inverted(self) -> "ScaleTransform":
@@ -616,9 +615,10 @@ class AffineTransform(AffineRepresentableTransform):
         "TransformSequence",
         "AffineTransform",
     ]:
-        """
-        Inspect the affine matrix and determine the simplest canonical representation.
+        """Inspect the affine matrix and determine the simplest canonical representation.
+
         For example:
+
         - a single Identity
         - a single simpler transform (ProjectAxis, MapAxis, Rotation, Scale, Translation)
         - a Sequence of such simpler transforms
@@ -720,8 +720,7 @@ class AffineTransform(AffineRepresentableTransform):
 
     @staticmethod
     def _pad_to_square_matrix(linear: FloatMatrix) -> FloatMatrix:
-        """
-        Pad a non-square matrix with unit vectors to make it square (if possible, an invertible square):
+        """Pad a non-square matrix with unit vectors to make it square (if possible, an invertible square):
         Add rows if it has fewer rows than columns, add columns if it has more.
 
         This is the remainder of an affine that drops axes (more columns) or inserts axes (more rows), after the
@@ -748,10 +747,11 @@ class AffineTransform(AffineRepresentableTransform):
 
     @staticmethod
     def _decompose_project_axis(linear: FloatMatrix) -> Optional[Tuple["ProjectAxisTransform", FloatMatrix]]:
-        """
-        Decompose ProjectAxis in "clean" cases:
+        """Decompose ProjectAxis in "clean" cases:
+
         - Non-square linear matrix: Decompose shape differences that match zero-rows and columns
         - Square linear matrix: Decompose zero-scales as drop+insert of that axis
+
         Does not decompose zero-rows or zero-columns as ProjectAxis if they are not matched,
         as this would make the ndim-delta of the decomposition different from the ndim-delta of the affine.
         """
@@ -785,11 +785,13 @@ class AffineTransform(AffineRepresentableTransform):
 
     @staticmethod
     def _decompose_square_linear(linear: FloatMatrix) -> Optional[Tuple[AffineRepresentableSubtypes, ...]]:
-        """Returns list of components if linear is decomposable into allowed specific types
+        """Return the list of components if linear is decomposable into allowed specific types
         (MapAxis, Rotation, Scale).
+
         Empty list if identity.
         Reflection may result in negative Scale, though Rotation is preferred over MapAxis + negative Scale.
-        None if shear is involved."""
+        None if shear is involved.
+        """
         rows, cols = matrix_shape(linear)
         assert rows == cols, "shouldn't call this with non-square matrix, use _decompose_project_axis first"
         if is_identity_matrix(linear, tolerance=IDENTITY_TOLERANCE):
@@ -937,8 +939,7 @@ class DisplacementsTransform(Transform):
         return _EndpointDimensionConstraints(delta=0)
 
     def _axis_dependencies(self, source_ndim: int) -> None:
-        """
-        Unknown: target = source + D(source), where the vector field D is looked up per pixel.
+        """Unknown: target = source + D(source), where the vector field D is looked up per pixel.
         Displacements cannot change ndim or target axis order, but each vector can individually mix axes.
         Hence, without array contents, we can't determine which target axes depend on which source axes.
         """
@@ -978,13 +979,13 @@ class DisplacementsTransform(Transform):
 
 @dataclass(frozen=True, slots=True, repr=False)
 class MapAxisTransform(AffineRepresentableTransform):
-    """MapAxisTransform represents a pure permutation (no drops or inserts)"""
+    """MapAxisTransform represents a pure permutation (no drops or inserts)."""
 
     map_axis: AxisIndices
 
     @property
     def is_invertible(self) -> bool:
-        """Map-axis is not allowed to drop axes, so it's always invertible"""
+        """Map-axis is not allowed to drop axes, so it's always invertible."""
         return True
 
     def inverted(self) -> "MapAxisTransform":
@@ -1057,7 +1058,7 @@ class MapAxisTransform(AffineRepresentableTransform):
 
 @dataclass(frozen=True, slots=True, repr=False)
 class ProjectAxisTransform(AffineRepresentableTransform):
-    """ProjectAxisTransform represents axis dropping and insertion"""
+    """ProjectAxisTransform represents axis dropping and insertion."""
 
     drops: AxisIndices = field(default=())
     """Indices of source axes dropped.
@@ -1068,7 +1069,7 @@ class ProjectAxisTransform(AffineRepresentableTransform):
 
     @property
     def is_invertible(self) -> bool:
-        """Axis dropping is not invertible"""
+        """Axis dropping is not invertible."""
         return not self.drops
 
     def inverted(self) -> "Transform":
@@ -1106,8 +1107,7 @@ class ProjectAxisTransform(AffineRepresentableTransform):
         return AffineTransform(affine=tuple(affine_rows), source=self.source, target=self.target)
 
     def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
-        """
-        Composing ProjectAxisTransform is done by projecting implicit earlier.source axis indices
+        """Composing ProjectAxisTransform is done by projecting implicit earlier.source axis indices
         into the intermediate (earlier.target / self.source), then adding self's own drops/adds.
         None represents inserted axes (None because these have no corresponding source axis index).
         """
@@ -1486,8 +1486,7 @@ class ByDimensionTransform(Transform):
         )
 
     def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
-        """
-        Only composes with ByDimensionTransform and ProjectAxisTransform.
+        """Only composes with ByDimensionTransform and ProjectAxisTransform.
         Could permit MapAxisTransform: As long as mapAxis only modifies sets of axes that are sourced by the
         same byDim child. Decided to reject this, because spec text doesn't read like reordering was intended for byDim.
         """
@@ -1619,9 +1618,8 @@ class ByDimensionTransform(Transform):
         }
 
     def _ndim_by_payload(self) -> _EndpointDimensionConstraints:
-        """
-        Source can be any ndim above the largest known index (spec doesn't require all sources to be used).
-        Target is exact - as validated by post_init.
+        """Source can be any ndim above the largest known index (spec doesn't require all sources to be used).
+        Target is exact - as validated by `__post_init__`.
         """
         source_ndim_min = max((axis for child in self.transforms for axis in child.source_indices), default=-1) + 1
         target_ndim = sum(len(child.target_indices) for child in self.transforms)

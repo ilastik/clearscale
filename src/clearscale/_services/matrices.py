@@ -51,12 +51,12 @@ def is_diagonal_matrix(matrix: FloatMatrix, *, tolerance: float) -> bool:
 
 
 def zero_matrix_rows(matrix: FloatMatrix, *, tolerance: float) -> AxisIndices:
-    """Return the indices of rows whose values are all zero within ``tolerance``."""
+    """Return the indices of rows whose values are all zero within `tolerance`."""
     return tuple(i for i, row in enumerate(matrix) if all(abs(value) <= tolerance for value in row))
 
 
 def zero_matrix_columns(matrix: FloatMatrix, *, tolerance: float) -> AxisIndices:
-    """Return the indices of columns whose values are all zero within ``tolerance``."""
+    """Return the indices of columns whose values are all zero within `tolerance`."""
     return zero_matrix_rows(matrix_transpose(matrix), tolerance=tolerance)
 
 
@@ -66,8 +66,7 @@ def nonzero_columns_by_row(matrix: FloatMatrix, *, tolerance: float) -> Tuple[Ax
 
 
 def pivot_columns(matrix: FloatMatrix, *, tolerance: float) -> AxisIndices:
-    """
-    The columns at which Gaussian elimination finds a pivot, scanning columns from left to right: These are the first
+    """The columns at which Gaussian elimination finds a pivot, scanning columns from left to right: These are the first
     columns that are linearly independent of the columns before them, and there are as many as the matrix's rank.
     The unit vectors of the *other* columns complete the rows of a full-row-rank matrix to a basis.
     """
@@ -95,7 +94,7 @@ def monomial_matrix_decompose(matrix: FloatMatrix, *, tolerance: float) -> Optio
     A monomial matrix has exactly one non-zero value in every row and column. The
     returned permutation gives the source column selected by each output row, and the
     factors are those selected values. Consequently, the original matrix equals a
-    diagonal matrix of ``factors`` multiplied by the permutation matrix.
+    diagonal matrix of `factors` multiplied by the permutation matrix.
     """
     rows, cols = matrix_shape(matrix)
     if rows != cols:
@@ -135,8 +134,7 @@ def is_rotation_matrix(rotation: FloatMatrix, *, tolerance: float) -> bool:
 
 
 def matrix_determinant(matrix: FloatMatrix, *, tolerance: float) -> float:
-    """
-    Calculate for arbitrary matrices using Gaussian elimination with partial pivoting.
+    """Calculate for arbitrary matrices using Gaussian elimination with partial pivoting.
 
     This could be substantially simpler for 1x1, 2x2 and 3x3 cases, but 4x4 and 5x5 will probably
     be commonplace too. Might as well solve generally, still unlikely to be a performance bottleneck.
@@ -167,8 +165,7 @@ def matrix_determinant(matrix: FloatMatrix, *, tolerance: float) -> float:
 
 
 def matrix_invert(matrix: FloatMatrix, *, tolerance: float) -> FloatMatrix:
-    """
-    Calculate using a Gaussian elimination process.
+    """Calculate using a Gaussian elimination process.
     First expand MxM into 2MxM by appending an MxM identity matrix on the right side.
     Then swap over, turning the original left side into identity and the right side into the inverse.
     """
