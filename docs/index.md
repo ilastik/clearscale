@@ -1,4 +1,4 @@
-# clearscale
+# <img class="home-logo" src="assets/clearscale-scales.png" alt="" width="910" height="910"> clearscale
 
 clearscale is a dependency-free Python library for reading, working with, and writing multiscale image metadata.
 
