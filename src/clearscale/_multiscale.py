@@ -29,7 +29,6 @@ from typing import (
     KeysView,
     ValuesView,
     Collection,
-    TypedDict,
 )
 
 from clearscale._axis_values import (
@@ -403,6 +402,17 @@ def _require_non_increasing_shapes(items: Sequence[Tuple[ScaleKey, Shape]], owne
                 f"{owner} must be ordered from largest to smallest. Shape increases along "
                 f"{increased} between {prev_key!r} and {key!r} ({prev_shape} -> {shape})."
             )
+
+
+def _missing_scaling_parameters_error(how: str, **parameters: object) -> ValueError:
+    """The error for scaling method parameters that were not provided.
+    Returns the error instead of raising it so type checkers can trace the None-exclusion on caller side.
+    """
+    missing = [name for name, value in parameters.items() if value is None]
+    return ValueError(
+        f"Must specify how your scaling method {how}. Missing: {', '.join(missing)}. "
+        "See the 'Scaling method characteristics' docs, or determine them with clearscale.characterization."
+    )
 
 
 def _require_non_decreasing_factors(items: Sequence[Tuple[ScaleKey, Factor]]) -> None:
@@ -779,15 +789,6 @@ class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
         return [(k, v) for k, v in raw_items if k not in pop_keys]
 
 
-class _ShapeScalingOverrides(TypedDict, total=False):
-    """Helper for Multiscale.from_single.
-    Only the BlueprintShapes.apply_to_scale kwargs a caller actually specified (the rest take the method's defaults).
-    """
-
-    pixel_sizing: PixelSizingMethod
-    translating: TranslatingMethod
-
-
 class BlueprintShapes(_ScaledAxisValues[Shape]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1056,8 +1057,8 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         self,
         base: Scale,
         *,
-        pixel_sizing: PixelSizingMethod = "shape_ratio",
-        translating: TranslatingMethod = "half_pixel_space_preservation",
+        pixel_sizing: PixelSizingMethod,
+        translating: TranslatingMethod,
     ) -> "Multiscale":
         shift_function = resolve_translating(translating)
         if list(self.first_value.keys()) != list(base.shape.keys()):
@@ -1637,19 +1638,18 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         If nothing else is provided, this is equivalent to `Multiscale({"s0": scale})`
 
         Optionally provide a `blueprint` to specify how the data described by `scale` was/will be scaled, and compute matching metadata.
-        The scaling method parameters `pixel_sizing`, `translating` and `rounding` are explained in the "Scaling methods" docs.
-        All three are required when `blueprint` is `BlueprintFactors`, because there is no sensible default for how factors are applied.
+        With any `blueprint`, `pixel_sizing` and `translating` are required.
+        `rounding` is additionally required for a `BlueprintFactors`, to predict the output shapes.
+        These parameters are explained in the "Scaling methods" docs.
 
         If you already have an existing Multiscale, and `scale` is one of its values, consider
         [derive][clearscale.Multiscale.derive] instead.
 
         Args:
-            pixel_sizing: Your scaling method's pixel size scaling behavior.
-                Default for `BlueprintShapes`: "shape_ratio"
+            pixel_sizing: Your scaling method's pixel size scaling behavior. "shape_ratio", "exact_factor", or "corner_ratio"
             translating: Your scaling method's translating behavior: the name of one of the functions in
                 `clearscale.characterization` (e.g. "half_pixel_space_preservation"), or your own function.
-                Default for `BlueprintShapes`: "half_pixel_space_preservation"
-            rounding: Your scaling method's shape rounding behavior.
+            rounding: Your scaling method's shape rounding behavior. "floor", "ceil", etc., or your own function.
         """
         if not isinstance(scale_key, str):
             raise TypeError(
@@ -1658,35 +1658,30 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         bp = blueprint if blueprint is not None else BlueprintShapes({scale_key: scale.shape})
         if isinstance(bp, BlueprintFactors):
             if rounding is None or pixel_sizing is None or translating is None:
-                missing = [
-                    name
-                    for name, value in (
-                        ("rounding", rounding),
-                        ("pixel_sizing", pixel_sizing),
-                        ("translating", translating),
-                    )
-                    if value is None
-                ]
-                raise ValueError(
-                    f"Must specify how your scaling method scales by factors. Missing: {', '.join(missing)}. "
-                    "See the 'Scaling method characteristics' docs, or determine them with clearscale.characterization."
+                raise _missing_scaling_parameters_error(
+                    "scales by factors", rounding=rounding, pixel_sizing=pixel_sizing, translating=translating
                 )
             return bp.apply_to_scale(scale, pixel_sizing=pixel_sizing, translating=translating, rounding=rounding)
-        # Unspecified (None) -> BlueprintShapes.apply_to_scale's own defaults
-        shape_kwargs: _ShapeScalingOverrides = {}
-        if pixel_sizing is not None:
-            shape_kwargs["pixel_sizing"] = pixel_sizing
-        if translating is not None:
-            shape_kwargs["translating"] = translating
-        return bp.apply_to_scale(scale, **shape_kwargs)
+        if blueprint is None:
+            # Single scale: nothing is scaled, so any scaling method describes it identically.
+            return bp.apply_to_scale(
+                scale,
+                pixel_sizing=pixel_sizing or "shape_ratio",
+                translating=translating or "half_pixel_space_preservation",
+            )
+        if pixel_sizing is None or translating is None:
+            raise _missing_scaling_parameters_error(
+                "scales to shapes", pixel_sizing=pixel_sizing, translating=translating
+            )
+        return bp.apply_to_scale(scale, pixel_sizing=pixel_sizing, translating=translating)
 
     @staticmethod
     def from_shapes(
         blueprint: Mapping[ScaleKey, ShapeLike],
         *,
         base: Optional[Scale] = None,
-        pixel_sizing: PixelSizingMethod = "shape_ratio",
-        translating: TranslatingMethod = "half_pixel_space_preservation",
+        pixel_sizing: PixelSizingMethod,
+        translating: TranslatingMethod,
     ):
         bp = BlueprintShapes(blueprint)
         base = base or Scale(shape=bp.first_value)
@@ -2140,22 +2135,22 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     ) -> "Multiscale":
         """Derive a new Multiscale from one of this Multiscale's own scale levels.
 
-        Deriving keeps the new Multiscale in the spatial context of `self`. This means its coordinate systems are
-        transferred, and `self` becomes a coordinate system on the child.
+        Deriving keeps the new Multiscale in the spatial context of `self`. This means its coordinate systems and
+        axis properties are transferred.
         If `self` follows the nifti-zarr convention, this is also transferred.
 
-        The scaling method parameters `pixel_sizing`, `translating` and `rounding` are explained in the "Scaling methods" docs.
-        All three are required when `blueprint` is `BlueprintFactors`, because there is no sensible default for how factors are applied.
+        Optionally provide a `blueprint` to expand the Scale at `base_key` into multiple scale levels.
+        With any `blueprint`, `pixel_sizing` and `translating` are required.
+        `rounding` is additionally required for a `BlueprintFactors`, to predict the output shapes.
+        These parameters are explained in the "Scaling methods" docs.
 
         Args:
             blueprint: How to expand the Scale at `base_key` into the derived Multiscale's levels.
                 Omit to extract the respective Scale as an independent Multiscale with just that one entry.
-            pixel_sizing: Your scaling method's pixel size scaling behavior.
-                Default for `BlueprintShapes`: "shape_ratio"
+            pixel_sizing: Your scaling method's pixel size scaling behavior. "shape_ratio", "exact_factor", or "corner_ratio"
             translating: Your scaling method's translating behavior: the name of one of the functions in
                 `clearscale.characterization` (e.g. "half_pixel_space_preservation"), or your own function.
-                Default for `BlueprintShapes`: "half_pixel_space_preservation"
-            rounding: Your scaling method's shape rounding behavior.
+            rounding: Your scaling method's shape rounding behavior. "floor", "ceil", etc., or your own function.
         """
         new_ms = Multiscale.from_single(
             self[base_key],
