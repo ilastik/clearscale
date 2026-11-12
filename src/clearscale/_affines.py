@@ -32,8 +32,8 @@ from clearscale._services.matrices import (
 
 
 class Coefficient(_AxisFloats):
-    """
-    A generic set of linear coefficients in a function like `X_out = a * Z_in + b * Y_in + c * X_in`.
+    """A generic set of linear coefficients in a function like `X_out = a * Z_in + b * Y_in + c * X_in`.
+
     This represents one row of a linear transformation matrix.
     """
 
@@ -48,10 +48,10 @@ class Coefficient(_AxisFloats):
 
 
 class Linear(_AxisMapping[AxisKey, Coefficient]):
-    """
-    A square linear transformation matrix, represented as a nested axis mapping:
+    """A square linear transformation matrix, represented as a nested axis mapping:
     {output_axis : {input_axis : coefficient}}, as in
     {row_key : {col_key : coefficient}}.
+
     Rows are represented by the Coefficient class, mapping {axis : float}.
     Applied to coordinates along the input axes (columns), it produces coordinates along the output axes (rows).
     In an `Affine` relation, the output axes are those of the source image, and the input axes those of the target.
@@ -86,7 +86,7 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
         return cls(zip(axes, rows))
 
     def __init__(self, *args, **kwargs):
-        """Supports instantiation using any nested mappings like Linear({'x': {'x': 2.0}})"""
+        """Supports instantiation using any nested mappings like Linear({'x': {'x': 2.0}})."""
         super().__init__(*args, **kwargs)
         expected_axes = None
         for output_axis, coefficient in self._mapping.items():
@@ -163,8 +163,8 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
         return self.__class__(kept_items)
 
     def with_identity(self, axes: Axes) -> "Linear":
-        """
-        Reset `axes` to identity transformations.
+        """Reset `axes` to identity transformations.
+
         This means `axes` rows become identity, and `axes` values in all other rows become 0.
         """
         if not axes:
@@ -176,8 +176,8 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
         return self.__class__(new_rows)
 
     def with_identity_except(self, axes: Axes) -> "Linear":
-        """
-        Reset all axes except `axes` to identity transformations.
+        """Reset all axes except `axes` to identity transformations.
+
         This means all rows except `axes` become identity, and all columns except `axes` become 0.
         """
         if not axes:
@@ -206,7 +206,11 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
         return self.without_axes(identity_axes)
 
     def inverted(self, singularity_tolerance: float = DEFAULT_SINGULARITY_TOLERANCE) -> "Linear":
-        """The matrix inverse. Raises ValueError if the matrix is singular."""
+        """Return the matrix inverse.
+
+        Raises:
+            ValueError: If the matrix is singular.
+        """
         try:
             inverse = matrix_invert(self.to_tuples(), tolerance=singularity_tolerance)
         except ValueError as e:
@@ -234,9 +238,11 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
         return self.__class__(replaced_items)
 
     def apply_to_translation(self, translation: Translation) -> Translation:
-        """
-        Matrix-vector product: Each value of the result is the sum of this row's coefficients times `translation`'s
-        values. `translation` must have exactly the axes of this Linear, in the same order.
+        """Matrix-vector product: Each value of the result is the sum of this row's coefficients times `translation`'s
+        values.
+
+        Args:
+            translation: Must have exactly the axes of this Linear, in the same order.
         """
         _require_identical_axes(self.axes, translation)
         return Translation(zip(self.axes, matrix_vector_multiply(self.to_tuples(), translation.values_tuple())))
@@ -256,23 +262,24 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
 
 @dataclass(frozen=True, slots=True, init=False)
 class Affine(SpatialRelation):
-    """
-    A full affine transformation consists of a linear matrix and a translation.
+    """A full affine transformation consists of a linear matrix and a translation.
+
     The perspective row required for homogenous coordinates is not represented.
 
     As a spatial relation, Affine maps *physical* coordinates from source to target:
-      `x_target = linear @ x_source + translation`.
+    `x_target = linear @ x_source + translation`.
     This is the "push" or "forward" direction used by coordinate transformations.
     All "from_"/"to_" methods assume the same direction (push).
 
     Resampling matrices typically use the "pull" or "inverse" direction. Swap source/target when
     converting index values and use `.inverted()` on the result to interchange with "pull" matrices.
 
-    Note that scaling Affines do *not* represent image scaling as a relation between Multiscales:
-    The source and target Multiscale each know their .pixel_size and the pixel size ratio *is* the
-    image scaling.
-    Affines are appropriate for expressing unit conversions (e.g. nm to mm), or the relative scale
-    of a coordinate system added by `Multiscale.with_coordinate_system` (which has no .pixel_size).
+    Note:
+        Scaling Affines do *not* represent image scaling as a relation between Multiscales:
+        The source and target Multiscale each know their .pixel_size and the pixel size ratio *is* the
+        image scaling.
+        Affines are appropriate for expressing unit conversions (e.g. nm to mm), or the relative scale
+        of a coordinate system added by `Multiscale.with_coordinate_system` (which has no .pixel_size).
     """
 
     linear: Linear
@@ -292,21 +299,22 @@ class Affine(SpatialRelation):
         source: Optional[HasPixelGrid] = None,
         target: Optional[HasPixelGrid] = None,
     ) -> "Affine":
-        """
-        Construct an Affine from a matrix shaped either N x (N+1):
+        """Construct an Affine from a matrix shaped either N x (N+1):
         `[ linear | translation ]`
         or homogenous form (N+1) x (N+1):
+
         ```
         [ linear | translation ]
         [ 0 ... 0 |     1      ]
         ```
+
         where N == len(axes).
 
         The matrix always maps source coordinates to target coordinates ("push" or "forward" direction).
         Without source/target, values are taken as is in physical units. With `source` and `target`,
         the matrix is understood to map source *pixel indices* to target pixel indices, and the
         source/target grids are used to convert to physical coordinates.
-        See from_linear_and_offset docstring for more detail.
+        See [from_linear_and_offset][clearscale.Affine.from_linear_and_offset] for more detail.
         """
         axes = tuple(axes)
         ndim = len(axes)
@@ -342,18 +350,20 @@ class Affine(SpatialRelation):
         source: Optional[HasPixelGrid] = None,
         target: Optional[HasPixelGrid] = None,
     ) -> "Affine":
-        """
-        Construct an Affine from a separate N x N linear matrix and a length N offset, where N == len(axes).
+        """Construct an Affine from a separate N x N linear matrix and a length N offset, where N == len(axes).
+
         Values always use the "push" or "forward" direction `target = linear @ source + offset`.
         Without source/target, they are assumed to be in physical units.
 
         Passing `source` and `target` (both or neither) declares the matrix to operate on pixel indices:
         `index_target = linear @ index_source + offset`, with integer indices at pixel centers.
         Both grids must have exactly `axes`, in the same order. Each grid uses its own physical units:
+
         ```
         physical_linear = target.pixel_size * linear / source.pixel_size
         physical_translation = target.pixel_size * offset + target.translation - physical_linear @ source.translation
         ```
+
         Use a placeholder Scale to describe pixel size of coordinate system grids like for
         Multiscale.with_coordinate_system. The Scale.shape is not used and can just be all_singletons.
 
@@ -371,8 +381,8 @@ class Affine(SpatialRelation):
 
     @classmethod
     def from_factor(cls, factor: FactorLike) -> "Affine":
-        """
-        Use the values of `factor` as the linear diagonal, with no translation or inversion.
+        """Use the values of `factor` as the linear diagonal, with no translation or inversion.
+
         For example, `Affine.from_factor(Factor(x=3.0))` has a diagonal coefficient of 3.0,
         meaning it maps `x_target = 3.0 * x_source`.
 
@@ -387,14 +397,10 @@ class Affine(SpatialRelation):
     def from_unit_conversion(
         cls, source_unit: Union[Unit, Mapping[AxisKeyT, str]], target_unit: Union[Unit, Mapping[AxisKeyT, str]]
     ):
-        """
-        Returns the Affine that converts from source_unit to target_unit:
-        `assert Affine.from_unit_conversion(
-            source_unit={"x": "micrometer"},
-            target_unit={"x": "nanometer"}
-        ) == Affine.from_array([[1000.0, 0]], axes="x")`
+        """Return the Affine that converts from `source_unit` to `target_unit`.
 
         The returned Affine can be used as-is to relate a source to a target with different units:
+
         ```
         source_ms = Multiscale.from_single(Scale.from_lists("xy", unit=["micrometer", "micrometer"]))
         target_unit = Unit(x="nanometer", y="nanometer")
@@ -405,10 +411,19 @@ class Affine(SpatialRelation):
         )
         ```
 
-        Recognises the space and time units of OME-Zarr, and common spellings such as "nm", "um", "µm" and "micron".
-        Axes with identical units on both sides (including both unspecified) have factor 1.0, whether recognised or not.
-        Raises ValueError for any other unrecognised unit, for conversions between space and time, and for axes
-        where only one side is unspecified, because an unspecified unit has no known size.
+        Recognizes the space and time units of OME-Zarr, and common spellings such as "nm", "um", "µm" and "micron".
+        Axes with identical units on both sides (including both unspecified) have factor 1.0, whether recognized or not.
+
+        Raises:
+            ValueError: For any other unrecognized unit, for conversions between space and time, and for axes
+                where only one side is unspecified, because an unspecified unit has no known size.
+
+        Examples:
+            >>> Affine.from_unit_conversion(
+            ...     source_unit={"x": "micrometer"},
+            ...     target_unit={"x": "nanometer"},
+            ... ) == Affine.from_array([[1000.0, 0]], axes="x")
+            True
         """
         source = Unit(source_unit)
         target = Unit(target_unit)
@@ -503,8 +518,8 @@ class Affine(SpatialRelation):
         )
 
     def with_identity(self, axes: Axes) -> "Affine":
-        """
-        Reset `axes` to identity affine transformations.
+        """Reset `axes` to identity affine transformations.
+
         This means the corresponding linear rows become identity, their columns
         become 0 in all other rows, and the translation along those axes becomes 0.
         """
@@ -514,8 +529,8 @@ class Affine(SpatialRelation):
         )
 
     def with_identity_except(self, axes: Axes) -> "Affine":
-        """
-        Reset all axes except `axes` to identity affine transformations.
+        """Reset all axes except `axes` to identity affine transformations.
+
         This means all other linear rows become identity, all other columns become
         0, and all other translations become 0.
         """
@@ -525,8 +540,8 @@ class Affine(SpatialRelation):
         )
 
     def without_identity(self) -> "Affine":
-        """
-        Drop identity axes.
+        """Drop identity axes.
+
         An axis is identity if its linear component is identity and its translation is 0.
         """
         identity_axes = [
@@ -539,10 +554,13 @@ class Affine(SpatialRelation):
         return self.without_axes(identity_axes)
 
     def inverted(self, singularity_tolerance: float = DEFAULT_SINGULARITY_TOLERANCE) -> "Affine":
-        """
-        The Affine that undoes `self`: if `self` maps `y` to `x = linear @ y + translation`,
+        """Return the Affine that undoes `self`.
+
+        If `self` maps `y` to `x = linear @ y + translation`,
         the inverse maps `x` back to `y = linear^-1 @ x - linear^-1 @ translation`.
-        Raises ValueError if the linear part is singular.
+
+        Raises:
+            ValueError: If the linear part is singular.
         """
         inverse_linear = self.linear.inverted(singularity_tolerance=singularity_tolerance)
         return self.__class__(
@@ -570,8 +588,7 @@ class Affine(SpatialRelation):
     def to_linear_and_offset(
         self, *, source: Optional[HasPixelGrid] = None, target: Optional[HasPixelGrid] = None
     ) -> Tuple[FloatMatrix, FloatVector]:
-        """
-        Split into an N x N linear matrix and a length N offset, in the order of `self.axes`.
+        """Split into an N x N linear matrix and a length N offset, in the order of `self.axes`.
 
         Values retain the push direction `target = linear @ source + offset`.
         Without grids, return physical values as is.
@@ -580,7 +597,8 @@ class Affine(SpatialRelation):
         integer indices refer to pixel centers. Each grid's pixel size and translation use its own units.
         The grid shape is not used.
 
-        This reverses `from_linear_and_offset` with the same grids:
+        This reverses [from_linear_and_offset][clearscale.Affine.from_linear_and_offset] with the same grids:
+
         ```
         Affine.from_linear_and_offset(
           *affine.to_linear_and_offset(source=a, target=b),

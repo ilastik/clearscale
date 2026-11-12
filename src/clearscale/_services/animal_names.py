@@ -37,14 +37,13 @@ zappy bazzy blusty brisky clacky dorky drippy gloopy groovy grungy jumby kicky m
 
 
 def generate_random_animal_name(seed: int | str | None = None) -> str:
-    """
-    Returns names consisting of a character adjective, appearance adjective, and animal noun.
+    """Return names consisting of a character adjective, appearance adjective, and animal noun.
     Each adjective has a 1% chance of being a quirky wildcard adjective instead.
 
     Examples:
-      brave-shiny-otter
-      witty-fuzzy-moss
-      glitchy-sleek-drake
+        brave-shiny-otter
+        witty-fuzzy-moss
+        glitchy-sleek-drake
     """
     rng = random.Random(seed) if seed is not None else random.SystemRandom()
 

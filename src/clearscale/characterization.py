@@ -53,9 +53,11 @@ class ScalingMethodCharacterization:
     pixel_sizing_error: float
     rounding: Union[RoundingMethod, Literal["indeterminate"], None]
     """One of:
+
     - Rounding method that correctly predicted output shape for *all* probes.
     - None for `characterize_shape_scaling_method` (shape-parametrized calls = no shape-rounding).
-    - "indeterminate" for methods that scale by factor, but showed inconsistent shape rounding behavior."""
+    - "indeterminate" for methods that scale by factor, but showed inconsistent shape rounding behavior.
+    """
     warnings: Tuple[str, ...] = ()
     """Non-fatal concerns about the characterization's reliability (noisy/ambiguous fits etc).
     Non-empty means `translating`, `pixel_sizing` and/or `rounding` might be plain wrong."""
@@ -64,11 +66,11 @@ class ScalingMethodCharacterization:
     For debugging how the method behaves."""
 
     def to_shape_kwargs(self) -> ShapeScalingKwargs:
-        """kwargs to `**`-splat into `BlueprintShapes.apply_to_scale(scale, **shape_kwargs)`."""
+        """Return kwargs to `**`-splat into `BlueprintShapes.apply_to_scale(scale, **shape_kwargs)`."""
         return ShapeScalingKwargs(pixel_sizing=self.pixel_sizing, translating=self.translating)
 
     def to_factor_kwargs(self) -> FactorScalingKwargs:
-        """kwargs to `**`-splat into `BlueprintFactors.apply_to_scale(scale, **factor_kwargs)`."""
+        """Return kwargs to `**`-splat into `BlueprintFactors.apply_to_scale(scale, **factor_kwargs)`."""
         if self.rounding == "indeterminate":
             raise ValueError(
                 "The characterization could not determine rounding behavior of the supplied scaling method. "
@@ -125,8 +127,7 @@ RoundingRuleTable = Mapping[RoundingMethod, RoundingRule]
 def characterize_shape_scaling_method(
     scaling_function: Callable[[Sequence[float], int], Iterable[float]],
 ) -> ScalingMethodCharacterization:
-    """
-    Characterize a scaling implementation that accepts target shape as its scaling parameter
+    """Characterize a scaling implementation that accepts target shape as its scaling parameter
     (e.g. `skimage.transform.resize(x, output_shape=...)`).
     Feed the result to `BlueprintShapes.apply_to_scale(scale, **characterization.to_shape_kwargs())`.
     """
@@ -152,14 +153,14 @@ def characterize_shape_scaling_method(
 def characterize_shape_factor_scaling_method(
     scaling_function: Callable[[Sequence[float], float], Iterable[float]],
 ) -> ScalingMethodCharacterization:
-    """
-    Characterize a scaling implementation that accepts a shape *multiplier*
+    """Characterize a scaling implementation that accepts a shape *multiplier*
     (scipy.ndimage.zoom / skimage.transform.rescale convention: factor < 1 for downscaling,
     factor > 1 for upscaling).
     Feed the result to `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())`.
 
-    Note that clearscale.Factor is a shape *divisor*, so when calling such a scaling function
-    to execute the blueprint, pass `factor.inverted().values_tuple()`.
+    Note:
+        clearscale.Factor is a shape *divisor*, so when calling such a scaling function
+        to execute the blueprint, pass `factor.inverted().values_tuple()`.
     """
     rounding_rules: RoundingRuleTable = {
         "floor": lambda p: math.floor(p.source_length * p.factor),
@@ -194,8 +195,7 @@ def characterize_shape_factor_scaling_method(
 def characterize_step_factor_scaling_method(
     scaling_function: Callable[[Sequence[float], float], Iterable[float]],
 ) -> ScalingMethodCharacterization:
-    """
-    Characterize a scaling implementation that accepts a shape *divisor*
+    """Characterize a scaling implementation that accepts a shape *divisor*
     (skimage.measure.block_reduce convention, manual striding, and similar:
     factor > 1 for downscaling, factor < 1 for upscaling).
     Feed the result to `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())`.
@@ -239,8 +239,7 @@ def _characterize_factor_scaling_method(
     rounding_to_implementation: RoundingRuleTable,
     factor_to_spacing: Callable[[float], float],
 ) -> ScalingMethodCharacterization:
-    """
-    Shared implementation for the two factor-parametrized characterize_* functions.
+    """Shared implementation for the two factor-parametrized characterize_* functions.
 
     `factor_to_spacing` resolves a probe's factor value to its predicted "exact_factor"
     pixel spacing under the caller's convention (1/f for multiplier, f for divisor).
@@ -370,8 +369,8 @@ def _characterize_affine(
     *,
     exact_factor_spacing: Optional[float],
 ) -> Tuple[ScalingMethodCharacterization, bool]:
-    """
-    Characterize the output produced after running a particular probe.
+    """Characterize the output produced after running a particular probe.
+
     `exact_factor_spacing` is the expected pixel spacing multiplier given the scaling factor
     the method was parametrized with, if any
     (i.e. expected if the method multiplies input spacing exactly by the factor).

@@ -39,11 +39,12 @@ def reconcile_axis_prop_params(
     provided_ome_axes: Optional[OmeZarrAxesParam],
     provided_unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]],
 ) -> OmeZarrAxes:
-    """
-    Three-way merge of axis properties between
+    """Three-way merge of axis properties between
+
     - carryover from source_ome_axes into the target_axes keys according to `links`,
     - provided_ome_axes and
     - provided_unit
+
     as required by any method that creates new coordinate systems and hence accepts the properties defining it.
 
     provided_ome_axes and provided_unit must match for axes where both are non-blank.
@@ -124,7 +125,7 @@ def _type_mismatch(source_type: str, target_type: str, scale: float) -> Optional
 
 @dataclass(frozen=True)
 class _AxisPropertyValidation:
-    """Validation policy for a single property of OmeZarrAxis"""
+    """Validation policy for a single property of OmeZarrAxis."""
 
     field_name: str
     mismatch: Callable[[str, str, float], Optional[str]]
@@ -165,14 +166,15 @@ def require_consistent_axis_properties(
     source_label: str,
     target_label: str,
 ) -> None:
-    """
-    Raise if `relation` can't be a true statement because source and target axis properties do not line up with the
+    """Raise if `relation` can't be a true statement because source and target axis properties do not line up with the
     axis linkage implied by the relation.
 
     Validates source and target unit:
-    * When the target is exactly that source, unscaled (see `AxisLink.exact`): Unit must be same.
-    * When the target is exactly that source, scaled: Unit must be same, or scaling must be the conversion factor.
-    * Converting unit and simultaneously scaling by another factor is rejected.
+
+    - When the target is exactly that source, unscaled (see `AxisLink.exact`): Unit must be same.
+    - When the target is exactly that source, scaled: Unit must be same, or scaling must be the conversion factor.
+    - Converting unit and simultaneously scaling by another factor is rejected.
+
     If x is in micrometer in one space, and nanometer in another, then there *must* be a scaling relation between them.
     `Affine` is the only SpatialRelation that can express scaling.
     The user has to state the scaling conversion explicitly as an `Affine`, rather than e.g. clearscale auto-inferring it.

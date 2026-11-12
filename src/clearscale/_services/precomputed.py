@@ -3,13 +3,11 @@ from typing import Any, Mapping, Sequence, Tuple
 from clearscale._axis_values import AxisKey, PixelSize
 
 SCALES_DICT = Mapping[str, Any]
-"""
-Expected:
+"""Expected:
 "key" (str), "size" (List[int]), "resolution" (List[float]), "voxel_offset" (List[int])
 """
 INFO_DICT = Mapping[str, Any]
-"""
-Expected:
+"""Expected:
 "scales" (List[SCALES_DICT]), "num_channels" (int)
 """
 
