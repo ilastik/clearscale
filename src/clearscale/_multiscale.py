@@ -39,7 +39,6 @@ from clearscale._axis_values import (
     Translation,
     PixelOffset,
     Axes,
-    RoundingMethod,
     OrderedAxes,
     AxisKey,
     _axis_in,
@@ -81,6 +80,7 @@ from clearscale._services.axis_properties_across_relations import (
 from clearscale._services.units import unit_conversion_factor
 from clearscale._services.translating import resolve_translating
 from clearscale.types import (
+    RoundingMethod,
     PixelSizingMethod,
     Json,
     ShapeSource,

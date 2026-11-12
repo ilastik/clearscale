@@ -13,7 +13,6 @@ from typing import (
     Callable,
     Optional,
     List,
-    Literal,
     Hashable,
     ItemsView,
     KeysView,
@@ -26,7 +25,7 @@ from typing import (
 from clearscale._services import units
 from clearscale._services.axis_links import AxisLinks
 from clearscale._spatial_relations import SpatialRelation
-from clearscale.types import AxisKey, _Ordered, OrderedAxes, ShapeLike, AxisKeyT
+from clearscale.types import AxisKey, _Ordered, OrderedAxes, ShapeLike, AxisKeyT, RoundingMethod
 
 OrderedAxesT = _Ordered[AxisKeyT]
 AxisMappedHashable = TypeVar("AxisMappedHashable", bound=Hashable)
@@ -34,7 +33,6 @@ AxisMappedPrimitive = TypeVar("AxisMappedPrimitive", int, float, str)
 Axes = Union[Collection[AxisKey], str]
 Scalar = Union[int, float, numbers.Real]
 RoundingFunction = Callable[[float], int]
-RoundingMethod = Union[Literal["ceil", "floor", "round", "round_half_up", "error_on_round"], RoundingFunction]
 _AxisMappingSelf = TypeVar("_AxisMappingSelf", bound="_AxisMapping[Any, Any]")
 _AxisValuesSelf = TypeVar("_AxisValuesSelf", bound="_AxisValues[Any, Any]")
 
