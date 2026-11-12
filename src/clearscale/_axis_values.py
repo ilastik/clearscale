@@ -794,8 +794,8 @@ class Shape(_AxisValues[AxisKeyT, int]):
 
         Optionally: Return subset of `axes` along which this Shape is not singleton."""
         axes = axes if axes is not None else self.keys()
-        non_singleton = {a for a, size in self.items() if size != self._default()}
-        return tuple(a for a in axes if a in non_singleton)
+        non_singleton = [a for a, size in self.items() if size != self._default()]
+        return tuple(a for a in non_singleton if _axis_in(a, axes))
 
     def scaled_by(
         self, factor: Union[Factor[AxisKeyT], Mapping[AxisKeyT, float]], *, rounding: RoundingMethod
