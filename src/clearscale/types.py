@@ -39,6 +39,18 @@ class _Ordered(Protocol[AxisKeyT_co]):
 OrderedAxes = _Ordered[AxisKey]
 ShapeLike = Union["Shape[AxisKeyT]", Mapping[AxisKeyT, int]]
 FactorLike = Union["Factor[AxisKeyT]", Mapping[AxisKeyT, float]]
+RoundingMethod: TypeAlias = Union[
+    Literal["ceil", "floor", "round", "round_half_up", "error_on_round"], Callable[[float], int]
+]
+"""What the `rounding` parameter accepts: a built-in rule or a function.
+
+- `"ceil"`: Round toward positive infinity.
+- `"floor"`: Round toward negative infinity.
+- `"round"`: Round to the nearest integer, with ties going to the even integer (Python's `round`).
+- `"round_half_up"`: Round to the nearest integer, with ties going to the larger integer (positive infinity).
+- `"error_on_round"`: Require an integer-valued input; raise `ValueError` if rounding would be needed.
+- Callable: A function that accepts the unrounded `float` value for one axis and returns an `int`.
+"""
 TranslationShiftFunction = Callable[["Scale", "Scale"], "Translation"]
 """- base_scale: The reference scale being transformed from.
 - target_scale: The new scale being created (with 0 translation).
@@ -116,6 +128,7 @@ __all__ = [
     "OrderedAxes",
     "ShapeLike",
     "FactorLike",
+    "RoundingMethod",
     "TranslationShiftFunction",
     "TranslatingMethodName",
     "TranslatingMethod",
