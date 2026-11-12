@@ -2,6 +2,86 @@
 
 These examples are meant to show where clearscale fits in existing image code: You keep using your preferred array and zarr libraries for data, and clearscale keeps the multiscale metadata aligned with the shapes you produce.
 
+Most examples assume you have `numpy`, `scikit-image` and `zarr-python 3.*` (and of course `clearscale`) installed.
+
+### Downsample a numpy array and save as OME-Zarr multiscale
+
+```python
+import os, numpy, skimage, zarr
+
+# Placeholders - plug in any zarr backend and image scaling method
+my_data = numpy.random.rand(3, 12, 512, 512)
+do_my_scaling = skimage.transform.resize
+zarr_group = zarr.open_group(os.path.expanduser("demo-output/plan_first.ome.zarr"), mode="w")
+
+import clearscale as cs
+
+# 1. Define operation plan (the scaling "blueprint")
+shape = cs.Shape(zip("tzyx", my_data.shape))
+scaling_blueprint = cs.BlueprintShapes.downscale_powers_of_2_xyz(
+    base_shape=shape,
+    rounding="ceil",
+    limit_all=cs.Shape(z=8, y=128, x=128),
+)
+
+# 2. Scale data according to the metadata
+for scale_key, target_shape in scaling_blueprint.items():
+    # Target shape from blueprint
+    scaled_data = do_my_scaling(my_data, target_shape.values_tuple())
+    # Target array path from blueprint
+    zarr_group.create_array(scale_key, data=scaled_data)
+
+# 3. Write metadata: Scale -> Multiscale -> Group -> attrs
+pixel_size = cs.PixelSize(t=5.0, z=260.0, y=0.53, x=0.53)
+unit       = cs.Unit(t="s", z="micrometer", y="micrometer", x="micrometer")
+base       = cs.Scale(shape, pixel_size, unit)
+
+ms = cs.Multiscale.from_single(
+    base,
+    blueprint=scaling_blueprint,
+    pixel_sizing="shape_ratio",  # skimage.transform.resize scales pixel size by the shape ratio...
+    translating="half_pixel_space_preservation",  # ...and preserves the image's extent
+)
+group_meta = cs.OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
+zarr_group.attrs.update(group_meta)
+```
+
+### Download a single scale of a public OME-Zarr as a valid local OME-Zarr
+
+```python
+from pathlib import Path
+import zarr  # This example assumes zarr-python 3.* is installed (plus fsspec, requests and aiohttp for https reading)
+import clearscale as cs
+
+URL = "https://s3.embl.de/i2k-2020/platy-raw.ome.zarr"
+SCALE_KEY = "s6"
+LOCAL_PATH = Path(f"demo-output/platy-raw-{SCALE_KEY}.ome.zarr")
+
+# 1. Discover what's on the server
+remote_group = zarr.open_group(URL)
+
+remote_meta = cs.OmeZarrGroup.from_group(remote_group)
+assert remote_meta.kind is cs.GroupKind.MULTISCALE, "This tells us there is exactly one Multiscale in this group"
+assert remote_meta.version == "0.4", "OME-Zarr version is a property of the group, not of individual Multiscales"
+
+remote_multiscale = remote_meta.multiscales[0]
+assert SCALE_KEY in remote_multiscale, "Multiscale is dict-like, with the sub-paths to arrays as keys"
+assert remote_multiscale[SCALE_KEY].shape == {"z": 357, "y": 405, "x": 430}
+
+# 2. Create the local target and download the data
+source_array = remote_group[SCALE_KEY]
+local_group = zarr.open_group(str(LOCAL_PATH), mode="w", zarr_format=2)  # OME-Zarr v0.4 must use zarr-format v2
+print(f"Downloading {SCALE_KEY} data...")
+local_array = local_group.create_array(SCALE_KEY, data=source_array)
+
+# 3. Derive a new Multiscale from the chosen Scale entry in the existing Multiscale
+local_multiscale = remote_multiscale.derive(SCALE_KEY)
+
+# 4. Write the new metadata to the downloaded store
+local_group_meta = cs.OmeZarrGroup.from_single(local_multiscale)
+local_group.attrs.update(local_group_meta.to_attrs(version="0.4"))
+```
+
 ## Add metadata to existing arrays
 
 ```python
