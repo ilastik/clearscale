@@ -42,11 +42,12 @@ Fully supported:
 
 Partial support:
 
-|                | Read existing | Create new | Write | Note                                                  |
-|----------------|---------------|------------|-------|-------------------------------------------------------|
-| labels groups  | ✅             | (✅)        | (✅)   | Creation/writing possible but not optimized or tested |
-| HCS plates     | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only         |
-| bioformats2raw | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only         |
+|                       | Read existing | Create new | Write | Note                                                      |
+|-----------------------|---------------|------------|-------|-----------------------------------------------------------|
+| Non-linear transforms | (✅)           | ❌          | (✅)   | Preserved on round-trip; access via internal classes only |
+| labels groups         | ✅             | (✅)        | (✅)   | Creation/writing possible but not optimized or tested     |
+| HCS plates            | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only             |
+| bioformats2raw        | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only             |
 
 # Micro-intro: zarr attrs
 
