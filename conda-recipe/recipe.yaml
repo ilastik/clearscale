@@ -1,0 +1,60 @@
+# Recipe for manual upload to personal channel
+schema_version: 1
+context:
+  version: "0.9.0rc2"
+  python_min: "3.10"
+package:
+  name: clearscale
+  version: ${{ version }}
+source:
+  url: https://pypi.org/packages/source/c/clearscale/clearscale-${{ version }}.tar.gz
+  sha256: cfcde4bcdde4a2140a00df54f32f4685f0e03dd9487c49ae568d0c9ceb185a1c
+build:
+  number: 0
+  noarch: python
+  script: ${{ PYTHON }} -m pip install . -vv --no-deps --no-build-isolation
+requirements:
+  host:
+    - python ${{ python_min }}.*
+    - hatchling >=1.27
+    - hatch-vcs
+    - pip
+  run:
+    - python >=${{ python_min }}
+tests:
+  - python:
+      imports:
+        - clearscale
+        - clearscale.ome_zarr
+        - clearscale.characterization
+        - clearscale.types
+      pip_check: true
+      python_version: ${{ python_min }}.*
+  - script: python -m pytest -v tests
+    requirements:
+      run:
+        - python ${{ python_min }}.*
+        - pytest
+    files:
+      source:
+        - tests/
+about:
+  homepage: https://github.com/ilastik/clearscale
+  summary: "Clear multiscale image metadata manipulation"
+  description: |
+    clearscale is a small, dependency-free Python package for
+    handling multiscale image metadata.
+
+    It provides an abstraction layer for metadata parsing, processing and
+    serialization, and allows your code to focus on filesystem handling,
+    data processing, and user experience.
+  license: MIT OR Apache-2.0
+  license_file:
+    - LICENSE
+    - LICENSE-MIT
+    - LICENSE-APACHE
+  documentation: https://clearscale.readthedocs.io/
+  repository: https://github.com/ilastik/clearscale
+extra:
+  recipe-maintainers:
+    - btbest
