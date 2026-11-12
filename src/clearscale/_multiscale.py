@@ -102,17 +102,15 @@ DEFAULT_NAME_PATTERN = "s{}"
 
 
 class DuplicatePolicy(str, Enum):
-    """ERROR: Raise if two scale keys have the same shape or factor value.
-    KEEP_ALL: No deduplication. The same shape or factor value can appear multiple times under different scale keys.
-    KEEP_FIRST: Deduplicate: For each set of scale keys with the same shape or factor value, keep only the first scale key.
-    KEEP_LAST: Deduplicate: For each set of scale keys with the same shape or factor value, keep only the last scale key.
-    """
-
     ERROR = "error"
+    """Raise if two scale keys have the same shape or factor value."""
     KEEP_ALL = "keep_all"
+    """No deduplication. The same shape or factor value can appear multiple times under different scale keys."""
     # KEEP_FIRST/LAST behave identically when generating blueprints, because the scale keys are rewritten consecutively anyway.
     KEEP_FIRST = "keep_first"
+    """Deduplicate: For each set of scale keys with the same shape or factor value, keep only the first scale key."""
     KEEP_LAST = "keep_last"
+    """Deduplicate: For each set of scale keys with the same shape or factor value, keep only the last scale key."""
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -134,23 +132,26 @@ class Scale:
         translation: Optional[Sequence[float]] = None,
         ome_zarr_axes: Optional[Union[Literal["infer"], Sequence[Union[Mapping[str, Any], OmeZarrAxis]]]] = "infer",
     ) -> "Scale":
-        """
-        Convenience constructor for axes given as parallel sequences rather than {axis: value} mappings.
-        Enables construction of Scales
-        * with just axis keys: `Scale.from_lists("zyx")`
-        * directly from OME-Zarr json: `Scale.from_lists(json["axes"])`
+        """Convenience constructor for axes given as parallel sequences rather than {axis: value} mappings.
 
-        `keys` is optional if `ome_zarr_axes` is given as a sequence of dicts/ome_zarr.Axis that all
-        carry a `name` (or "name" key) - in that case, axis keys are derived from them. Otherwise, `keys` is
-        mandatory. Any other argument left as None takes that type's usual default (e.g. shape=None means
+        Enables construction of Scales
+
+        - with just axis keys: `Scale.from_lists("zyx")`
+        - directly from OME-Zarr json: `Scale.from_lists(json["axes"])`
+
+        Any other argument left as None takes that type's usual default (e.g. shape=None means
         every axis is a singleton).
 
-        `ome_zarr_axes` entries may be either raw OME-Zarr axis dicts (using OME-Zarr's own key
-        spelling: "type", "unit", "discrete", "longName", "name") or `ome_zarr.Axis` instances directly.
-        Keep `ome_zarr_axes="infer"` (the default) if you use the standard axis key set "t", "c", "z", "y" and/or "x".
-        This will automatically set the canonical Axis.type. If you use non-standard keys, you must specify
-        Axis.type="space" for at least two axes to be able to create Multiscales from a Scale.
-        Pass `ome_zarr_axes=None` explicitly to leave axis properties unset.
+        Args:
+            keys: Optional if `ome_zarr_axes` is given as a sequence of dicts/ome_zarr.Axis that all
+                carry a `name` (or "name" key) - in that case, axis keys are derived from them. Otherwise, `keys` is
+                mandatory.
+            ome_zarr_axes: Entries may be either raw OME-Zarr axis dicts (using OME-Zarr's own key
+                spelling: "type", "unit", "discrete", "longName", "name") or `ome_zarr.Axis` instances directly.
+                Keep `ome_zarr_axes="infer"` (the default) if you use the standard axis key set "t", "c", "z", "y" and/or "x".
+                This will automatically set the canonical Axis.type. If you use non-standard keys, you must specify
+                Axis.type="space" for at least two axes to be able to create Multiscales from a Scale.
+                Pass `ome_zarr_axes=None` explicitly to leave axis properties unset.
         """
         parsed_ome_zarr_axes: Optional[List[OmeZarrAxis]]
         if ome_zarr_axes is None or isinstance(ome_zarr_axes, str):
@@ -253,7 +254,9 @@ class Scale:
     def with_axes(self, axes: OrderedAxes, *, infer_inserted_types: bool = True) -> "Scale":
         """Build a Scale with all properties produced by their respective `.with_axes`.
 
-        infer_inserted_types: If True, infer OME-Zarr axis types (only for newly inserted axes)."""
+        Args:
+            infer_inserted_types: If True, infer OME-Zarr axis types (only for newly inserted axes).
+        """
         if not axes:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to: {axes!r}")
         return Scale(
@@ -274,13 +277,12 @@ class Scale:
         )
 
     def with_unit_replaced(self, new: Union[Unit, Mapping[AxisKeyT, str]]) -> "Scale":
-        """
-        Replace the unit strings for the axes provided, leaving unmentioned axes untouched.
+        """Replace the unit strings for the axes provided, leaving unmentioned axes untouched.
         Conceptually, this is `dataclasses.replace(scale, unit=...)` + partial merge.
 
         This only relabels, it does not convert: pixel size and translation keep their numbers.
-        Use `with_unit_converted` if you want update numbers so the new Scale expresses the same physical
-        geometry in a different unit.
+        Use [with_unit_converted][clearscale.Scale.with_unit_converted] if you want to update numbers so the new Scale
+        expresses the same physical geometry in a different unit.
 
         Replacing the value for an axis with an empty string makes the unit unspecified (explicit "unitless"
         cannot be represented).
@@ -304,18 +306,25 @@ class Scale:
         )
 
     def with_unit_converted(self, new: Union[Unit, Mapping[AxisKeyT, str]]) -> "Scale":
-        """
-        Express this Scale in other units, describing the same physical sizes and positions:
+        """Express this Scale in other units, describing the same physical sizes and positions:
         Pixel size and translation for specified axes are converted to the specified unit, and the unit
         labels set accordingly. Shape and the other axes are untouched.
 
-        Example: A pixel size of 500.0 in "nanometer" becomes 0.5 in "micrometer".
         Converting to a different spelling of the same unit just relabels (e.g. "nm" -> "nanometer").
 
-        Use `with_unit_replaced` if you only want to replace unit labels without changing numbers.
+        Use [with_unit_replaced][clearscale.Scale.with_unit_replaced] if you only want to replace unit labels without
+        changing numbers.
 
-        Raises ValueError for unrecognised units, for conversions between space and time, and for axes where only one
-        of the old and new unit is unspecified (an unspecified unit has no known size).
+        Raises:
+            ValueError: For unrecognized units, for conversions between space and time, and for axes where only one
+                of the old and new unit is unspecified (an unspecified unit has no known size).
+
+        Examples:
+            A pixel size of 500.0 in "nanometer" becomes 0.5 in "micrometer":
+
+            >>> scale = Scale.from_lists("x", pixel_size=[500.0], unit=["nanometer"])
+            >>> scale.with_unit_converted({"x": "micrometer"}).pixel_size
+            PixelSize({'x': 0.5})
         """
         new = Unit(new)
         unknown = [axis for axis in new if axis not in self.unit]
@@ -384,8 +393,7 @@ def _require_valid_coordinate_system_name(name: object) -> None:
 
 
 def _require_non_increasing_shapes(items: Sequence[Tuple[ScaleKey, Shape]], owner: str) -> None:
-    """
-    All existing multiscale formats require scales to be ordered from largest to smallest (shape).
+    """All existing multiscale formats require scales to be ordered from largest to smallest (shape).
     Enforced on construction so that no invalid scaling plan or Multiscale can exist.
     """
     for (prev_key, prev_shape), (key, shape) in zip(items, items[1:]):
@@ -409,7 +417,7 @@ def _require_non_decreasing_factors(items: Sequence[Tuple[ScaleKey, Factor]]) ->
 
 
 class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
-    """Common base class for Multiscale, BlueprintShapes and BlueprintFactors"""
+    """Common base class for Multiscale, BlueprintShapes and BlueprintFactors."""
 
     def __init__(self, *args, **kwargs):
         self._mapping = OrderedDict(*args, **kwargs)
@@ -471,11 +479,14 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
         self: _ScaleMappingSelf,
         keys_pattern_or_func: Union[Sequence[ScaleKey], str, Callable[[int, ScaleKey, ValueType], ScaleKey]],
     ) -> _ScaleMappingSelf:
-        """
-        Assign new scale keys using one of:
-        - a sequence of new scale keys (one per current scale, unique)
-        - a string format pattern with placeholder for the scale's int index
-        - a function that takes the int index, the old scale key, and the Scale object, and returns a new key
+        """Assign new scale keys.
+
+        Args:
+            keys_pattern_or_func: One of:
+
+                - a sequence of new scale keys (one per current scale, unique)
+                - a string format pattern with placeholder for the scale's int index
+                - a function that takes the int index, the old scale key, and the Scale object, and returns a new key
         """
         if isinstance(keys_pattern_or_func, str):
             pattern = keys_pattern_or_func
@@ -545,7 +556,7 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
 
 
 class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
-    """Base class for BlueprintShapes and BlueprintFactors"""
+    """Base class for BlueprintShapes and BlueprintFactors."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -641,10 +652,11 @@ class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
         limit_all: Optional[ShapeLike],
         limit_any: Optional[ShapeLike],
     ) -> Optional[Tuple[List[AxisKey], Shape, Optional[Shape]]]:
-        """
-        Shared setup/validation for .uniform_steps and .adaptive_steps on BlueprintShapes and BlueprintFactors.
-        Returns `(scaled_axes, limit_all_shape, limit_any_shape)`, resolved and validated against `base_shape`.
-        Returns None for single-scale blueprint cases (step == 1 or none of `scaled_axes` present in `base_shape`).
+        """Shared setup/validation for .uniform_steps and .adaptive_steps on BlueprintShapes and BlueprintFactors.
+
+        Returns:
+            `(scaled_axes, limit_all_shape, limit_any_shape)`, resolved and validated against `base_shape`.
+            None for single-scale blueprint cases (step == 1 or none of `scaled_axes` present in `base_shape`).
         """
         cls._require_positive_resampling_step(step)
         if step == 1:
@@ -688,9 +700,10 @@ class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
         max_levels: int,
         name_pattern: str,
     ) -> List[Tuple[ScaleKey, Factor, Shape]]:
-        """
-        Shared engine for BlueprintShapes.adaptive_steps and BlueprintFactors.adaptive_steps.
-        Returns (scale_key, scale factor, projected shape) for each generated level.
+        """Shared engine for BlueprintShapes.adaptive_steps and BlueprintFactors.adaptive_steps.
+
+        Returns:
+            (scale_key, scale factor, projected shape) for each generated level.
         """
         accum_factor = Factor.identity(scaled_axes)
         results: List[Tuple[ScaleKey, Factor, Shape]] = []
@@ -733,12 +746,12 @@ class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
     def _resolve_duplicates(
         raw_items: Iterable[Tuple[ScaleKey, Union[Shape, Factor]]], on_duplicate: DuplicatePolicy
     ) -> List[Tuple[ScaleKey, Union[Shape, Factor]]]:
-        """
-        Ensure raw_items contains no duplicate values. Resolve duplicates according to on_duplicate:
-        "error": Raise error if there are duplicates.
-        "keep_all": Skip (return raw_items as list)
-        "keep_first": Keep the first key seen with any particular value.
-        "keep_last": Keep the last key seen with any particular value.
+        """Ensure raw_items contains no duplicate values. Resolve duplicates according to on_duplicate:
+
+        - "error": Raise error if there are duplicates.
+        - "keep_all": Skip (return raw_items as list)
+        - "keep_first": Keep the first key seen with any particular value.
+        - "keep_last": Keep the last key seen with any particular value.
         """
         raw_items = list(raw_items)
         if on_duplicate == DuplicatePolicy.KEEP_ALL:
@@ -767,9 +780,9 @@ class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
 
 
 class _ShapeScalingOverrides(TypedDict, total=False):
+    """Helper for Multiscale.from_single.
+    Only the BlueprintShapes.apply_to_scale kwargs a caller actually specified (the rest take the method's defaults).
     """
-    Helper for Multiscale.from_single.
-    Only the BlueprintShapes.apply_to_scale kwargs a caller actually specified (the rest take the method's defaults)."""
 
     pixel_sizing: PixelSizingMethod
     translating: TranslatingMethod
@@ -796,8 +809,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         source_key: Optional[ScaleKey] = None,
         scaled_axes: Optional[Axes] = None,
     ) -> "BlueprintShapes":
-        """
-        Build a blueprint rescaling shapes from `multiscale`
+        """Build a blueprint rescaling shapes from `multiscale`
         such that the shape at `source_key` matches `target_shape`.
         If no `source_key`, `target_shape` becomes the blueprint's base shape.
         All other shapes are rescaled from `target_shape` according to their relative factor to `source_key`
@@ -827,24 +839,27 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintShapes":
-        """
-        Generate a blueprint where each scale is a `step` downsampling of the previous scale.
+        """Generate a blueprint where each scale is a `step` downsampling of the previous scale.
         Applies scaling uniformly to all axes until they become singleton.
 
         When step < 1 (generating upscales), the result is still ordered largest-to-smallest, with the
         raw shape at the end of the blueprint.
 
         Generation stops (inclusive of the triggering scale) when either:
+
         - `limit_all`: every scaled axis has crossed its value (<= when downsampling, >= when
           upsampling). Defaults to singleton (1) on `scaled_axes` if not given. This is the
           primary target shape.
         - `limit_any`: any single axis has crossed its value. Use this as a floor/ceiling
           guard on individual axes (e.g. "never let z go below 4"), independent of `limit_all`.
+
         Both may reference the same or different axes; whichever condition is met first wins.
-        Raises if `base_shape` already crosses a limit.
 
         If `step` is fractional, `rounding` is applied to round the generated shapes.
         If this generates duplicate shapes, they are deduplicated according to `on_duplicate`.
+
+        Raises:
+            ValueError: If `base_shape` already crosses a limit.
         """
         resolved = cls._resolve_scaled_axes_and_limits(
             step=step, base_shape=base_shape, scaled_axes=scaled_axes, limit_all=limit_all, limit_any=limit_any
@@ -887,12 +902,11 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
     ):
-        """
-        Generate a blueprint where each scale is a 2x downsampling of the previous scale.
+        """Generate a blueprint where each scale is a 2x downsampling of the previous scale.
         Apply scaling uniformly to axes "z", "y" and "x".
         Error if base_shape has none of these axes.
 
-        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        See [uniform_steps][clearscale.BlueprintShapes.uniform_steps] for `limit_all`/`limit_any`/`max_levels`.
         """
         xyz = [a for a in base_shape if str(a).lower() in ("x", "y", "z")]
         return cls.uniform_steps(
@@ -922,8 +936,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintShapes":
-        """
-        Generate a blueprint that first converges scaled axes toward isotropic physical pixel
+        """Generate a blueprint that first converges scaled axes toward isotropic physical pixel
         size, then steps all of them together by `step`, like `uniform_steps`.
 
         Most combinations of `step` and `pixel_size` will never converge to exact isotropy, so the initial convergence
@@ -934,7 +947,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         When step < 1 (generating upscales), the result is still ordered largest-to-smallest, with the
         raw shape at the end of the blueprint.
 
-        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        See [uniform_steps][clearscale.BlueprintShapes.uniform_steps] for `limit_all`/`limit_any`/`max_levels`.
         """
         resolved = cls._resolve_scaled_axes_and_limits(
             step=step, base_shape=base_shape, scaled_axes=scaled_axes, limit_all=limit_all, limit_any=limit_any
@@ -973,15 +986,14 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintShapes":
-        """
-        Generate a blueprint where each scale is a 2x downsampling of the previous scale.
+        """Generate a blueprint where each scale is a 2x downsampling of the previous scale.
         Apply scaling to axes "z", "y" and "x", first converging toward isotropic physical pixel size,
         then stepping all of them together like `downscale_powers_of_2_xyz`.
         Error if base_shape has none of these axes.
 
         Equivalent to `downscale_powers_of_2_xyz` when `pixel_size` is already isotropic.
 
-        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        See [uniform_steps][clearscale.BlueprintShapes.uniform_steps] for `limit_all`/`limit_any`/`max_levels`.
         """
         xyz = [a for a in base_shape if str(a).lower() in ("x", "y", "z")]
         return cls.adaptive_steps(
@@ -1021,14 +1033,16 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
     def with_sizes(
         self, other: Union[ShapeLike, Mapping[ScaleKey, ShapeLike]], *, only_axes: Optional[Axes] = None
     ) -> "BlueprintShapes":
-        """
-        Replace shape values in this blueprint.
-        Provide either
-        - a blueprint-like mapping {scale_key: {axis: size}}
-          to replace the values for those axes at that scale
-        - a shape-like mapping {axis: size}
-          to replace the values for those axes in *all* scales.
-        Optionally limit the replacing to `only` axes (and ignore other axes in the provided mapping).
+        """Replace shape values in this blueprint.
+
+        Args:
+            other: Provide either
+
+                - a blueprint-like mapping {scale_key: {axis: size}}
+                  to replace the values for those axes at that scale
+                - a shape-like mapping {axis: size}
+                  to replace the values for those axes in *all* scales.
+            only_axes: Limit the replacing to these axes (and ignore other axes in the provided mapping).
         """
         return super()._with_values_by_axes(other, only_axes=only_axes)
 
@@ -1151,19 +1165,19 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintFactors":
-        """
-        Generate a blueprint where each scale's factor is an exact power of `step`
+        """Generate a blueprint where each scale's factor is an exact power of `step`
         (step**0, step**1, ...).
-
-        `rounding` is used only to project each candidate factor to a
-        shape, for limit-checking and for detecting when consecutive levels collapse to the same
-        shape. It does not affect the returned factor values.
 
         When step < 1 (generating upscales), the result is still ordered such that the generated scaled
         shapes will be largest-to-smallest, with factor=1 at the end of the blueprint.
 
-        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        See [BlueprintShapes.uniform_steps][clearscale.BlueprintShapes.uniform_steps] for `limit_all`/`limit_any`/`max_levels`.
         The limits apply in the same way here, to the *projected* shape at the respective factor.
+
+        Args:
+            rounding: Used only to project each candidate factor to a
+                shape, for limit-checking and for detecting when consecutive levels collapse to the same
+                shape. It does not affect the returned factor values.
         """
         resolved = cls._resolve_scaled_axes_and_limits(
             step=step, base_shape=base_shape, scaled_axes=scaled_axes, limit_all=limit_all, limit_any=limit_any
@@ -1212,11 +1226,10 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintFactors":
-        """
-        Generate a blueprint where each scale factor is successive powers of 2 (1, 2, 4, 8...) along "x", "y" and "z".
+        """Generate a blueprint where each scale factor is successive powers of 2 (1, 2, 4, 8...) along "x", "y" and "z".
         Error if base_shape has none of these axes.
 
-        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
+        See [BlueprintShapes.uniform_steps][clearscale.BlueprintShapes.uniform_steps] for `limit_all`/`limit_any`/`max_levels`.
         The limits apply in the same way here, to the *projected* shape at the respective factor.
         """
         xyz = [a for a in base_shape if str(a).lower() in ("x", "y", "z")]
@@ -1247,13 +1260,18 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintFactors":
-        """Like BlueprintShapes.adaptive_steps, generate factors as powers of `step` along `scaled_axes`, first
-        converging `pixel_size` to isotropy and then continuing as uniform steps. Returns each level's per-axis factor
-        (step ** per-axis step count).
+        """Like [BlueprintShapes.adaptive_steps][clearscale.BlueprintShapes.adaptive_steps], generate factors as powers of
+        `step` along `scaled_axes`, first converging `pixel_size` to isotropy and then continuing as uniform steps.
 
-        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
-        `rounding` is used only to project shapes for limit-checking and to detect duplicates internally.
-        The returned factor values are exact powers of `step`."""
+        See [BlueprintShapes.uniform_steps][clearscale.BlueprintShapes.uniform_steps] for `limit_all`/`limit_any`/`max_levels`.
+
+        Args:
+            rounding: Used only to project shapes for limit-checking and to detect duplicates internally.
+
+        Returns:
+            Each level's per-axis factor (step ** per-axis step count).
+            The returned factor values are exact powers of `step`.
+        """
         resolved = cls._resolve_scaled_axes_and_limits(
             step=step, base_shape=base_shape, scaled_axes=scaled_axes, limit_all=limit_all, limit_any=limit_any
         )
@@ -1296,13 +1314,19 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         name_pattern=DEFAULT_NAME_PATTERN,
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintFactors":
-        """Like BlueprintShapes.adaptive_powers_of_2_xyz: Generate shape-halving factors (1, 2, 4, 8...) along "x", "y" and "z",
-        first converging `pixel_size` to isotropy and then continuing as uniform steps. Returns each level's per-axis factor
-        (step ** per-axis step count).
+        """Like [BlueprintShapes.adaptive_powers_of_2_xyz][clearscale.BlueprintShapes.adaptive_powers_of_2_xyz]: Generate
+        shape-halving factors (1, 2, 4, 8...) along "x", "y" and "z", first converging `pixel_size` to isotropy and then
+        continuing as uniform steps.
 
-        See BlueprintShapes.uniform_steps for `limit_all`/`limit_any`/`max_levels`.
-        `rounding` is used only to project shapes for limit-checking and duplicate detection internally.
-        The returned factor values are exact powers of `step`."""
+        See [BlueprintShapes.uniform_steps][clearscale.BlueprintShapes.uniform_steps] for `limit_all`/`limit_any`/`max_levels`.
+
+        Args:
+            rounding: Used only to project shapes for limit-checking and duplicate detection internally.
+
+        Returns:
+            Each level's per-axis factor (step ** per-axis step count).
+            The returned factor values are exact powers of `step`.
+        """
         xyz = [a for a in base_shape if str(a).lower() in ("x", "y", "z")]
         return cls.adaptive_steps(
             step=2,
@@ -1337,14 +1361,16 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
     def with_factors(
         self, other: Union[FactorLike, Mapping[ScaleKey, FactorLike]], *, only_axes: Optional[Axes] = None
     ) -> "BlueprintFactors":
-        """
-        Replace factor values in this blueprint.
-        Provide either
-        - a blueprint-like mapping {scale_key: {axis: factor}}
-          to replace the values for those axes at that scale
-        - a shape-like mapping {axis: factor}
-          to replace the values for those axes in *all* scales.
-        Optionally limit the replacing to `only` axes (and ignore other axes in the provided mapping).
+        """Replace factor values in this blueprint.
+
+        Args:
+            other: Provide either
+
+                - a blueprint-like mapping {scale_key: {axis: factor}}
+                  to replace the values for those axes at that scale
+                - a factor-like mapping {axis: factor}
+                  to replace the values for those axes in *all* scales.
+            only_axes: Limit the replacing to these axes (and ignore other axes in the provided mapping).
         """
         return super()._with_values_by_axes(other, only_axes=only_axes)
 
@@ -1355,8 +1381,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         rounding: RoundingMethod,
         on_duplicate: DuplicatePolicy = DuplicatePolicy.KEEP_FIRST,
     ) -> BlueprintShapes:
-        """
-        Divide `reference` by this blueprint's factors to obtain concrete shapes.
+        """Divide `reference` by this blueprint's factors to obtain concrete shapes.
 
         Applies `rounding` when factors unevenly divide `reference`.
         Rounding can lead to duplicate shapes on successive scale levels. By default, duplicates are removed.
@@ -1426,26 +1451,28 @@ def _random_multiscale_name(seed: int | str | None = None) -> str:
 class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     _transform_graph: TransformGraph
     """Transform graph that by default consists only of one isolated node: _intrinsic_ref.
-    The graph can acquire additional CoordinateSystems by .from_ome_zarr, or by derivation from a Multiscale that 
+    The graph can acquire additional CoordinateSystems by .from_ome_zarr, or by derivation from a Multiscale that
     acquired them from_ome_zarr.
-    Transforms in Multiscale graphs may only source/target `NodeRef[CoordinateSystem]`, and the paths from 
-    self._intrinsic_ref to each satellite coordinate system must be a single Transform."""
+    Transforms in Multiscale graphs may only source/target `NodeRef[CoordinateSystem]`, and the paths from
+    self._intrinsic_ref to each satellite coordinate system must be a single Transform.
+    """
     _intrinsic_ref: NodeRef[CoordinateSystem]
     """The system in which the Scales' shape, pixel size, translation etc. are correct.
-    
+
     Ref instance identity mostly works semantically "correctly" in "manipulator" methods:
+
     - filter_items, with_keys, drop_before, with_coordinate_system and copy return "the same space, viewed differently".
       They preserve `self._intrinsic_ref` and other NodeRefs inside the graph, maintaining identity.
     - .from_* (and hence .derive) return "a new space". New _intrinsic_ref (the result is not the same space).
       as_derived_from reconnects the new space back to its origin, via an explicit SpatialRelation.
-    
     """
     _zero_scale_axes_by_key: Mapping[str, Tuple[AxisKey, ...]]
     """Dataset scale axes that were read as 0.0 from loaded meta; kept for as-read round-trip."""
     _legacy_convention_global_t_scale: Optional[float]
-    """Special-case for a legacy OME-Zarr convention where time step size (t-scale) is written as a global scale 
-    transform. Serializes like a `ScaleTransform.bound(source=self._intrinsic_ref, target=synthetic_external)`, 
-    but is redacted from self._transform_graph and instead stored on every scale as `self[].pixel_size['t']`."""
+    """Special-case for a legacy OME-Zarr convention where time step size (t-scale) is written as a global scale
+    transform. Serializes like a `ScaleTransform.bound(source=self._intrinsic_ref, target=synthetic_external)`,
+    but is redacted from self._transform_graph and instead stored on every scale as `self[].pixel_size['t']`.
+    """
     has_shapes: bool
     """If False, this indicates the Multiscale was generated with fake (all-singleton) shapes."""
     ome: ome_zarr.MultiscaleProperties
@@ -1462,8 +1489,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         has_shapes=True,
         **kwargs,
     ):
-        """
-        Multiscales can be constructed from a `scale_key : Scale` mapping, but this should be avoided.
+        """Multiscales can be constructed from a `scale_key : Scale` mapping, but this should be avoided.
         Multiscale objects should reflect either metadata read from a file (`.from_ome_zarr`, `.from_precomputed`),
         expand a single Scale according to a scaling blueprint (`.from_single`),
         or derive from an existing Multiscale (`.derive`).
@@ -1606,22 +1632,24 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         translating: Optional[TranslatingMethod] = None,
         rounding: Optional[RoundingMethod] = None,
     ):
-        """
-        Expand the provided Scale into a new Multiscale.
+        """Expand the provided Scale into a new Multiscale.
 
         If nothing else is provided, this is equivalent to `Multiscale({"s0": scale})`
 
         Optionally provide a `blueprint` to specify how the data described by `scale` was/will be scaled, and compute matching metadata.
-        Related (see "Scaling method characteristics" docs):
-          - `pixel_sizing`: Your scaling method's pixel size scaling behavior.
-              Default for `BlueprintShapes`: "shape_ratio"
-          - `translating`: Your scaling method's translating behavior: the name of one of the functions in
-              `clearscale.characterization` (e.g. "half_pixel_space_preservation"), or your own function.
-              Default for `BlueprintShapes`: "half_pixel_space_preservation"
-          - `rounding`: Your scaling method's shape rounding behavior.
-          All three are required when `blueprint` is `BlueprintFactors`, because there is no sensible default for how factors are applied.
+        The scaling method parameters `pixel_sizing`, `translating` and `rounding` are explained in the "Scaling methods" docs.
+        All three are required when `blueprint` is `BlueprintFactors`, because there is no sensible default for how factors are applied.
 
-        If you already have an existing Multiscale, and `scale` is one of its values, consider `Multiscale.derive` instead.
+        If you already have an existing Multiscale, and `scale` is one of its values, consider
+        [derive][clearscale.Multiscale.derive] instead.
+
+        Args:
+            pixel_sizing: Your scaling method's pixel size scaling behavior.
+                Default for `BlueprintShapes`: "shape_ratio"
+            translating: Your scaling method's translating behavior: the name of one of the functions in
+                `clearscale.characterization` (e.g. "half_pixel_space_preservation"), or your own function.
+                Default for `BlueprintShapes`: "half_pixel_space_preservation"
+            rounding: Your scaling method's shape rounding behavior.
         """
         if not isinstance(scale_key, str):
             raise TypeError(
@@ -1796,7 +1824,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return OmeZarrAxes(self._intrinsic_ref.owner)
 
     def coordinate_system_ome_zarr_axes(self, name: CoordinateSystemName) -> OmeZarrAxes:
-        """Return axis properties of the coordinate system named `name`"""
+        """Return axis properties of the coordinate system named `name`."""
         refs = self._transform_graph.all_system_refs
         matching = [ref for ref in refs if ref.name == name and ref is not self._intrinsic_ref]
         if not matching:
@@ -1836,16 +1864,17 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     @cached_property
     def lowest_lossless_ome_zarr_version(self) -> Literal["0.6", "0.4"]:
-        """
-        The lowest OME-Zarr version that can reproduce this Multiscale through write/read cycles,
+        """The lowest OME-Zarr version that can reproduce this Multiscale through write/read cycles,
         i.e. the lowest `version` for which
         `Multiscale.from_ome_zarr(self.to_ome_zarr(version=version)) == self`
 
-        Raises ValueError if this Multiscale cannot be written as OME-Zarr in any version
-        (i.e. its mutable `.ome` properties were modified to hold unserializable metadata),
-        because then no version reproduces it.
+        Raises:
+            ValueError: If this Multiscale cannot be written as OME-Zarr in any version
+                (i.e. its mutable `.ome` properties were modified to hold unserializable metadata),
+                because then no version reproduces it.
 
-        Side note: Never returns 0.5, because it added no new multiscale features over 0.4
+        Note:
+            Never returns 0.5, because it added no new multiscale features over 0.4
         """
         candidate_versions: Tuple[Literal["0.6", "0.4"], ...] = ("0.4", "0.6")
         written = None
@@ -1872,16 +1901,20 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         ome_zarr_axes: Optional[OmeZarrAxesParam] = "infer",
     ) -> "Multiscale":
-        """
-        Add a coordinate system to this Multiscale's spatial context.
+        """Add a coordinate system to this Multiscale's spatial context.
 
-        `reached_by` describes how to reach the new system from this Multiscale's own space.
-        The default `SameSpace()` adds the same space under another name.
         Blank axis properties of the new system are carried over from this Multiscale's axes as far as the relation
         allows: Axes that it keeps carry everything, scaled axes everything but the unit (a scaling may or may not
         convert units), and mixed axes only the properties that all axes they are mixed with agree on, but not the unit.
-        Set `unit` and `ome_zarr_axes` to specify others. They must not contradict the relation: A different unit or
-        type for an axis that it keeps raises ValueError, and so does a unit that its scaling does not convert to.
+        Set `unit` and `ome_zarr_axes` to specify others.
+
+        Args:
+            reached_by: Describes how to reach the new system from this Multiscale's own space.
+                The default `SameSpace()` adds the same space under another name.
+
+        Raises:
+            ValueError: If `unit` or `ome_zarr_axes` contradict the relation: A different unit or type for an axis
+                that it keeps, or a unit that its scaling does not convert to.
         """
         _require_valid_coordinate_system_name(name)
         if name == self._intrinsic_ref.name or name in self.coordinate_system_names:
@@ -1926,28 +1959,29 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         reached_by: RelationsParam = SameSpace(),
         original_system_name: Optional[CoordinateSystemName] = None,
     ) -> "Multiscale":
-        """
-        Transfer `self` into the spatial context of `original`, carrying over axis properties, coordinate systems and
+        """Transfer `self` into the spatial context of `original`, carrying over axis properties, coordinate systems and
         serialization convention.
-
-        `reached_by` describes how to reach `original` as a coordinate system:
-        `self --reached_by--> original`, i.e. `self` is the relation's source and `original` its target.
-        It does not describe how the image was derived.
-        The default `SameSpace()` says that `self` is in the same space as `original`.
 
         Blank axis properties of `self` are filled from `original`'s axes, against the direction of `reached_by`:
         Axes that the relation keeps carry everything, scaled axes everything but the unit (a scaling may or may not
         convert units), and mixed axes only the properties that all axes they are mixed with agree on, but not the unit.
-        Properties that `self` has are kept, but must not contradict the relation: A different unit or type for an
-        axis that it keeps raises ValueError, and so does a unit that its scaling does not convert to.
-
-        `original_system_name`: Optionally, the name under which to keep `original`'s own coordinate system on the
-        result. Without it, that system is kept only if `reached_by` is not the identity, under an auto-generated name.
-        With it, it is kept under this name even if `reached_by` is the identity (`SameSpace`).
-        Raises ValueError if `self` already has a coordinate system of that name, or already holds `original`'s
-        coordinate system under another name.
+        Properties that `self` has are kept, but must not contradict the relation.
 
         Other transferred coordinate systems are renamed if `self` already has a system of the same name.
+
+        Args:
+            reached_by: Describes how to reach `original` as a coordinate system:
+                `self --reached_by--> original`, i.e. `self` is the relation's source and `original` its target.
+                It does not describe how the image was derived.
+                The default `SameSpace()` says that `self` is in the same space as `original`.
+            original_system_name: Optionally, the name under which to keep `original`'s own coordinate system on the
+                result. Without it, that system is kept only if `reached_by` is not the identity, under an auto-generated
+                name. With it, it is kept under this name even if `reached_by` is the identity (`SameSpace`).
+
+        Raises:
+            ValueError: For a different unit or type for an axis that the relation keeps, or a unit that its scaling does
+                not convert to. Also if `self` already has a coordinate system named `original_system_name`, or already
+                holds `original`'s coordinate system under another name.
         """
         if original_system_name is not None:
             _require_valid_coordinate_system_name(original_system_name)
@@ -2104,23 +2138,24 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         translating: Optional[TranslatingMethod] = None,
         rounding: Optional[RoundingMethod] = None,
     ) -> "Multiscale":
-        """
-        Derive a new Multiscale from one of this Multiscale's own scale levels.
+        """Derive a new Multiscale from one of this Multiscale's own scale levels.
 
         Deriving keeps the new Multiscale in the spatial context of `self`. This means its coordinate systems are
         transferred, and `self` becomes a coordinate system on the child.
         If `self` follows the nifti-zarr convention, this is also transferred.
 
-        `blueprint`: How to expand the Scale at `base_key` into the derived Multiscale's levels.
-        Omit to extract the respective Scale as an independent Multiscale with just that one entry.
-        Related (see "Scaling method characteristics" docs):
-          - `pixel_sizing`: Your scaling method's pixel size scaling behavior.
-              Default for `BlueprintShapes`: "shape_ratio"
-          - `translating`: Your scaling method's translating behavior: the name of one of the functions in
-              `clearscale.characterization` (e.g. "half_pixel_space_preservation"), or your own function.
-              Default for `BlueprintShapes`: "half_pixel_space_preservation"
-          - `rounding`: Your scaling method's shape rounding behavior.
-          All three are required when `blueprint` is `BlueprintFactors`, because there is no sensible default for how factors are applied.
+        The scaling method parameters `pixel_sizing`, `translating` and `rounding` are explained in the "Scaling methods" docs.
+        All three are required when `blueprint` is `BlueprintFactors`, because there is no sensible default for how factors are applied.
+
+        Args:
+            blueprint: How to expand the Scale at `base_key` into the derived Multiscale's levels.
+                Omit to extract the respective Scale as an independent Multiscale with just that one entry.
+            pixel_sizing: Your scaling method's pixel size scaling behavior.
+                Default for `BlueprintShapes`: "shape_ratio"
+            translating: Your scaling method's translating behavior: the name of one of the functions in
+                `clearscale.characterization` (e.g. "half_pixel_space_preservation"), or your own function.
+                Default for `BlueprintShapes`: "half_pixel_space_preservation"
+            rounding: Your scaling method's shape rounding behavior.
         """
         new_ms = Multiscale.from_single(
             self[base_key],
@@ -2135,38 +2170,41 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return new_ms.as_derived_from(self)
 
     def relation_to_coordinate_system(self, name: CoordinateSystemName) -> Optional[SpatialRelation]:
-        """
-        The spatial relation that describes how the coordinate system `name` is reached from this Multiscale's own
-        space: `self --relation--> name`.
+        """Return the spatial relation that describes how the coordinate system `name` is reached from this Multiscale's
+        own space: `self --relation--> name`.
         Use to retrieve the `reached_by` relation in `with_coordinate_system(name, reached_by=relation)` or
         `as_derived_from(other, reached_by=relation)`.
 
-        Returns `SameSpace()` if `name` is the same space as this Multiscale's own (only under another name).
-        Otherwise returns one SpatialRelation, or a SpatialRelationSequence of them. The result is in
-        canonical form: It describes the same transformation as what was originally specified, but may be
-        structured differently (merged, reordered; renamings last) and may differ by floating point rounding.
-        The target's units and other axis properties are not part of a relation, see `coordinate_system_ome_zarr_axes`.
+        Returns:
+            `SameSpace()` if `name` is the same space as this Multiscale's own (only under another name).
+            Otherwise one SpatialRelation, or a SpatialRelationSequence of them. The result is in
+            canonical form: It describes the same transformation as what was originally specified, but may be
+            structured differently (merged, reordered; renamings last) and may differ by floating point rounding.
+            The target's units and other axis properties are not part of a relation, see `coordinate_system_ome_zarr_axes`.
 
-        Returns None if no relation expresses the connection in this direction: It cannot be inverted to this
-        direction (`relation_from_coordinate_system` is the other direction), or it consists of transformations that
-        have no SpatialRelation equivalent, such as displacement fields. Rotations, shears and flips are expressed as
-        `Affine`.
-        Raises ValueError if `name` is not one of `self.coordinate_system_names`.
+            None if no relation expresses the connection in this direction: It cannot be inverted to this
+            direction (`relation_from_coordinate_system` is the other direction), or it consists of transformations that
+            have no SpatialRelation equivalent, such as displacement fields. Rotations, shears and flips are expressed as
+            `Affine`.
+
+        Raises:
+            ValueError: If `name` is not one of `self.coordinate_system_names`.
         """
         return self._relation_with_coordinate_system(name, towards_system=True)
 
     def relation_from_coordinate_system(self, name: CoordinateSystemName) -> Optional[SpatialRelation]:
-        """
-        The spatial relation that describes how this Multiscale is reached from the coordinate system `name`:
+        """Return the spatial relation that describes how this Multiscale is reached from the coordinate system `name`:
         `name --relation--> self`.
         Should only be necessary for metadata written by other tools (clearscale methods write self-->name).
 
         Connections that cannot be retrieved with `relation_to_coordinate_system` because they lose information in
         the `name -> self` direction, may be retrievable here.
 
-        See `relation_to_coordinate_system` for the canonical form of the result, and when it is `SameSpace()`
-        or None.
-        Raises ValueError if `name` is not one of `self.coordinate_system_names`.
+        See [relation_to_coordinate_system][clearscale.Multiscale.relation_to_coordinate_system] for the canonical form of
+        the result, and when it is `SameSpace()` or None.
+
+        Raises:
+            ValueError: If `name` is not one of `self.coordinate_system_names`.
         """
         return self._relation_with_coordinate_system(name, towards_system=False)
 
@@ -2177,8 +2215,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         version: Literal["0.4", "0.5", "0.6"],
         name: Optional[str] = None,
     ) -> Dict[str, Json]:
-        """
-        Raises ValueError for unrecognised `version`, or if `self.ome` contains invalid metadata.
+        """Raises:
+        ValueError: For unrecognized `version`, or if `self.ome` contains invalid metadata.
         """
         if version not in ome_zarr.SUPPORTED_VERSIONS_WRITE:
             raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.")
@@ -2277,8 +2315,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return NodeRef(name=str(name), owner=self)
 
     def _as_ref_to_intrinsic(self) -> NodeRef["Multiscale"]:
-        """
-        The intrinsic ref is a ref that gives the intrinsic CoordinateSystem a name.
+        """The intrinsic ref is a ref that gives the intrinsic CoordinateSystem a name.
           It's what we need inside the Multiscale's own graph and what we tie additional coordinate_systems to.
         This method produces a ref that selects the intrinsic ref inside this Multiscale.
           It's what a Scene uses (along with ._as_ref) to connect different Multiscales.
@@ -2321,7 +2358,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         `_zero_scale_axes_by_key` is dropped: (1) We don't know correspondence of old to new items.
         (2) The property exists for clean read-write roundtrip. On modification, the normalisation to 1.0 should be ok.
-        `has_shapes` is carried over: This is only fine if all _with_items callers leave Scale shapes unchanged."""
+        `has_shapes` is carried over: This is only fine if all _with_items callers leave Scale shapes unchanged.
+        """
         return Multiscale(
             items,
             ome=copy.deepcopy(self.ome),
@@ -2356,8 +2394,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return candidate
 
     def _find_legacy_compatible_coordinate_system(self) -> Optional["ome_zarr.MultiscaleTransforms"]:
-        """
-        Inspect graph to find MultiscaleTransforms for multiscale_dict["coordinateTransformations"].
+        """Inspect graph to find MultiscaleTransforms for multiscale_dict["coordinateTransformations"].
         Preferably bound directly on this Multiscale's own intrinsic system (exact, lossless).
         Falls back to one reachable via inserts-only ProjectAxisTransform path,
         in which case the MultiscaleTransforms can be widened to self's axes with identity values.
@@ -2494,10 +2531,11 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     @staticmethod
     def _is_pure_axis_reshape(path: Tuple["Transform", ...]) -> bool:
-        """True if `path` is pure axis bookkeeping (drop/insert/reorder).
+        """Check if `path` is pure axis bookkeeping (drop/insert/reorder).
         For legacy OME-Zarr, in this case a subsequent (scale[+translation]) can absorb the axis
         rearrangement (_reshaped_multiscale_transforms), even if the format cannot express the
-        rearrangement itself."""
+        rearrangement itself.
+        """
         if len(path) < 1:
             return True
         collapsed = TransformSequence(path).canonicalized() if len(path) > 1 else path[0]

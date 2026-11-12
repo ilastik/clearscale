@@ -128,13 +128,22 @@ def canonical_unit_name(unit: str) -> Optional[str]:
 
 
 def unit_conversion_factor(unit: str, other: str) -> float:
-    """How many `other` are one `unit` (`other/unit`):
-      `unit_conversion_factor("micrometer", "nanometer") == 1000.0`
+    """Return how many `other` are one `unit` (`other/unit`).
+
     Converts a value expressed in `unit` to `other`:
-      `value_in_other = value_in_unit * factor`
-      `1000nm = 1um * 1000.0 nm/um`
-    Raises ValueError if either unit is not recognised, or if they measure different things (space vs time).
-    Identical strings convert with factor 1.0, even if they are not recognised."""
+
+    - `value_in_other = value_in_unit * factor`
+    - `1000nm = 1um * 1000.0 nm/um`
+
+    Identical strings convert with factor 1.0, even if they are not recognised.
+
+    Raises:
+        ValueError: If either unit is not recognised, or if they measure different things (space vs time).
+
+    Examples:
+        >>> unit_conversion_factor("micrometer", "nanometer")
+        1000.0
+    """
     if unit == other:
         return 1.0
     sizes = []
