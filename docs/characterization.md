@@ -30,7 +30,7 @@ The characterization will then give you the correct `rounding`, `pixel_sizing` a
 
 To use them, wrap the scaling method you actually use into a function that takes a 1D sequence of floats, and the respective scaling target parameter, and returns the scaled sequence.
 
-If your scaling method requires a NumPy array, convert the received sequence inside your wrapper (as in the examples below).
+If your scaling method requires a numpy array, convert the received sequence inside your wrapper (as in the examples below).
 
 ```python
 from clearscale.characterization import (
@@ -55,7 +55,6 @@ characterization = characterize_shape_scaling_method(
     )
 )
 
-# Use characterization.to_shape_kwargs() when constructing your multiscale.
 assert characterization.rounding is None, "shape-based scaling methods don't round"
 assert characterization.pixel_sizing == "shape_ratio"
 assert characterization.pixel_sizing_error < 1e-13
@@ -74,7 +73,6 @@ characterization = characterize_shape_factor_scaling_method(
     )
 )
 
-# Use characterization.to_factor_kwargs() when constructing your multiscale.
 assert characterization.rounding == "round"
 assert characterization.pixel_sizing == "corner_ratio"
 assert characterization.pixel_sizing_error < 1e-13
@@ -101,10 +99,18 @@ assert characterization.translating_error < 1e-13
 What the characterization measures is which input coordinates the generated output sampled.
 It cannot tell you anything about the sample *values*: whether the method interpolates, how it treats the edges (`mode=`), or whether it filters before downsampling.
 
+To quickly check whether the characterization was reliable, try `characterization.to_shape_kwargs()` and `characterization.to_factor_kwargs()`.
+These raise a `ValueError` if the characterization was questionable:
+If it has [warnings](#debugging-a-characterization), or the parameters cannot be expressed in the kind of blueprint that you asked for (see [Rounding](#rounding)).
+If they do not raise, the characterization was fine.
+
+Characterization is a development tool for exploring scaling implementations.
+For production use, hard-coding the correct parameters for the method you actually use makes more sense.
+
 ## Characterization of common scaling functions
 
 These results come from running the `characterize_*` functions on the respective functions (scipy 1.17.1, scikit-image 0.26.0).
-Your own parameters (interpolation order, anti-aliasing, ...) might change the result, so characterize your actual call if in doubt.
+Your own parameters might change the result, so characterize your actual call if in doubt.
 
 | Scaling function                                                    | Characterize with                          | `rounding`                | `pixel_sizing` | `translating`                   |
 |---------------------------------------------------------------------|--------------------------------------------|---------------------------|----------------|---------------------------------|
