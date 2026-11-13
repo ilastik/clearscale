@@ -42,6 +42,17 @@ def _linear_values(*, start: float, spacing: float, length: int) -> List[float]:
     return [start + spacing * index for index in range(length)]
 
 
+def _strided_convolution(kernel_size):
+    def convolution(source, factor):
+        if factor != int(factor) or factor < 1:
+            raise ValueError("Stride must be a positive integer")
+        stride = int(factor)
+        output_length = (len(source) - kernel_size) // stride + 1
+        return [i * stride + (kernel_size - 1) / 2 for i in range(output_length)]  # window centers
+
+    return convolution
+
+
 def _erratic_rounding_scaling_function(source, factor):
     """A shape-factor method whose rounding depends on the input length: No single rounding rule fits it."""
     n = len(source)
@@ -631,12 +642,7 @@ class TestCharacterizationKwargsApply:
         """Kernel size 2, stride = factor, no padding. Reaches the indeterminate + exact_factor case, where the
         characterization's `translating` is wrong, and the error points to the docs."""
 
-        def strided_convolution(source, factor):
-            if factor != int(factor) or factor < 1:
-                raise ValueError("Stride must be a positive integer")
-            kernel_size, stride = 2, int(factor)
-            output_length = (len(source) - kernel_size) // stride + 1
-            return [i * stride + (kernel_size - 1) / 2 for i in range(output_length)]  # window centers
+        strided_convolution = _strided_convolution(kernel_size=2)
 
         characterization = characterize_step_factor_scaling_method(strided_convolution)
         assert characterization.rounding == "indeterminate", "indeterminate means BlueprintFactors can't handle it"
@@ -685,11 +691,7 @@ class TestMethodsThatOnlyAcceptIntegerFactors:
     def test_shift_that_no_builtin_describes_is_a_warning(self, kernel_size):
         """The shift of a strided convolution (window centers) depends on its kernel. This used to be an assertion."""
 
-        def strided_convolution(source, factor):
-            stride = self._require_integer(factor)
-            return [i * stride + (kernel_size - 1) / 2 for i in range((len(source) - kernel_size) // stride + 1)]
-
-        characterization = characterize_step_factor_scaling_method(strided_convolution)
+        characterization = characterize_step_factor_scaling_method(_strided_convolution(kernel_size=kernel_size))
 
         assert characterization.translating is discrete_bin_center
         assert characterization.translating_error == pytest.approx(0.5)
@@ -701,7 +703,9 @@ class TestMethodsThatOnlyAcceptIntegerFactors:
         assertion error, because the error of an exact fit is not exactly 0.0."""
 
         def method(source, factor):
-            spacing = self._require_integer(factor) ** 1.2
+            if factor != int(factor) or factor < 1:
+                raise ValueError("Stride must be a positive integer")
+            spacing = factor**1.2
             return [i * spacing + 0.5 * (spacing - 1) for i in range(math.ceil(len(source) / spacing))]
 
         characterization = characterize_step_factor_scaling_method(method)
@@ -709,3 +713,66 @@ class TestMethodsThatOnlyAcceptIntegerFactors:
         assert characterization.translating is half_pixel_space_preservation
         assert characterization.translating_error < 1e-9
         assert not characterization.warnings
+
+
+class TestKwargsRefuseQuestionableCharacterizations:
+    """`to_*_kwargs` are the quick way to find out whether a characterization was fine. If they raise, it was not."""
+
+    def test_a_shift_that_no_builtin_describes_makes_to_shape_kwargs_raise(self):
+        def shifted_resize(source, shape):
+            spacing = len(source) / shape
+            return [i * spacing + 0.3 * spacing + 0.17 for i in range(shape)]
+
+        characterization = characterize_shape_scaling_method(shifted_resize)
+        assert characterization.warnings
+
+        with pytest.raises(ValueError, match="questionable") as error:
+            characterization.to_shape_kwargs()
+        assert characterization.warnings[0] in str(error.value)
+        assert (
+            characterization.translating_error > 0.1
+        )  # The values themselves can still be read, to decide for oneself
+
+    def test_a_convolution_makes_to_factor_kwargs_raise(self):
+        characterization = characterize_step_factor_scaling_method(_strided_convolution(kernel_size=3))
+        assert characterization.rounding == "round"  # Nothing that has a more specific error
+        assert characterization.warnings
+
+        with pytest.raises(ValueError, match="questionable") as error:
+            characterization.to_factor_kwargs()
+        assert characterization.warnings[0] in str(error.value)
+
+    def test_specific_errors_come_before_the_general_one(self):
+        """Kernel size 5 is indeterminate in rounding as well, and its error says what to do about that."""
+        characterization = characterize_step_factor_scaling_method(_strided_convolution(kernel_size=5))
+        assert characterization.rounding == "indeterminate"
+        assert characterization.warnings
+
+        for to_kwargs in (characterization.to_factor_kwargs, characterization.to_shape_kwargs):
+            with pytest.raises(ValueError, match="could not determine rounding behavior"):
+                to_kwargs()
+
+    def test_without_warnings_the_kwargs_can_be_used(self):
+        characterization = characterize_shape_scaling_method(
+            lambda source, shape: _linear_values(start=0.0, spacing=len(source) / shape, length=shape)
+        )
+        assert not characterization.warnings
+
+        assert characterization.to_shape_kwargs() == {
+            "pixel_sizing": characterization.pixel_sizing,
+            "translating": characterization.translating,
+        }
+
+    @pytest.mark.parametrize("to_kwargs_name", ["to_shape_kwargs", "to_factor_kwargs"])
+    def test_the_message_has_every_warning_and_says_how_to_go_on(self, to_kwargs_name):
+        characterization = ScalingMethodCharacterization(
+            translating=half_pixel_space_preservation,
+            translating_error=0.0,
+            pixel_sizing="shape_ratio",
+            pixel_sizing_error=0.0,
+            rounding="ceil",
+            warnings=("First concern.", "Second concern."),
+        )
+
+        with pytest.raises(ValueError, match=r"results should be manually verified.*First concern\. Second concern\."):
+            getattr(characterization, to_kwargs_name)()
