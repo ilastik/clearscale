@@ -126,23 +126,42 @@ class TestShiftFunctions:
         assert shift == Translation([("z", 0.0), ("y", 0.6), ("x", 2.0)])
 
     @pytest.mark.parametrize(
-        ("target_pixel_size", "expected_shift"),
+        ("base_pixel_size", "target_pixel_size", "expected_shift"),
         [
-            (0.2, 0.0),
-            (0.4, 0.0),
-            (0.8, 0.2),
-            (1.0, 0.4),
-            (1.01, 0.4),
-            (1.21, 0.6000000000000001),
+            (0.4, 0.2, 0.0),
+            (0.4, 0.4, 0.0),
+            (0.4, 0.8, 0.2),
+            (0.4, 1.0, 0.4),
+            (0.4, 1.01, 0.4),
+            (0.4, 1.21, 0.6),
+            # Ratios just above integers must not add a pixel (odd and even bin sizes).
+            (0.1, 0.30000000000000004, 0.1),
+            (0.1, 0.6000000000000001, 0.25),
+            (0.3, 2.1, 0.9),
+            (0.8, 2.4000000000000004, 0.8),
+            (0.8, 4.800000000000001, 2.0),
+            # A ratio just below an integer must still use the full bin.
+            (0.65, 4.55, 1.95),
+            # Exactly representable pixel sizes above one, including a larger bin.
+            (2.5, 5.0, 1.25),
+            (2.5, 7.5, 2.5),
+            (2.5, 25.0, 11.25),
+            # Genuinely fractional bins still round up.
+            (1.0, 2.5, 1.0),
+            (1.0, 3.0000001, 1.5),
+            (1.0, 2.9999999, 1.0),
+            (1.0, 1.4, 0.5),
         ],
     )
-    def test_discrete_bin_center_uses_ceiled_implicit_bin_size(self, target_pixel_size, expected_shift):
-        base = _scale([("x", 0.4)])
+    def test_discrete_bin_center_uses_ceiled_implicit_bin_size(
+        self, base_pixel_size, target_pixel_size, expected_shift
+    ):
+        base = _scale([("x", base_pixel_size)])
         target = _scale([("x", target_pixel_size)])
 
         shift = _translating.discrete_bin_center(base, target)
 
-        assert shift == Translation(x=expected_shift)
+        assert dict(shift) == pytest.approx({"x": expected_shift}, rel=1e-12, abs=1e-15)
 
     def test_first_value_decimation_returns_identity_translation(self):
         base = _scale([("cookies", 0.5), ("y", 1.0), ("x", 2.0)])
@@ -165,3 +184,18 @@ class TestShiftFunctions:
 
         with pytest.raises(ValueError, match="Axis mismatch"):
             shift_function(base, target)
+
+    @pytest.mark.parametrize("pixel_size", [0.1, 0.3, 0.8])
+    @pytest.mark.parametrize("factor", [3.0, 6.0, 7.0])
+    def test_discrete_bin_center_blueprint_with_exact_factors_is_exact(self, pixel_size, factor):
+        base = Scale(shape=Shape(y=1000, x=1000), pixel_size=PixelSize(y=pixel_size, x=pixel_size))
+        blueprint = BlueprintFactors({"s0": Factor(y=1.0, x=1.0), "s1": Factor(y=factor, x=factor)})
+
+        multiscale = blueprint.apply_to_scale(
+            base, rounding="ceil", pixel_sizing="exact_factor", translating="discrete_bin_center"
+        )
+
+        for axis in "yx":
+            assert multiscale["s1"].translation[axis] == pytest.approx(
+                pixel_size * (factor - 1) / 2, rel=1e-12, abs=1e-15
+            )
