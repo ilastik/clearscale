@@ -59,8 +59,9 @@ class ScalingMethodCharacterization:
     - "indeterminate" for methods that scale by factor, but showed inconsistent shape rounding behavior.
     """
     warnings: Tuple[str, ...] = ()
-    """Non-fatal concerns about the characterization's reliability (noisy/ambiguous fits etc).
-    Non-empty means `translating`, `pixel_sizing` and/or `rounding` might be plain wrong."""
+    """Concerns about the characterization's reliability (noisy/ambiguous fits etc).
+    Non-empty means `translating`, `pixel_sizing` and/or `rounding` might be plain wrong,
+    so `to_shape_kwargs` and `to_factor_kwargs` raise."""
     probe_results: Tuple["ProbeResult", ...] = field(default=(), compare=False, repr=False)
     """What the scaling function returned (or the error it raised) for every probe the characterization tried.
     For debugging how the method behaves."""
@@ -68,9 +69,11 @@ class ScalingMethodCharacterization:
     def to_shape_kwargs(self) -> ShapeScalingKwargs:
         """Return kwargs to `**`-splat into `BlueprintShapes.apply_to_scale(scale, **shape_kwargs)`.
 
+        If this raises, the characterization was questionable. If it does not, the kwargs can be used.
+
         Raises:
-            ValueError: If `pixel_sizing` is "exact_factor". Only `BlueprintFactors` can compute that, because shapes
-                do not contain the factor. Use `to_factor_kwargs` instead.
+            ValueError: If the characterization has warnings (is questionable), or if `pixel_sizing` is "exact_factor"
+            (only `BlueprintFactors` can compute that; use `to_factor_kwargs` instead).
         """
         if self.pixel_sizing == "exact_factor":
             if self.rounding == "indeterminate":
@@ -79,14 +82,17 @@ class ScalingMethodCharacterization:
                 'The characterization found pixel_sizing="exact_factor", which `BlueprintShapes` cannot compute. '
                 "Use `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())` instead."
             )
+        self._raise_if_questionable()
         return ShapeScalingKwargs(pixel_sizing=self.pixel_sizing, translating=self.translating)
 
     def to_factor_kwargs(self) -> FactorScalingKwargs:
         """Return kwargs to `**`-splat into `BlueprintFactors.apply_to_scale(scale, **factor_kwargs)`.
 
+        If this raises, the characterization was questionable. If it does not, the kwargs can be used.
+
         Raises:
-            ValueError: If the characterization describes a shape-scaling method (use `to_shape_kwargs`), or if it
-                could not determine the `rounding` of a factor-scaling method. For that case, the error says what to do.
+            ValueError: If the characterization describes a shape-scaling method (use `to_shape_kwargs`), could not
+            determine the `rounding` behavior, or has `warnings` (is questionable).
         """
         if self.rounding == "indeterminate":
             if self.pixel_sizing == "exact_factor":
@@ -100,11 +106,21 @@ class ScalingMethodCharacterization:
             )
         if self.rounding is None:
             raise ValueError("This characterization describes a shape-scaling method. Use `.to_shape_kwargs`.")
+        self._raise_if_questionable()
         return FactorScalingKwargs(
             pixel_sizing=self.pixel_sizing,
             translating=self.translating,
             rounding=self.rounding,
         )
+
+    def _raise_if_questionable(self) -> None:
+        """Characterization is meant for finding out what parameters to hard-code, not for use on unknown methods.
+        So whoever asks for the parameters of one that came out doubtful finds out right away."""
+        if self.warnings:
+            raise ValueError(
+                "The characterization is questionable; its results should be manually verified. "
+                f"Warnings found: {' '.join(self.warnings)} "
+            )
 
     @staticmethod
     def _exact_factor_with_indeterminate_rounding_error() -> ValueError:
