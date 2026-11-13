@@ -111,7 +111,7 @@ class InvalidObject:
     metadata: Any  # Mapping[str, Any] ?
     """The metadata exactly as found in the group's attributes."""
     error: str
-    """Explains which requirement the metadata violates."""
+    """Explains why the metadata is invalid or unsupported by clearscale."""
 
 
 @dataclass(slots=True)

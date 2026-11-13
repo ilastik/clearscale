@@ -13,7 +13,8 @@ from tests.ome_zarr.multiscale_examples import (
 )
 from tests.ome_zarr.scene_examples import (
     all_invalid_scene_examples,
-    all_valid_scene_examples,
+    all_supported_scene_examples,
+    all_external_payload_scene_examples,
     scene_registration,
     scene_stitching,
     scene_to_group_attrs,
@@ -222,18 +223,20 @@ def test_ome_zarr_group_parses_scene_stitching_example():
     assert ome_group.version == "0.6"
 
 
-def test_ome_zarr_group_parses_scene_registration_example():
+def test_ome_zarr_group_rejects_scene_registration_example_due_to_path_backed_transform():
+    """No public API for displacement paths -> reject until implemented (revert this test at that point)"""
     zarr_group = MockZarrGroup(scene_to_group_attrs(scene_registration()))
     ome_group = OmeZarrGroup.from_group(zarr_group)
 
-    assert ome_group.kind is GroupKind.SCENE
-    assert len(ome_group.scenes) == 1
-    assert ome_group.scenes[0].unresolved_paths == ["JRC2018F", "FCWB"]
-    assert [child.path for child in ome_group.children] == ["JRC2018F", "FCWB"]
+    assert ome_group.kind is GroupKind.INVALID
+    assert not ome_group.scenes
+    assert not ome_group.children
+    assert ome_group.invalid_objects[0].metadata == scene_registration()
+    assert "displacements" in ome_group.invalid_objects[0].error
     assert ome_group.version == "0.6"
 
 
-@pytest.mark.parametrize("meta", all_valid_scene_examples())
+@pytest.mark.parametrize("meta", all_supported_scene_examples())
 def test_ome_zarr_group_parses_scene_public_examples(meta):
     zarr_group = MockZarrGroup(scene_to_group_attrs(meta))
     ome_group = OmeZarrGroup.from_group(zarr_group)
@@ -242,6 +245,18 @@ def test_ome_zarr_group_parses_scene_public_examples(meta):
     assert len(ome_group.scenes) == 1
     assert isinstance(ome_group.scenes[0], Scene)
     assert ome_group.version == "0.6"
+
+
+@pytest.mark.parametrize("meta", all_external_payload_scene_examples())
+def test_ome_zarr_group_collects_unsupported_scene_examples(meta):
+    zarr_group = MockZarrGroup(scene_to_group_attrs(meta))
+    ome_group = OmeZarrGroup.from_group(zarr_group)
+
+    assert ome_group.kind is GroupKind.INVALID
+    assert not ome_group.scenes
+    assert not ome_group.children
+    assert ome_group.invalid_objects[0].metadata == meta
+    assert "Transforms with external data are currently unsupported" in ome_group.invalid_objects[0].error
 
 
 @pytest.mark.parametrize("meta", all_invalid_scene_examples())

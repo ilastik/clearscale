@@ -6,7 +6,8 @@ from clearscale._transforms import CoordinateSystem, TranslationTransform, _Unre
 
 from tests.ome_zarr.scene_examples import (
     all_invalid_scene_examples,
-    all_valid_scene_examples,
+    all_supported_scene_examples,
+    all_external_payload_scene_examples,
     scene_registration,
     scene_stitching,
 )
@@ -24,11 +25,11 @@ def test_stitching_example():
 
 
 def test_registration_example():
-    scene = Scene.from_ome_zarr(scene_registration())
-    assert scene.unresolved_paths == ["JRC2018F", "FCWB"]
+    with pytest.raises(ValueError, match="Transforms with external data are currently unsupported"):
+        Scene.from_ome_zarr(scene_registration())
 
 
-@pytest.mark.parametrize("meta", all_valid_scene_examples())
+@pytest.mark.parametrize("meta", all_supported_scene_examples())
 def test_scene_public_examples_roundtrip(meta):
     # https://ngff.openmicroscopy.org/specifications/dev/examples/transformations/transformations.html
     roundtrip: Dict[str, Any] = Scene.from_ome_zarr(meta).to_ome_zarr(version="0.6")
@@ -40,6 +41,12 @@ def test_scene_public_examples_roundtrip(meta):
         assert actual == expected
     # Full check because zip can miss one containing more items than the other
     assert roundtrip == meta
+
+
+@pytest.mark.parametrize("meta", all_external_payload_scene_examples())
+def test_scene_external_payload_public_examples_rejected(meta):
+    with pytest.raises(ValueError, match="Transforms with external data are currently unsupported"):
+        Scene.from_ome_zarr(meta)
 
 
 @pytest.mark.parametrize("meta", all_invalid_scene_examples())
