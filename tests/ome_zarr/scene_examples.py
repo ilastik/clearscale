@@ -509,21 +509,16 @@ def scene_registration():
     return copy.deepcopy(REGISTRATION)
 
 
-def all_valid_scene_examples():
+def all_supported_scene_examples():
     return [
         copy.deepcopy(ex)
         for ex in [
             STITCHING,
-            REGISTRATION,
             SCALE_WITH_DISCRETE,
             ROTATION,
             AFFINE_WITH_CHANNEL,
-            BY_DIMENSION_COORDINATES,
-            BY_DIMENSION_XARRAY,
-            BIJECTION,
-            BIJECTION_VERBOSE,
             MAP_AXIS_1,
-            AFFINE_2D_3D,  #
+            AFFINE_2D_3D,
             PROJECT_AXIS_2,
             BY_DIMENSION_2,
             AFFINE_2D_2D,
@@ -533,9 +528,31 @@ def all_valid_scene_examples():
             BY_DIMENSION_1,
             SCALE,
             PROJECT_AXIS,
+        ]
+    ]
+
+
+def all_external_payload_scene_examples():
+    """Valid OME-Zarr scenes whose external transform payloads we do not support yet.
+
+    We have to reject these because a consumer could otherwise read the metadata, do stuff with it, and then write
+    output metadata from it in another location, without knowing anything about the path-backed transforms stored in it.
+    Those paths would then be dead links, and the dataset as a whole would be invalid because of them."""
+    return [
+        copy.deepcopy(ex)
+        for ex in [
+            REGISTRATION,
+            BY_DIMENSION_COORDINATES,
+            BY_DIMENSION_XARRAY,
+            BIJECTION,
+            BIJECTION_VERBOSE,
             XARRAY_LIKE,
         ]
     ]
+
+
+def all_valid_scene_examples():
+    return all_supported_scene_examples() + all_external_payload_scene_examples()
 
 
 def all_invalid_scene_examples():

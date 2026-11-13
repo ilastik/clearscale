@@ -45,6 +45,48 @@ AxisDependencies = Tuple[AxisIndices, ...]
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
 
 
+def require_inline_transform_payloads(
+    metadata: Union[List[Mapping[str, Any]], Mapping[str, Any], None], location: str = "coordinateTransformations"
+) -> None:
+    """Reject if any transforms are backed by external payloads (path).
+
+    Centralised here so it can be reduced or removed when we implement a public API for dealing with path-defined types
+    (coordinates, displacements) and path-backed variants of usually inline types (affine and friends).
+
+    Args:
+        metadata: Either transform dict, or a list of them
+    """
+    if isinstance(metadata, list):
+        for index, transform in enumerate(metadata):
+            require_inline_transform_payloads(transform, f"{location}[{index}]")
+        return
+    if not isinstance(metadata, MappingABC):
+        return
+    transform_type = metadata.get("type")
+    path = metadata.get("path")
+    if isinstance(path, str) and path:
+        is_missing_payload = transform_type in ("scale", "translation", "rotation", "affine") and (
+            transform_type not in metadata or not metadata[transform_type]
+        )
+        if transform_type in ("coordinates", "displacements") or is_missing_payload:
+            raise ValueError(
+                f"Transforms with external data are currently unsupported: {transform_type!r} transform at {location} requires payload at path {path!r}. This Multiscale or Scene cannot be read safely without support for transferring its external transform data."
+            )
+    if transform_type == "sequence":
+        require_inline_transform_payloads(metadata.get("transformations"), f"{location}.transformations")
+    elif transform_type == "bijection":
+        for direction in ("forward", "inverse"):
+            require_inline_transform_payloads(metadata.get(direction), f"{location}.{direction}")
+    elif transform_type == "byDimension":
+        children = metadata.get("transformations")
+        if isinstance(children, list):
+            for index, child in enumerate(children):
+                if isinstance(child, MappingABC):
+                    require_inline_transform_payloads(
+                        child.get("transformation"), f"{location}.transformations[{index}].transformation"
+                    )
+
+
 @dataclass(frozen=True, slots=True)
 class _EndpointDimensionConstraints:
     """Descriptions of a transform's source and target dimensionality as can be inferred from the transform's payload.
