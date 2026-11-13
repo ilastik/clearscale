@@ -40,6 +40,15 @@ def half_pixel_space_preservation(base: "Scale", target: "Scale") -> "Translatio
     return Translation(shift_items)
 
 
+def _ceil_ignoring_float_error(value: float) -> int:
+    """`math.ceil`, except that a value within float error of an integer is that integer.
+
+    A ratio of pixel sizes like `(0.8 * 3) / 0.8` is `3.0000000000000004`, which `math.ceil` would round up to 4.
+    """
+    nearest = round(value)
+    return nearest if math.isclose(value, nearest, rel_tol=1e-9) else math.ceil(value)
+
+
 def discrete_bin_center(base: "Scale", target: "Scale") -> "Translation":
     """The translation shift is the first scaled pixel's coordinate within the original (unscaled) space.
 
@@ -72,7 +81,7 @@ def discrete_bin_center(base: "Scale", target: "Scale") -> "Translation":
     for axis, target_pixel_size in target.pixel_size.items():
         base_pixel_size = base.pixel_size[axis]
         implicit_bin_size = target_pixel_size / base_pixel_size
-        source_pixels_in_first_bin = max(math.ceil(implicit_bin_size), 1)
+        source_pixels_in_first_bin = max(_ceil_ignoring_float_error(implicit_bin_size), 1)
         shift_items.append((axis, 0.5 * (source_pixels_in_first_bin - 1) * base_pixel_size))
     return Translation(shift_items)
 
