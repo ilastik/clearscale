@@ -17,6 +17,7 @@ from clearscale._transforms._base import (
     PRE_TRANSFORMS_VERSIONS,
     OmeZarrAxis,
     OmeZarrAxes,
+    require_inline_transform_payloads,
 )
 from clearscale._transforms._transform_types import (
     AffineTransform,

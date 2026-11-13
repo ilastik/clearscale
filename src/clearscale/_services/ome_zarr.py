@@ -42,43 +42,43 @@ SUPPORTED_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
 SUPPORTED_VERSIONS_WRITE = ("0.4", "0.5", "0.6")
 
 OME_ZARR_TRANSFORM = Mapping[str, Any]
-"""
-Single transform.
-"type": str (Possible values vary by version. Inside OME_ZARR_DATASET only "scale" and "translation")
-"scale": List[float] (if type=="scale")
-"translation": List[float] (if type=="translation")
-"input": 0.6+ only, inside OME_ZARR_DATASET, dict with key "path" (str)
-"output": 0.6+ only, inside OME_ZARR_DATASET, dict with key "name" (str)
+"""Single transform.
+
+- "type": str (Possible values vary by version. Inside OME_ZARR_DATASET only "scale" and "translation")
+- "scale": List[float] (if type=="scale")
+- "translation": List[float] (if type=="translation")
+- "input": 0.6+ only, inside OME_ZARR_DATASET, dict with key "path" (str)
+- "output": 0.6+ only, inside OME_ZARR_DATASET, dict with key "name" (str)
 """
 OME_ZARR_TRANSFORMS = Union[OME_ZARR_TRANSFORM, List[OME_ZARR_TRANSFORM]]
 OME_ZARR_DATASET = Mapping[str, Any]
-"""
-Single dataset (scale-level).
-"path": str
-"coordinateTransformations": List[OME_ZARR_TRANSFORM]
+"""Single dataset (scale-level).
+
+- "path": str
+- "coordinateTransformations": List[OME_ZARR_TRANSFORM]
 """
 OME_ZARR_MULTISCALE = Mapping[str, Any]
-"""
-Single entry of ["multiscales"] list.
-"datasets": List[OME_ZARR_DATASET]
-"axes": 0.3: List[str] (axis key strings), 0.4 and 0.5: List[Dict] (axis key under "name")
-"coordinateSystems": 0.6+ only, List[Dict] (containing "axes" List[Dict] with "name" keys)
-"coordinateTransformations": List[OME_ZARR_TRANSFORM]; 0.4 and 0.5: as inside "datasets"; 0.6: like in Scene
+"""Single entry of ["multiscales"] list.
+
+- "datasets": List[OME_ZARR_DATASET]
+- "axes": 0.3: List[str] (axis key strings), 0.4 and 0.5: List[Dict] (axis key under "name")
+- "coordinateSystems": 0.6+ only, List[Dict] (containing "axes" List[Dict] with "name" keys)
+- "coordinateTransformations": List[OME_ZARR_TRANSFORM]; 0.4 and 0.5: as inside "datasets"; 0.6: like in Scene
 """
 GetShapeFunction = Callable[[str], Tuple[int, ...]]
-"""
-path: Relative path to a zarr array.
-Returns: The `.shape` of the array at that path.
+"""- path: Relative path to a zarr array.
+- Returns: The `.shape` of the array at that path.
 """
 SYNTHETIC_EXTERNAL_NAME = "_legacy_external"
-"""
-Ref name for a synthetic CoordinateSystem added when parsing 0.4 and 0.5 metadata that defines
+"""Ref name for a synthetic CoordinateSystem added when parsing 0.4 and 0.5 metadata that defines
 multiscale["coordinateTransformations"] (multiscale-global transforms).
 Using a constant is convenient for now:
-- If we make unique names (like e.g. the Multiscale's intrinsic), Multiscale.__eq__ needs a way to recognise 
+
+- If we make unique names (like e.g. the Multiscale's intrinsic), Multiscale.__eq__ needs a way to recognise
   these synthetic refs whose names shouldn't matter for equality
 - `with_coordinate_system` safeguards against duplicates in case someone wants to explicitly add "_legacy_external"
 - `as_derived_from` handles the duplicate on the off-chance someone multiply derives from this Multiscale
+
 Replace with more robust mechanism if more special treatments within the graph become necessary.
 """
 
@@ -111,17 +111,20 @@ class InvalidObject:
     metadata: Any  # Mapping[str, Any] ?
     """The metadata exactly as found in the group's attributes."""
     error: str
-    """Explains which requirement the metadata violates."""
+    """Explains why the metadata is invalid or unsupported by clearscale."""
 
 
 @dataclass(slots=True)
 class MultiscaleProperties:
     """Additional properties of multiscale metadata that OME-Zarr loosely specifies.
+
     The standard describes what 'should' be written in them, but nothing about how the values
     should be interpreted. In practice, they are arbitrary fields for display purposes only.
     Since their semantics are not defined, clearscale does not use them for internal logic.
-    Caution: Mutable!
-    All values stored here must be JSON-compatible."""
+
+    Caution:
+        Mutable! All values stored here must be JSON-compatible.
+    """
 
     type: str = ""
     """The 'type' of downscaling method used to create the pyramid"""
@@ -306,7 +309,10 @@ class Omero:
 @dataclass(slots=True, init=False)
 class LabelEntry:
     """Properties for one unique label value: its rgba display color, and further arbitrary metadata.
-    Caution: Mutable!"""
+
+    Caution:
+        Mutable!
+    """
 
     _color: Optional[Tuple[int, int, int, int]] = field(default=None, init=False, repr=False)
     properties: Dict[str, Any] = field(default_factory=dict)
@@ -347,8 +353,10 @@ class ImageLabel:
 
     `labels` maps each unique label value to its properties. OME-Zarr up to 0.6 writes this as two
     separate lists ('colors', 'properties'); `labels` keeps one entry per label value instead.
-    OME-Zarr 0.6 allows arbitrary keys in 'colors' entries alongside 'rgba'; these are merged into `label_entry.properties`, prefixed with "@color:". Writing a
-    properties key with a "@color:" prefix emits it back into the 'colors' list."""
+    OME-Zarr 0.6 allows arbitrary keys in 'colors' entries alongside 'rgba'; these are merged into
+    `label_entry.properties`, prefixed with "@color:". Writing a properties key with a "@color:" prefix emits it
+    back into the 'colors' list.
+    """
 
     _COLOR_PREFIX = "@color:"
     """Future-proofing: colors/properties are expected to be merged, with potentially no dedicated
@@ -470,10 +478,13 @@ class ImageLabel:
 
 
 def make_all_singleton_shapes(ndim_or_spec: Union[int, OME_ZARR_MULTISCALE]) -> GetShapeFunction:
-    """
-    Construct OME-Zarr Multiscale without accessing data arrays, avoiding potentially dozens of requests.
-    `Multiscale.from_ome_zarr(ome_ms_dict, shape_source=make_all_singleton_shapes(3))`
-    `Multiscale.from_ome_zarr(ome_ms_dict, shape_source=make_all_singleton_shapes(ome_ms_dict))`
+    """Return a shape source that makes constructing a Multiscale from OME-Zarr metadata skip accessing data arrays,
+    avoiding potentially dozens of requests.
+
+    Use it as the `shape_source`:
+
+    - `Multiscale.from_ome_zarr(ome_ms_dict, shape_source=make_all_singleton_shapes(3))`
+    - `Multiscale.from_ome_zarr(ome_ms_dict, shape_source=make_all_singleton_shapes(ome_ms_dict))`
     """
     if isinstance(ndim_or_spec, int):
         return lambda _: (1,) * ndim_or_spec
@@ -526,7 +537,7 @@ class MultiscaleTransforms(TransformSequence):
         return InvertedMultiscaleTransforms(transforms=sup.transforms).bound(source=self.target, target=self.source)
 
     def to_signature(self, rename: Mapping["NodeRef", str]) -> "TransformSignature":
-        """For structural comparisons, this should be treated like a regular TransformSequence"""
+        """For structural comparisons, this should be treated like a regular TransformSequence."""
         return TransformSequence(self.transforms).to_signature(rename)
 
     def __post_init__(self):
@@ -540,7 +551,7 @@ class MultiscaleTransforms(TransformSequence):
         TransformSequence.__post_init__(self)
 
     def to_legacy_ome_zarr(self) -> List[Dict[str, Json]]:
-        """TransformSequence.to_ome_zarr is for 0.6 and upwards; this handles legacy 0.4/0.5"""
+        """TransformSequence.to_ome_zarr is for 0.6 and upwards; this handles legacy 0.4/0.5."""
         version = "0.5"  # Same format for 0.4 and 0.5, so doesn't matter which
         return [t.to_ome_zarr(version) for t in self.transforms]
 
@@ -560,20 +571,20 @@ class MultiscaleTransforms(TransformSequence):
 
     @classmethod
     def from_list(cls, ome_transformations: Optional[OME_ZARR_TRANSFORMS]) -> Optional["MultiscaleTransforms"]:
-        """
-        Possibilities for ome_transformations:
-        0.6 multiscale[datasets][n][coordinateTransformations]:
-        - List of one ScaleTransform
-        - List of one IdentityTransform
-        - List of one TransformSequence containing one ScaleTransform and one TranslationTransform
-        OME-Zarr v0.4 and 0.5:
-        - multiscale[coordinateTransformations]:
-          - absent or empty
-          - List of one ScaleTransform
-          - List of one ScaleTransform and one TranslationTransform
-        - multiscale[datasets][][coordinateTransformations]:
-          - List of one ScaleTransform
-          - List of one ScaleTransform and one TranslationTransform
+        """Possibilities for ome_transformations:
+
+        - 0.6 multiscale[datasets][n][coordinateTransformations]:
+            - List of one ScaleTransform
+            - List of one IdentityTransform
+            - List of one TransformSequence containing one ScaleTransform and one TranslationTransform
+        - OME-Zarr v0.4 and 0.5:
+            - multiscale[coordinateTransformations]:
+                - absent or empty
+                - List of one ScaleTransform
+                - List of one ScaleTransform and one TranslationTransform
+            - multiscale[datasets][][coordinateTransformations]:
+                - List of one ScaleTransform
+                - List of one ScaleTransform and one TranslationTransform
         """
         ome_transformations = _as_transform_list(ome_transformations)
         if not ome_transformations:
@@ -688,14 +699,14 @@ class MultiscaleTransforms(TransformSequence):
 
 
 class InvertedMultiscaleTransforms(TransformSequence):
-    """Alias purely to roundtrip inversion while maintaining a recognisable legacy marker class."""
+    """Alias purely to roundtrip inversion while maintaining a recognizable legacy marker class."""
 
     def inverted(self) -> "MultiscaleTransforms":
         sup = super(InvertedMultiscaleTransforms, self).inverted()
         return MultiscaleTransforms(transforms=sup.transforms).bound(source=self.target, target=self.source)
 
     def to_signature(self, rename: Mapping["NodeRef", str]) -> "TransformSignature":
-        """For structural comparisons, this should be treated like a regular TransformSequence"""
+        """For structural comparisons, this should be treated like a regular TransformSequence."""
         return TransformSequence(self.transforms).to_signature(rename)
 
     def composed_with(self, earlier: "Transform") -> Optional["InvertedMultiscaleTransforms"]:
@@ -801,15 +812,17 @@ def global_t_scale_if_matches_legacy_convention(
     global_transforms: MultiscaleTransforms,
     axes: Tuple[AxisKey, ...],
 ) -> Optional[float]:
-    """
-    Special case / ambiguity: OME-Zarr 0.4 and 0.5 define the dataset scale as the pixel size, but the spec's own
+    """Special case / ambiguity: OME-Zarr 0.4 and 0.5 define the dataset scale as the pixel size, but the spec's own
     primary example shows the pixel size along the time-axis only recorded in the global_transforms (multiscale-scale).
 
     nifti-zarr formalises this as a standard (https://github.com/neuroscales/nifti-zarr#24-nifti-header).
     Their own xyztc voxel size becomes [1,1,z,y,x] in dataset-scale, and [t,c,1,1,1] in multiscale-scale:
+
+    ```
     nifti.zattrs["VoxelSize"][:3]  ==  zattrs["multiscales"][0]["datasets"][0]["coordinateTransformations"][0]["scale"][2:5][::-1]
     nifti.zattrs["VoxelSize"][3]   ==  zattrs["multiscales"][0]["coordinateTransformations"][0]["scale"][0]
     nifti.zattrs["VoxelSize"][4]   ==  zattrs["multiscales"][0]["coordinateTransformations"][0]["scale"][1]
+    ```
 
     At the same time, we have the opposite use, following the language of the spec rather than its example, at HHMI
     (https://github.com/AI-HHMI/miao/issues/25). Here, the dataset-scale is the voxel size, and the multiscale-scale
@@ -820,7 +833,8 @@ def global_t_scale_if_matches_legacy_convention(
     Look strictly for the pattern "scale[t] is 1.0 in all datasets, and not 1.0 on global level".
     If this matches, interpret the *output* of the global transforms as the multiscale's intrinsic system.
 
-    Return None if the metadata does not conform to the global-t-scale convention, otherwise the scale.
+    Returns:
+        None if the metadata does not conform to the global-t-scale convention, otherwise the scale.
     """
     if "t" not in axes:
         return None
@@ -850,13 +864,13 @@ def global_t_scale_if_matches_legacy_convention(
 def multiscale_graph_from_legacy(
     multiscale: OME_ZARR_MULTISCALE, *, name: str
 ) -> Tuple[TransformGraph, NodeRef[CoordinateSystem], Optional[Tuple[float, Optional[TranslationTransform]]]]:
-    """
-    Convert legacy metadata into modern coordinate graph interpretation.
-    Returns graph, intrinsic ref, and None or a tuple of (pixel_size[t], global_transforms_to_fold).
+    """Convert legacy metadata into modern coordinate graph interpretation.
 
-    The third return tuple are the contents of multiscale[coordinateTransformations] if the entire multiscale
-    conformed to a legacy convention where t-scale is written on multiscale level, which implies that the intrinsic
-    coordinate system is the output of the global transforms rather than its input as the spec requires.
+    Returns:
+        Graph, intrinsic ref, and None or a tuple of (pixel_size[t], global_transforms_to_fold).
+        The third return tuple are the contents of multiscale[coordinateTransformations] if the entire multiscale
+        conformed to a legacy convention where t-scale is written on multiscale level, which implies that the intrinsic
+        coordinate system is the output of the global transforms rather than its input as the spec requires.
     """
     multiscale_tf_list = multiscale.get("coordinateTransformations")
     try:
@@ -901,9 +915,11 @@ def scale_meta_from_dataset_transforms(
     relative_scale_pixel_size: PixelSize,
     transformations: Optional[OME_ZARR_TRANSFORMS],
 ) -> Tuple[PixelSize, Optional[Translation], Optional[Tuple[AxisKey, ...]]]:
-    """
-    Extract pixel size and translation according to this dataset's `coordinateTransformations`.
-    Returns the scale's:
+    """Extract pixel size and translation according to this dataset's `coordinateTransformations`.
+
+    Returns:
+        The scale's:
+
         - pixel size (defaulting to 1.0 or relative factor if invalid meta)
         - translation (defaulting to None if invalid meta)
         - a tuple of axis keys where the `scale` transform was 0.0 (normally None, purely for metadata round-trip)

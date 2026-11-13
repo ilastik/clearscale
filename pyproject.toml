@@ -28,6 +28,7 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Scientific/Engineering :: Image Processing",
 ]
 
@@ -36,7 +37,7 @@ Documentation = "https://clearscale.readthedocs.io/"
 Source = "https://github.com/ilastik/clearscale"
 
 [project.optional-dependencies]
-dev = ["pre-commit", "pytest", "pyright"]
+dev = ["pre-commit", "pytest", "pytest-cov", "pyright"]
 docs = ["zensical==0.0.74", "mkdocstrings-python==2.0.10"]
 
 [tool.hatch.version]
@@ -65,3 +66,9 @@ git_describe_command = [
 [tool.black]
 line-length = 120
 target-version = ["py311"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/clearscale"]
+relative_files = true
+omit = ["src/clearscale/_version.py"]

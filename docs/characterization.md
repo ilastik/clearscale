@@ -30,7 +30,7 @@ The characterization will then give you the correct `rounding`, `pixel_sizing` a
 
 To use them, wrap the scaling method you actually use into a function that takes a 1D sequence of floats, and the respective scaling target parameter, and returns the scaled sequence.
 
-If your scaling method requires a NumPy array, convert the received sequence inside your wrapper (as in the examples below).
+If your scaling method requires a numpy array, convert the received sequence inside your wrapper (as in the examples below).
 
 ```python
 from clearscale.characterization import (
@@ -55,7 +55,6 @@ characterization = characterize_shape_scaling_method(
     )
 )
 
-# Use characterization.to_shape_kwargs() when constructing your multiscale.
 assert characterization.rounding is None, "shape-based scaling methods don't round"
 assert characterization.pixel_sizing == "shape_ratio"
 assert characterization.pixel_sizing_error < 1e-13
@@ -74,7 +73,6 @@ characterization = characterize_shape_factor_scaling_method(
     )
 )
 
-# Use characterization.to_factor_kwargs() when constructing your multiscale.
 assert characterization.rounding == "round"
 assert characterization.pixel_sizing == "corner_ratio"
 assert characterization.pixel_sizing_error < 1e-13
@@ -101,10 +99,18 @@ assert characterization.translating_error < 1e-13
 What the characterization measures is which input coordinates the generated output sampled.
 It cannot tell you anything about the sample *values*: whether the method interpolates, how it treats the edges (`mode=`), or whether it filters before downsampling.
 
+To quickly check whether the characterization was reliable, try `characterization.to_shape_kwargs()` and `characterization.to_factor_kwargs()`.
+These raise a `ValueError` if the characterization was questionable:
+If it has [warnings](#debugging-a-characterization), or the parameters cannot be expressed in the kind of blueprint that you asked for (see [Rounding](#rounding)).
+If they do not raise, the characterization was fine.
+
+Characterization is a development tool for exploring scaling implementations.
+For production use, hard-coding the correct parameters for the method you actually use makes more sense.
+
 ## Characterization of common scaling functions
 
 These results come from running the `characterize_*` functions on the respective functions (scipy 1.17.1, scikit-image 0.26.0).
-Your own parameters (interpolation order, anti-aliasing, ...) might change the result, so characterize your actual call if in doubt.
+Your own parameters might change the result, so characterize your actual call if in doubt.
 
 | Scaling function                                                    | Characterize with                          | `rounding`                | `pixel_sizing` | `translating`                   |
 |---------------------------------------------------------------------|--------------------------------------------|---------------------------|----------------|---------------------------------|
@@ -164,6 +170,12 @@ Each `ProbeResult` has the `probe` (input length and factor), the `output` (or `
 The probe input is the sequence `0, 1, 2, ...`, so the output values are the input positions the method sampled.
 The failure messages of the `characterize_*` functions list every probe and its error.
 
+If the best match fits poorly, the characterization still reports it, but adds a message to `characterization.warnings`:
+The error is more than 1% of the measured pixel spacing, and the reported `pixel_sizing` or `translating` might be plain wrong.
+For `translating`, this means that none of the [built-in shift functions](#translation-shift) describes your method (the shift of a convolution depends on its kernel, for example).
+Implement your own `translating` function as described there.
+For `pixel_sizing`, there is no such option yet: [Construct the `Scale`s yourself](#rounding) from the shapes that your scaling produced.
+
 ## Rounding
 
 Factor-based scaling methods have a problem:
@@ -193,6 +205,15 @@ You can pass `rounding=` either:
 * one of the keywords for common rounding methods: `"floor", "ceil", "round"` or `"round_half_up"` (`round_half_up` means `.5` rounds to the next *larger* integer; `round` means to the next *even* integer, i.e. Python's own `round()`)
 * a function (`Callable[[float], int]`) that accepts the theoretical fractional output array length along one axis (`float`) and rounds it as your own scaling method would, returning the rounded length (`int`)
 
+If your method does not round consistently, its characterization reports `rounding="indeterminate"`, and `to_factor_kwargs()` raises, because a `BlueprintFactors` would predict wrong output shapes.
+What to do instead depends on the `pixel_sizing` that was determined:
+
+* `shape_ratio` or `corner_ratio`: Record the shapes that your scaling actually produced, build a `BlueprintShapes` from them, and use `characterization.to_shape_kwargs()`.
+* `exact_factor`: Shapes cannot express this, because they do not contain the factor (`to_shape_kwargs()` raises too). If you can write your method's rounding as a function, pass it as `rounding` to a `BlueprintFactors`, as described above.
+
+Otherwise, you may have to construct the correct Scales manually (convolutional striding could be an example).
+Please open an issue on GitHub if you run into this, so that we can figure out how to support such scaling methods.
+
 ## Pixel size
 
 Different scaling methods implement various forms of how exactly they modify the spacing of pixel values in the output.
@@ -203,10 +224,7 @@ You can pass `pixel_sizing=` either:
 * `"shape_ratio"` if the output spacing is `input_length / output_length`
 * `"corner_ratio"` if the output spacing is `(input_length - 1) / (output_length - 1)` (the first and last pixel, i.e. the image corners, are preserved, and the rest are evenly spaced between them)
 
-`BlueprintShapes` defaults to `"shape_ratio"`.
-`BlueprintFactors` has no default and requires it to be provided explicitly.
-
-For factor-based scaling methods, there is one additional option:
+For factor-based scaling methods (using `BlueprintFactors`), there is one additional option:
 
 * `"exact_factor"` if the output spacing is `input_spacing / shape_factor`, respectively `input_spacing * step_factor`
 
@@ -221,16 +239,14 @@ Most common scaling methods apply one of the provided shift functions explained 
 * `discrete_bin_center`
 * `first_value_decimation`
 
-`BlueprintShapes` defaults to `half_pixel_space_preservation`.
-`BlueprintFactors` has no default and requires it to be provided explicitly.
 Pass the function itself or just its name as a string to `blueprint.apply_to_scale()`:
 
 ```python
 # Both ok
-multiscale = blueprint.apply_to_scale(base, translating="half_pixel_space_preservation")
+multiscale = blueprint.apply_to_scale(base, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation")
 
 from clearscale.characterization import half_pixel_space_preservation
-multiscale = blueprint.apply_to_scale(base, translating=half_pixel_space_preservation)
+multiscale = blueprint.apply_to_scale(base, pixel_sizing="shape_ratio", translating=half_pixel_space_preservation)
 ```
 
 If your scaling method applies a different shift, you need to implement your own function as a `Callable[[Scale, Scale], Translation]`.
@@ -283,6 +299,7 @@ blueprint = BlueprintShapes.uniform_steps(
 
 multiscale = blueprint.apply_to_scale(
     base,
+    pixel_sizing="shape_ratio",
     translating=half_pixel_space_preservation,
 )
 
@@ -371,7 +388,6 @@ Use `first_value_decimation` when the scaled array keeps the first source value 
 For example, `data[::4, ::4]`.
 
 `translating=first_value_decimation` is how you express "no shift".
-`BlueprintShapes` assumes `half_pixel_space_preservation` by default, so pass it explicitly when your method strides.
 
 ```python
 from clearscale import (

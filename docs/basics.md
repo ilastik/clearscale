@@ -28,7 +28,9 @@ Since OME-Zarr is the only serialization target, its minimum restrictions apply 
 Potential gotchas:
 
 * When describing relative scaling, `Factor` is a *multiplier* for `PixelSize` and a *divisor* for `Shape`. `Factor(x=2)` means "downscale by factor 2" - doubling pixel size and halving image shape. Dividing `Shape / Factor` needs to know how your scaling method rounds uneven divisions, so can only be called as `shape.scaled_by(factor, rounding="ceil")`. Note that many scaling methods like `scipy.ndimage.zoom` expect *shape multiplier* factors, so you'd need to pass `factor.inverted().values_tuple()`.
-* Scaled pixel size cannot be trivially determined. For `BlueprintShapes`, `shape_ratio` is assumed by default (`output_spacing = input_spacing * input_shape / output_shape`), but some methods use `"corner_ratio"` or `"exact_factor"`. `BlueprintFactors` has no default, because there is no way to guess which one applies.
+* Scaled pixel size cannot be trivially determined. 
+    `shape_ratio` is common (`output_spacing = input_spacing * input_shape / output_shape`), but some methods use `"corner_ratio"` or `"exact_factor"`.
+    There is no default, because there is no way to guess which one applies: Shapes do not reveal how an array was scaled. Only `BlueprintFactors` can express `"exact_factor"`, because shapes do not contain the factor.
 * Scaling usually introduces a shift, or `Translation`, to the scaled image's origin in physical space. Methods that handle `Scale` objects (and hence `Scale.translation`) compute this using a `TranslationShiftFunction`
 
 All three characteristics (`rounding`, `pixel_sizing` and `translating`) can be determined for your particular method using [`clearscale.characterization`](characterization.md).
@@ -242,7 +244,9 @@ ms  = cs.Multiscale({"s0": cs.Scale(shape=...)})           # scale_key -> Scale
 Scale keys are relative paths that point to data arrays, so they are naturally plain strings.
 
 Blueprints are simple but flexible containers that specify what scaling has been done or will be done.
-Ideally, you would use their values as parameters for scaling, to ensure metadata and data operations stay synchronised.
+The idea is to use their values as parameters for scaling, to ensure metadata and data operations stay synchronised.
+
+### Scaling by target shape
 
 ```python
 import clearscale as cs
@@ -265,86 +269,150 @@ blueprint = cs.BlueprintShapes.uniform_steps(
 #for scale_key, target_shape in blueprint.items():
 #    scaled_data = do_my_scaling(raw_data, target_shape.values_tuple())
 
-multiscale = cs.Multiscale.from_single(base, blueprint=blueprint)
+multiscale = cs.Multiscale.from_single(
+    base,
+    blueprint=blueprint,
+    pixel_sizing="shape_ratio",
+    translating="half_pixel_space_preservation",
+)
 
 assert list(multiscale.keys()) == ["s0", "s1", "s2"]
 assert multiscale["s2"].shape == cs.Shape(z=40, y=128, x=128)
 assert multiscale["s2"].pixel_size == cs.PixelSize(z=0.5, y=1.0, x=1.0)
 ```
 
-By default, applying a blueprint to a Scale multiplies the pixel size by the `input_shape / output_shape` ratio, and shifts the translation so that the scaled image covers the same physical extent as the base (`half_pixel_space_preservation`).
+The shapes alone do not say how your data was scaled, so you have to describe your scaling method with `pixel_sizing` and `translating`.
+The values above multiply the pixel size by the `input_shape / output_shape` ratio (`shape_ratio`), and shift the translation so that the scaled image covers the same physical extent as the base (`half_pixel_space_preservation`).
 This is how interpolating resize methods like `skimage.transform.resize` behave.
 
-If your scaling method just strides over the data (`data[::2]`), pass `translating="first_value_decimation"` for no shift.
+Wrong values can produce valid-looking but inaccurate metadata.
+You can automatically determine the appropriate parameters for your specific scaling method using [scaling method characterization](characterization.md).
 
-This may or may not be accurate.
-You can automatically determine the appropriate additional parameters (`pixel_sizing`, `translating`) for your specific scaling method using [scaling method characterization](characterization.md).
+### Scaling by factors
 
-If your processing code naturally thinks in scaling factors instead of output shapes, use `BlueprintFactors`.
+Some scaling methods take a factor instead of a target shape.
+There are two conventions, as described in [Scaling methods](characterization.md):
 
-You can directly build the blueprint and apply to the same `base` Scale:
+| Input to your scaling method | Meaning                    | Example: downscale by 2                                         |
+|------------------------------|----------------------------|-----------------------------------------------------------------|
+| **Shape factor**             | Multiplies the input shape | `0.5`, as in `scipy.ndimage.zoom`                               |
+| **Step factor**              | Divides the input shape    | `2`, as in striding or `skimage.transform.downscale_local_mean` |
+
+A clearscale `Factor` always uses the **step factor** convention: `Factor(y=2, x=2)` means halve the shape along `y` and `x`.
+For a method that expects shape factors, pass `factor.inverted().values_tuple()`.
+The factor convention alone does not tell you the output pixel size or translation; those still depend on the scaling method.
+
+Use `BlueprintFactors` to plan scaling in either convention.
+Its constructors generate exact factors directly, while using `base_shape` and `rounding` to decide how many levels fit your limits:
+
+* `uniform_steps`: powers of a chosen step along selected axes.
+* `downscale_powers_of_2_xyz`: the common case of factors 1, 2, 4, ... along spatial axes named `x`, `y`, and `z`.
+* `adaptive_steps` and `adaptive_powers_of_2_xyz`: use the base pixel sizes to bring anisotropic data toward isotropy before continuing to scale all selected axes.
+
+Each factor describes scaling **from the base image**, not from the preceding level.
+With `step=2`, the factors are 1, 2, 4, ...; use each one on the original data.
+
+### Step factors: striding
+
+For example, plain striding (`data[::2]`) keeps the first, and then every other input sample.
+It rounds the output shape up, multiplies the pixel spacing by exactly 2, and leaves the first sample in place.
+These properties correspond to `rounding="ceil"`, `pixel_sizing="exact_factor"`, and `translating="first_value_decimation"`.
 
 ```python
 import clearscale as cs
 
-factors = cs.BlueprintFactors(
-    {
-        "s0": cs.Factor.identity("zyx"),
-        "s1": cs.Factor(z=1, y=2, x=2),
-        "s2": cs.Factor(z=1, y=4, x=4),
-    }
+base = cs.Scale(
+    shape=cs.Shape(z=40, y=513, x=513),
+    pixel_size=cs.PixelSize(z=0.5, y=0.25, x=0.25),
+    unit=cs.Unit(z="micrometer", y="micrometer", x="micrometer")
 )
+factors = cs.BlueprintFactors.uniform_steps(
+    step=2,
+    scaled_axes="yx",
+    base_shape=base.shape,
+    rounding="ceil",
+    limit_all=cs.Shape(y=129, x=129)
+)
+
+assert factors["s0"] == cs.Factor(z=1, y=1, x=1)
+assert factors["s2"] == cs.Factor(z=1, y=4, x=4)
+
+# Apply each factor to the original munpy array in zyx order:
+# for scale_key, factor in factors.items():
+#     slices = tuple(slice(None, None, int(step)) for step in factor.values())
+#     scaled_data = raw_data[slices]
+#     ... save scaled_data at scale_key ...
+
+multiscale = cs.Multiscale.from_single(
+    base, 
+    blueprint=factors, 
+    rounding="ceil", 
+    pixel_sizing="exact_factor", 
+    translating="first_value_decimation"
+)
+
+assert tuple(multiscale) == ("s0", "s1", "s2")
+assert multiscale["s2"].shape == cs.Shape(z=40, y=129, x=129)
+assert multiscale["s2"].pixel_size == cs.PixelSize(z=0.5, y=1.0, x=1.0)
+assert multiscale["s2"].translation == base.translation
+```
+
+The integer conversion in the slicing example is appropriate because this blueprint generates integer powers of 2.
+Other factor-based methods can accept fractional factors.
+
+Notice the uneven division: `513 / 4` rounds up to 129 pixels, but the output spacing is still exactly 4 times the input spacing.
+The shape ratio `513 / 129` is not 4.
+Converting a shape blueprint with `.to_factors()` would recover that ratio, not the original stride.
+Use `BlueprintFactors` when the factors themselves are part of the operation you need to describe.
+
+### Shape factors: interpolating zoom
+
+For a method that takes shape factors, keep step factors in the blueprint and invert them when calling the method.
+Using the same `base`, this example describes `scipy.ndimage.zoom(..., order=1, grid_mode=False)`:
+
+```python
+factors = cs.BlueprintFactors.uniform_steps(
+    step=2,
+    scaled_axes="yx",
+    base_shape=base.shape, 
+    rounding="round",
+    limit_all=cs.Shape(y=129, x=129)
+)
+
+assert factors["s2"].inverted().values_tuple() == (1.0, 0.25, 0.25)
+
+# from scipy.ndimage import zoom
+# for scale_key, factor in factors.items():
+#     scaled_data = zoom(raw_data, factor.inverted().values_tuple(), order=1, grid_mode=False)
+#     ... save scaled_data at scale_key ...
 
 multiscale = cs.Multiscale.from_single(
     base,
     blueprint=factors,
-    # e.g. params that describe plain striding like data[::2]
-    rounding="ceil",
-    pixel_sizing="exact_factor",
-    translating="first_value_decimation",
+    rounding="round",
+    pixel_sizing="corner_ratio",
+    translating="first_value_decimation"
 )
-```
 
-In this case, there is no sensible default for how your data scaling works, so you need to specify all of:
-
-* `rounding`: how it handles factors that unevenly divide shapes
-* `pixel_sizing`: how it spaces the output pixels
-* `translating`: how it shifts the first output pixel
-
-If you are unsure, [scaling method characterization](characterization.md) can help.
-
-The number of scales you want to output will probably depend on the input image shape though.
-In practice, you might want to go through `BlueprintShapes` anyway.
-Taking the same setup as in the example above:
-
-```python
-base = cs.Scale(...)
-shapes = cs.BlueprintShapes.uniform_steps(step=2, base_shape=base.shape, ...)
-
-# You can simply convert this:
-
-factors = shapes.to_factors()
-
-# Scale your data using this factor blueprint.
-# This only works if your scaling method can handle arbitrary fractional factors.
-
-#for scale_key, scale_factor in factors.items():
-#    scaled_data = do_my_scaling_by_factor(raw_data, scale_factor.values_tuple())
-
-# Whether you use the `shapes` or `factors` blueprint now makes no difference.
-# But with `shapes` you don't have to provide `rounding` :)
-multiscale = cs.Multiscale.from_single(base, blueprint=shapes)
-
-assert tuple(multiscale.keys()) == ("s0", "s1", "s2")
 assert multiscale["s2"].shape == cs.Shape(z=40, y=128, x=128)
-assert multiscale["s2"].pixel_size == cs.PixelSize(z=0.5, y=1.0, x=1.0)
 ```
 
-Take note that Factors in clearscale are *divisors for shape*:
-`1024 pixels downscaled by factor 2 = 1024 / 2 = 512 pixels`. Scaling functions that accept factors as parameters may expect the inverse.
-For example, to downscale by 2, you could use `skimage.transform.rescale(image, 0.5)` or `scipy.ndimage.zoom(image, 0.5)`.
-In this case you would use `scale_factor.inverted().values_tuple()`.
+With `zoom(..., grid_mode=False)`, the pixel spacing follows the first-to-last sample distance (`corner_ratio`), rather than the exact requested factor.
+Passing factors to a scaling function does not by itself imply `pixel_sizing="exact_factor"`.
 
+### Choosing the scaling parameters
+
+Applying a `BlueprintFactors` to a `Scale` requires all three characteristics of your scaling method:
+
+* `rounding`: how fractional output lengths become integer shapes. Use the same rounding when generating the blueprint and applying it to the base scale.
+* `pixel_sizing`: how the spacing between samples changes.
+* `translating`: how the first output sample moves relative to the base image's origin.
+
+The blueprint constructor only uses `rounding` to project shapes for stopping limits and duplicate detection; it does not store the scaling method's behavior.
+That is why you supply it again when creating the `Multiscale`.
+
+If your method accepts an output shape, use `BlueprintShapes` as in the earlier example; applying it does not need `rounding` because the shapes are already known.
+Use [scaling method characterization](characterization.md) to determine the parameters for your actual function and options.
 
 ### Axis types
 

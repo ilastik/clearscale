@@ -555,6 +555,8 @@ crop_shape = cs.Shape(z=20, y=128, x=128)
 cropped = cs.Multiscale.from_single(
     replace(s0, shape=crop_shape),  # same pixel size and unit, but the cropped shape
     blueprint=cs.BlueprintShapes.downscale_powers_of_2_xyz(base_shape=crop_shape, rounding="ceil"),
+    pixel_sizing="shape_ratio",  # These two describe your scaling method,
+    translating="half_pixel_space_preservation",  # here an interpolating resize.
 ).as_derived_from(original, reached_by=crop_offset * s0.pixel_size)  # PixelOffset * PixelSize = Translation
 ```
 

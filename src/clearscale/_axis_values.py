@@ -13,7 +13,6 @@ from typing import (
     Callable,
     Optional,
     List,
-    Literal,
     Hashable,
     ItemsView,
     KeysView,
@@ -26,7 +25,7 @@ from typing import (
 from clearscale._services import units
 from clearscale._services.axis_links import AxisLinks
 from clearscale._spatial_relations import SpatialRelation
-from clearscale.types import AxisKey, _Ordered, OrderedAxes, ShapeLike, AxisKeyT
+from clearscale.types import AxisKey, _Ordered, OrderedAxes, ShapeLike, AxisKeyT, RoundingMethod
 
 OrderedAxesT = _Ordered[AxisKeyT]
 AxisMappedHashable = TypeVar("AxisMappedHashable", bound=Hashable)
@@ -34,7 +33,6 @@ AxisMappedPrimitive = TypeVar("AxisMappedPrimitive", int, float, str)
 Axes = Union[Collection[AxisKey], str]
 Scalar = Union[int, float, numbers.Real]
 RoundingFunction = Callable[[float], int]
-RoundingMethod = Union[Literal["ceil", "floor", "round", "round_half_up", "error_on_round"], RoundingFunction]
 _AxisMappingSelf = TypeVar("_AxisMappingSelf", bound="_AxisMapping[Any, Any]")
 _AxisValuesSelf = TypeVar("_AxisValuesSelf", bound="_AxisValues[Any, Any]")
 
@@ -48,13 +46,14 @@ def _axis_in(axis: AxisKey, axes: Axes) -> bool:
 
 
 class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, AxisMappedHashable]):
-    """
-    Base class for "tagged dictionaries" that map axis keys to values (like shape, resolution, unit).
+    """Base class for "tagged dictionaries" that map axis keys to values (like shape, pixel size, unit).
+
     Instantiation and usage of the subclasses should work pretty much like usual dicts, but with
     guaranteed (and explicit) order of the elements and immutability.
 
     Currently just wraps an OrderedDict.
     Custom classes are used instead of plain OrderedDicts to:
+
     - hide the internal implementation from the consumer in case this might need to change in the future
     - enforce immutability
     - control which parts of the OrderedDict API are exposed
@@ -154,9 +153,8 @@ class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, A
 class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[AxisKeyT, AxisMappedPrimitive]):
     @classmethod
     @abstractmethod
-    def _default(cls) -> AxisMappedPrimitive: ...
-
-    """Subclasses provide the default value for axes where no value is provided."""
+    def _default(cls) -> AxisMappedPrimitive:
+        """Subclasses provide the default value for axes where no value is provided."""
 
     @classmethod
     def fromkeys(cls: type[_AxisValuesSelf], keys: OrderedAxesT) -> _AxisValuesSelf:
@@ -174,7 +172,7 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
         return self.__class__(reordered_items)
 
     def without_default_values(self: _AxisValuesSelf) -> _AxisValuesSelf:
-        """Drop axes with default value"""
+        """Drop axes with default value."""
         if self.is_default():
             raise ValueError(
                 f"Cannot create empty {self.__class__.__name__}. Removing all defaults would leave no axes."
@@ -182,8 +180,7 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
         return self.without_axes(tuple(a for a in self if self[a] == self._default()))
 
     def with_default(self: _AxisValuesSelf, axes: Axes) -> _AxisValuesSelf:
-        """
-        Reset the values for `axes` to the type's default value, keeping the rest unchanged.
+        """Reset the values for `axes` to the type's default value, keeping the rest unchanged.
 
         Equivalent to pandas.DataFrame.mask(self in axes, other=self._default()).
         """
@@ -191,8 +188,7 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
         return self.__class__(reset_items)
 
     def with_default_except(self: _AxisValuesSelf, axes: Axes) -> _AxisValuesSelf:
-        """
-        Keep the values for `axes` and reset the remaining values to the type's default value.
+        """Keep the values for `axes` and reset the remaining values to the type's default value.
 
         Equivalent to pandas.DataFrame.where(self in axes, other=self._default()).
         """
@@ -276,9 +272,7 @@ def _normalize_rounding(rounding: RoundingMethod) -> RoundingFunction:
 
 
 class _AxisFloats(_AxisValues[AxisKeyT, float], ABC):
-    """
-    Base for Scaling, Resolution and Translation. Ensures values are floats.
-    """
+    """Base for Factor, PixelSize and Translation. Ensures values are floats."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -291,14 +285,15 @@ class _AxisFloats(_AxisValues[AxisKeyT, float], ABC):
 
 
 class Factor(_AxisFloats[AxisKeyT]):
-    """
-    Describes relative scaling factors from some shape to another.
+    """Describes relative scaling factors from some shape to another.
+
     The values are in units of "raw pixels per scaled pixel".
-    This makes them divisors for the original shape:
-    ```
-    scaled_shape = Shape(x=10).scaled_by(Factor(x=2.0), rounding="floor")
-    assert scaled_shape == Shape(x=5)
-    ```
+    This makes them divisors for the original shape.
+
+    Examples:
+        >>> scaled_shape = Shape(x=10).scaled_by(Factor(x=2.0), rounding="floor")
+        >>> scaled_shape == Shape(x=5)
+        True
     """
 
     @classmethod
@@ -306,21 +301,20 @@ class Factor(_AxisFloats[AxisKeyT]):
         return 1.0
 
     def with_axes(self, axes: OrderedAxesT) -> "Factor[AxisKeyT]":
-        """
-        Reorder to `axes`.
+        """Reorder to `axes`.
 
         Inserts 1.0 for target axes that this Factor doesn't have yet.
 
         Examples:
-            >>> res = Factor(z=0.25, y=120., x=120., t=0.1)
-            >>> res.with_axes("tczyx")
-            Factor(t=0.1, c=1.0, z=0.25, y=120.0, x=120.0)
+            >>> factor = Factor(z=0.25, y=120., x=120., t=0.1)
+            >>> factor.with_axes("tczyx")
+            Factor({'t': 0.1, 'c': 1.0, 'z': 0.25, 'y': 120.0, 'x': 120.0})
         """
         return super().with_axes(axes)
 
     @classmethod
     def identity(cls, axes: OrderedAxesT) -> "Factor[AxisKeyT]":
-        """Create a new identity Scaling (1.0 along all axes) with `axes`."""
+        """Create a new identity Factor (1.0 along all axes) with `axes`."""
         return super().fromkeys(axes)
 
     def __init__(self, *args, **kwargs):
@@ -331,7 +325,7 @@ class Factor(_AxisFloats[AxisKeyT]):
 
     @classmethod
     def uniform(cls, axes: OrderedAxesT, factor: Scalar) -> "Factor[AxisKeyT]":
-        """Create a new Scaling with `axes` and all values being `factor`."""
+        """Create a new Factor with `axes` and all values being `factor`."""
         return Factor(zip(axes, [factor] * len(axes)))
 
     def magnitude(self):
@@ -343,12 +337,18 @@ class Factor(_AxisFloats[AxisKeyT]):
 
     def is_downscaling(self) -> bool:
         """True if the product across all axes is greater than 1.
-        Note: Factors act as divisors for shape (e.g. 1024 / 2 = 512)."""
+
+        Note:
+            Factors act as divisors for shape (e.g. 1024 / 2 = 512).
+        """
         return math.prod(self.values()) > 1
 
     def is_upscaling(self) -> bool:
-        """True if the product across all axes is lesser than 1.
-        Note: Factors act as divisors for shape (e.g. 1024 / 0.5 = 2048)."""
+        """Check if the product across all axes is less than 1.
+
+        Note:
+            Factors act as divisors for shape (e.g. 1024 / 0.5 = 2048).
+        """
         return math.prod(self.values()) < 1
 
     @overload
@@ -387,21 +387,20 @@ class Factor(_AxisFloats[AxisKeyT]):
         return super().with_default_except(axes)
 
     def inverted(self) -> "Factor[AxisKeyT]":
-        """Axis-wise 1/factor."""
+        """Return the axis-wise 1/factor."""
         inverted_items = [(a, 1 / self[a]) for a in self]
         return self.__class__(inverted_items)
 
     def to_physical(self, base: "PixelSize[AxisKeyT]") -> "PixelSize[AxisKeyT]":
-        """
-        Convert relative scaling factor to absolute physical pixel size.
-        Identical to base.scaled_by(self).
+        """Convert relative scaling factor to absolute physical pixel size.
+
+        Identical to `base.scaled_by(self)`.
         """
         return PixelSize(base).scaled_by(self)
 
 
 class PixelSize(_AxisFloats[AxisKeyT]):
-    """
-    Describes absolute scaling factors, i.e. physical pixel size.
+    """Describes absolute scaling factors, i.e. physical pixel size.
     The values are in "units (e.g. nanometer) per pixel".
     """
 
@@ -416,7 +415,7 @@ class PixelSize(_AxisFloats[AxisKeyT]):
 
     @classmethod
     def from_vigra(cls, vigra_axistags: Any) -> "PixelSize[AxisKeyT]":
-        """Extract AxisInfo.resolution from the provided `vigra.AxisTags`"""
+        """Extract AxisInfo.resolution from the provided `vigra.AxisTags`."""
         vigra_default_resolution = 0.0
         axes = []
         resolutions = []
@@ -432,7 +431,7 @@ class PixelSize(_AxisFloats[AxisKeyT]):
                 raise ValueError(f"Pixel size cannot be 0 or negative (got {value} for axis '{axis}').")
 
     def is_identity(self) -> bool:
-        """True if this PixelSize is the unit size (1.0 along all axes)."""
+        """Check if this PixelSize is the unit size (1.0 along all axes)."""
         return super().is_default()
 
     def with_identity(self, axes: Axes) -> "PixelSize[AxisKeyT]":
@@ -444,11 +443,14 @@ class PixelSize(_AxisFloats[AxisKeyT]):
         return super().with_default_except(axes)
 
     def to_vigra(self, axistags: Optional[Any]) -> Any:
-        """
-        Creates or modifies `vigra.AxisTags` with the values in this PixelSize.
-        :param axistags: (Optional) Existing AxisTags to modify.
-            Only transfers values for axes shared between the AxisTags and this PixelSize.
-        :return: Returns the newly created or the modified AxisTags.
+        """Create or modify `vigra.AxisTags` with the values in this PixelSize.
+
+        Args:
+            axistags: Existing AxisTags to modify.
+                Only transfers values for axes shared between the AxisTags and this PixelSize.
+
+        Returns:
+            The newly created or the modified AxisTags.
         """
         try:
             import vigra  # type: ignore[import-not-found]
@@ -464,13 +466,16 @@ class PixelSize(_AxisFloats[AxisKeyT]):
         return tags
 
     def scaled_by(self, factor: Union[Factor[AxisKeyT], Mapping[AxisKeyT, float], Scalar]) -> "PixelSize[AxisKeyT]":
-        """
-        Scale this PixelSize by factor to obtain a scaled PixelSize.
+        """Scale this PixelSize by `factor` to obtain a scaled PixelSize.
+
         This is an axis-wise operation:
+
         - Missing axes in `factor` default to 1.0 (no change)
         - Passing a scalar (float/int) applies it uniformly to all axes
         - Extra axes in `factor` are rejected
-        Note if passing scalar: factor 2.0 means double pixel size = half resolution.
+
+        Note:
+            If passing a scalar, factor 2.0 means double pixel size = half resolution.
         """
         if isinstance(factor, Factor):
             pass
@@ -507,8 +512,8 @@ class PixelSize(_AxisFloats[AxisKeyT]):
 
 
 class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
-    """
-    Describes a shift in physical units.
+    """Describes a shift in physical units.
+
     As a spatial relation, it can express e.g. a crop offset. Don't also put such an offset into `Scale.translation`.
     """
 
@@ -517,15 +522,14 @@ class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
         return 0.0
 
     def with_axes(self, axes: OrderedAxesT) -> "Translation[AxisKeyT]":
-        """
-        Reorder to `axes`.
+        """Reorder to `axes`.
 
         Inserts 0.0 for target axes that this Translation doesn't have yet.
 
         Examples:
             >>> translate = Translation(y=0.5, x=0.5, t=0.3)
             >>> translate.with_axes("tczyx")
-            Translation(t=0.3, c=0.0, z=0.0, y=0.5, x=0.5)
+            Translation({'t': 0.3, 'c': 0.0, 'z': 0.0, 'y': 0.5, 'x': 0.5})
         """
         return super().with_axes(axes)
 
@@ -542,11 +546,11 @@ class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
         return super().fromkeys(axes)
 
     def is_identity(self) -> bool:
-        """True if this Translation is the identity translation (0.0 along all axes)."""
+        """Check if this Translation is the identity translation (0.0 along all axes)."""
         return super().is_default()
 
     def is_identity_along(self, axes: Axes) -> bool:
-        """True if this Translation is 0.0 for `axes`."""
+        """Check if this Translation is 0.0 for `axes`."""
         if not axes:
             return True
         return self.with_axes(axes).is_identity()
@@ -582,18 +586,21 @@ class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
         return super().with_default_except(axes)
 
     def inverted(self) -> "Translation[AxisKeyT]":
-        """Axis-wise translation * -1."""
+        """Return the axis-wise translation * -1."""
         inverted_items = [(a, -self[a]) for a in self]
         return self.__class__(inverted_items)
 
     def scaled_by(self, factor: Union[Factor[AxisKeyT], Mapping[AxisKeyT, float], Scalar]) -> "Translation[AxisKeyT]":
-        """
-        Scale this Translation by factor to obtain a scaled Translation.
+        """Scale this Translation by `factor` to obtain a scaled Translation.
+
         This is an axis-wise operation:
+
         - Missing axes in `factor` default to 1.0 (no change)
         - Passing a scalar (float/int) applies it uniformly to all axes
         - Extra axes in `factor` are rejected
-        Note if passing scalar: factor 2.0 means double pixel size = half resolution.
+
+        Note:
+            If passing a scalar, factor 2.0 means double pixel size = half resolution.
         """
         # Identical to PixelSize.scaled_by. Maybe extract.
         if isinstance(factor, Factor):
@@ -620,8 +627,7 @@ class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
         *,
         rounding: RoundingMethod,
     ) -> "PixelOffset[AxisKeyT]":
-        """
-        Convert this Translation from physical units to a PixelOffset.
+        """Convert this Translation from physical units to a PixelOffset.
 
         Extra axes in `pixel_size` are ignored, but all Translation axes must be present.
         """
@@ -631,10 +637,10 @@ class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
 
 
 class Unit(_AxisValues[AxisKeyT, str]):
-    """
-    Describes the physical units of the image's axes.
+    """Describes the physical units of the image's axes.
+
     Together with a PixelSize, this can form a complete pixel size description.
-    Example: {"t": "seconds", "x": "nm", "y": "nm", "c": ""}.
+    Example: `{"t": "seconds", "x": "nm", "y": "nm", "c": ""}`.
     An empty string means the unit is unspecified (there is no explicit way to define "unitless").
     """
 
@@ -649,15 +655,14 @@ class Unit(_AxisValues[AxisKeyT, str]):
                 raise TypeError(f"All values must be strings. Got {type(value).__name__} for axis '{axis}'.")
 
     def with_axes(self, axes: OrderedAxesT) -> "Unit[AxisKeyT]":
-        """
-        Reorder to `axes`.
+        """Reorder to `axes`.
 
         Inserts "" for target axes that this Unit doesn't have yet.
 
         Examples:
             >>> unit = Unit(y="nm", x="nm", t="sec")
             >>> unit.with_axes("tczyx")
-            Unit(t="sec", c="", z="", ="nm", x="nm")
+            Unit({'t': 'sec', 'c': '', 'z': '', 'y': 'nm', 'x': 'nm'})
         """
         return super().with_axes(axes)
 
@@ -667,16 +672,17 @@ class Unit(_AxisValues[AxisKeyT, str]):
         return super().fromkeys(axes)
 
     def normalized(self) -> "Unit[AxisKeyT]":
-        """
-        The same Unit with every recognized unit spelled as OME-Zarr names it: "nm", "um" and "micron" become
-        "nanometer", "micrometer" and "micrometer". Unrecognized and unspecified units are left as they are.
+        """Return the same Unit with every recognized unit spelled as OME-Zarr names it.
+
+        "nm", "um" and "micron" become "nanometer", "micrometer" and "micrometer".
+        Unrecognized and unspecified units are left as they are.
         """
         return self.__class__((axis, units.normalized_unit(unit)) for axis, unit in self.items())
 
     def abbreviated(self) -> "Unit[AxisKeyT]":
-        """
-        The same Unit with every recognized unit as its standard short symbol, e.g. for display:
-        "nanometer" becomes "nm", "micron" becomes "\u00b5m" (with the micro sign U+00B5), "minute" becomes "min".
+        """Return the same Unit with every recognized unit as its standard short symbol, e.g. for display.
+
+        "nanometer" becomes "nm", "micron" becomes "µm" (with the micro sign U+00B5), "minute" becomes "min".
         Unrecognized and unspecified units are left as they are.
         OME-Zarr prefers the spelled-out names. `.normalized()` is the way back.
         """
@@ -684,9 +690,7 @@ class Unit(_AxisValues[AxisKeyT, str]):
 
 
 class PixelOffset(_AxisValues[AxisKeyT, int]):
-    """
-    Describes the number of pixels of distance from some reference point to another.
-    """
+    """Describes the number of pixels of distance from some reference point to another."""
 
     @classmethod
     def _default(cls) -> int:
@@ -700,22 +704,19 @@ class PixelOffset(_AxisValues[AxisKeyT, int]):
             self._mapping[axis] = int(value)
 
     def with_axes(self, axes: OrderedAxesT) -> "PixelOffset[AxisKeyT]":
-        """
-        Reorder to `axes`.
+        """Reorder to `axes`.
 
         Inserts 0 for target axes that this PixelOffset doesn't have yet.
 
         Examples:
             >>> crop_offset = PixelOffset(y=15, x=37, t=23)
             >>> crop_offset.with_axes("tczyx")
-            PixelOffset(t=23, c=0, z=0, y=15, x=37)
+            PixelOffset({'t': 23, 'c': 0, 'z': 0, 'y': 15, 'x': 37})
         """
         return super().with_axes(axes)
 
     def to_physical(self, pixel_size: Union[PixelSize[AxisKeyT], Mapping[AxisKeyT, float]]) -> Translation[AxisKeyT]:
-        """
-        Multiply with `resolution` to obtain this PixelOffset as a Translation in physical units.
-        """
+        """Multiply with `pixel_size` to obtain this PixelOffset as a Translation in physical units."""
         _require_axes_present(pixel_size, self, container_name="pixel_size", required_name="PixelOffset")
         items_in_physical_units = [(a, self[a] * pixel_size[a]) for a in self]
         return Translation(items_in_physical_units)
@@ -739,9 +740,7 @@ class PixelOffset(_AxisValues[AxisKeyT, int]):
 
 
 class Shape(_AxisValues[AxisKeyT, int]):
-    """
-    Describes the number of pixels in the image.
-    """
+    """Describes the number of pixels in the image."""
 
     @classmethod
     def _default(cls) -> int:
@@ -761,15 +760,14 @@ class Shape(_AxisValues[AxisKeyT, int]):
         return super().fromkeys(axes)
 
     def with_axes(self, axes: OrderedAxesT) -> "Shape[AxisKeyT]":
-        """
-        Reorder to `axes`.
+        """Reorder to `axes`.
 
         Inserts 1 for target axes that this Shape doesn't have yet.
 
         Examples:
             >>> shape = Shape(y=256, x=256, t=23)
             >>> shape.with_axes("tczyx")
-            Shape(t=23, c=1, z=1, y=256, x=256)
+            Shape({'t': 23, 'c': 1, 'z': 1, 'y': 256, 'x': 256})
         """
         return super().with_axes(axes)
 
@@ -783,7 +781,10 @@ class Shape(_AxisValues[AxisKeyT, int]):
 
     def matches(self, other: ShapeLike, *, only: Optional[Axes] = None) -> bool:
         """Permissive value matching.
-        True if shapes are equal in all shared axes, optionally further constrained to `only`."""
+
+        Returns:
+            True if shapes are equal in all shared axes, optionally further constrained to `only`.
+        """
         shared = set(self.keys()) & set(other.keys())
         if only:
             shared &= set(only)
@@ -792,7 +793,9 @@ class Shape(_AxisValues[AxisKeyT, int]):
     def non_singleton_axes(self, axes: Optional[Axes] = None) -> Tuple[AxisKeyT, ...]:
         """Return axes along which this Shape is not singleton (value is not 1).
 
-        Optionally: Return subset of `axes` along which this Shape is not singleton."""
+        Args:
+            axes: Optionally return only the subset of `axes` along which this Shape is not singleton.
+        """
         axes = axes if axes is not None else self.keys()
         non_singleton = [a for a, size in self.items() if size != self._default()]
         return tuple(a for a in non_singleton if _axis_in(a, axes))
@@ -800,23 +803,23 @@ class Shape(_AxisValues[AxisKeyT, int]):
     def scaled_by(
         self, factor: Union[Factor[AxisKeyT], Mapping[AxisKeyT, float]], *, rounding: RoundingMethod
     ) -> "Shape[AxisKeyT]":
-        """
-        Returns the Shape of this image when scaled by `factor`.
+        """Return the Shape of this image when scaled by `factor`.
 
-        :param factor:
-        :param rounding: Specify how the scaling implementation used to scale the image data treats uneven cases.
-            Allowed: "ceil", "floor", or a function that takes a float and returns an int.
-            Example: When scaling 11 pixels by factor 2, does your method produce 5 or 6 pixels?
-            Common examples:
-             - skimage.transform.rescale: `rounding=round`.
-             - skimage.transform.downscale_local_mean: `rounding="ceil"`.
+        Args:
+            rounding: Specify how the scaling implementation used to scale the image data treats uneven cases.
+                Allowed: "ceil", "floor", or a function that takes a float and returns an int.
+                Example: When scaling 11 pixels by factor 2, does your method produce 5 or 6 pixels?
+                Common examples:
+
+                - skimage.transform.rescale: `rounding=round`.
+                - skimage.transform.downscale_local_mean: `rounding="ceil"`.
         """
         rounding = _normalize_rounding(rounding)
         factor = Factor(factor).with_axes(self)
 
         def _rescale_size(s: int, f: float) -> int:
-            """
-            Rescale a single dimension of a shape.
+            """Rescale a single dimension of a shape.
+
             Floor-round to match behavior of OpResize, and ensure minimum size is 1.
             """
             return max(rounding(s / f), self._default())
@@ -825,9 +828,7 @@ class Shape(_AxisValues[AxisKeyT, int]):
         return scaled_shape
 
     def scaling_to(self, resized: "Shape[AxisKeyT]") -> "Factor[AxisKeyT]":
-        """
-        Returns the Scaling factors of this Shape that would produce the `resized` shape.
-        """
+        """Return the Factor of this Shape that would produce the `resized` shape."""
         _require_identical_axes(self, resized)
         # In multiscale image context, scaling "factors" are technically divisors for the shape
         # (factor 2.0 means half the shape).

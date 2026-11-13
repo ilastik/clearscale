@@ -8,9 +8,10 @@ from clearscale.types import AxisKey, OrderedAxes
 AxisKeyDependencies = Tuple[Tuple[AxisKey, ...], ...]
 """AxisKey counterpart to `Transform._axis_dependencies`, which uses axis indices.
 One tuple of source axes per target axis, in target axis order.
-() = target depends on nothing (is new insert)
-(s,) = target is s
-(a, b, ...) = target mixes source axes a, b, ...
+
+- `()`: target depends on nothing (is new insert)
+- `(s,)`: target is s
+- `(a, b, ...)`: target mixes source axes a, b, ...
 """
 IDENTITY_TOLERANCE = DEFAULT_SINGULARITY_TOLERANCE
 
@@ -21,19 +22,18 @@ class AxisLink:
 
     sources: Tuple[AxisKey, ...]
     """Source axes the target relates to.
-    * When computed directly from a relation (forward links): the axes that the target directly depends on.
-    * After .reversed() (bidirectional links): all forward target axes of the mixing component the axis participates in.
+
+    - When computed directly from a relation (forward links): the axes that the target directly depends on.
+    - After .reversed() (bidirectional links): all forward target axes of the mixing component the axis participates in.
     """
     exact: Optional[Tuple[AxisKey, float]] = None
-    """
-    `(source, scale)` if the target is exactly `scale` times the coordinate of that source (translation
+    """`(source, scale)` if the target is exactly `scale` times the coordinate of that source (translation
     aside) and is not mixed with anything else: The relation has a single coefficient for it. The source may still
     contribute to other targets. Properties that scaling or mixing invalidate (e.g. unit) can only follow exact links.
     After .reversed(), it is the one axis that is exactly this one, with the scale inverted.
     """
     has_untraced_coupling: bool = False
-    """
-    True if the target is also coupled to an axis that has no counterpart at the other end of
+    """True if the target is also coupled to an axis that has no counterpart at the other end of
     the chain of relations: One that was inserted along it (in forward links), or dropped along it (in reversed
     links). Its properties are unknown, so agreement among `sources` does not establish agreement among everything the
     target is coupled to. An `exact` link is not coupled to anything, so this is always False if exact is not None.
@@ -147,18 +147,6 @@ class AxisLinks:
         """Links for properties flowing against the relation, from forward links: For each of the source axes, which
         target axes it relates to and may inherit properties from.
 
-        `AxisLinks.from_dependencies("yx", "ba",
-          (("y", "x"), ("x"))  # b = y + x ; a = x
-        ).reversed() == AxisLinks(
-            source_axes=('b', 'a'),
-            target_axes=('y', 'x'),
-            links=(
-                # y = b - x = b - a
-                AxisLink(sources=('b', 'a'), exact=None),
-                # x has been mixed into both b and a, but it can be obtained exactly from a
-                AxisLink(sources=('b', 'a'), exact=('a', 1.0))
-            )
-        )`
         For axis property carryover and correspondence validation, this is more conservative than transposing forward
         dependencies or taking dependencies of the inverse (and it can be determined for non-invertible relations).
         The distinction is only relevant for mixing Affines. For one-to-one relations, reversed sources are the
@@ -167,6 +155,22 @@ class AxisLinks:
         A reversed `exact` is the target that is exactly this source, with the scale inverted, even if the same source
         also contributes to other targets. (But only if there is only one such target.)
         A source has untraced coupling if any target in its component does.
+
+        Examples:
+            >>> AxisLinks.from_dependencies(
+            ...     "yx", "ba",
+            ...     (("y", "x"), ("x",)),  # b = y + x ; a = x
+            ... ).reversed() == AxisLinks(
+            ...     source_axes=("b", "a"),
+            ...     target_axes=("y", "x"),
+            ...     links=(
+            ...         # y = b - x = b - a
+            ...         AxisLink(sources=("b", "a"), exact=None),
+            ...         # x has been mixed into both b and a, but it can be obtained exactly from a
+            ...         AxisLink(sources=("b", "a"), exact=("a", 1.0)),
+            ...     ),
+            ... )
+            True
         """
         components: List[Set[AxisKey]] = []
         for link in self.links:

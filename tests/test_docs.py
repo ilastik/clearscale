@@ -42,7 +42,7 @@ def test_exports_exclude_underscore_names_and_incidental_imports(documented_pack
     assert "_axis_values" not in root
     assert "Axis" in selected_members(documented_package["ome_zarr"])
     types = selected_members(documented_package["types"])
-    assert "ShapeSource" in types
+    assert {"ShapeSource", "RoundingMethod"} <= types
     assert not {"Hashable", "Protocol", "_Ordered"} & types
 
 

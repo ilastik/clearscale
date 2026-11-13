@@ -45,16 +45,59 @@ AxisDependencies = Tuple[AxisIndices, ...]
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
 
 
+def require_inline_transform_payloads(
+    metadata: Union[List[Mapping[str, Any]], Mapping[str, Any], None], location: str = "coordinateTransformations"
+) -> None:
+    """Reject if any transforms are backed by external payloads (path).
+
+    Centralised here so it can be reduced or removed when we implement a public API for dealing with path-defined types
+    (coordinates, displacements) and path-backed variants of usually inline types (affine and friends).
+
+    Args:
+        metadata: Either transform dict, or a list of them
+    """
+    if isinstance(metadata, list):
+        for index, transform in enumerate(metadata):
+            require_inline_transform_payloads(transform, f"{location}[{index}]")
+        return
+    if not isinstance(metadata, MappingABC):
+        return
+    transform_type = metadata.get("type")
+    path = metadata.get("path")
+    if isinstance(path, str) and path:
+        is_missing_payload = transform_type in ("scale", "translation", "rotation", "affine") and (
+            transform_type not in metadata or not metadata[transform_type]
+        )
+        if transform_type in ("coordinates", "displacements") or is_missing_payload:
+            raise ValueError(
+                f"Transforms with external data are currently unsupported: {transform_type!r} transform at {location} requires payload at path {path!r}. This Multiscale or Scene cannot be read safely without support for transferring its external transform data."
+            )
+    if transform_type == "sequence":
+        require_inline_transform_payloads(metadata.get("transformations"), f"{location}.transformations")
+    elif transform_type == "bijection":
+        for direction in ("forward", "inverse"):
+            require_inline_transform_payloads(metadata.get(direction), f"{location}.{direction}")
+    elif transform_type == "byDimension":
+        children = metadata.get("transformations")
+        if isinstance(children, list):
+            for index, child in enumerate(children):
+                if isinstance(child, MappingABC):
+                    require_inline_transform_payloads(
+                        child.get("transformation"), f"{location}.transformations[{index}].transformation"
+                    )
+
+
 @dataclass(frozen=True, slots=True)
 class _EndpointDimensionConstraints:
-    """
-    Descriptions of a transform's source and target dimensionality as can be inferred from the transform's payload.
+    """Descriptions of a transform's source and target dimensionality as can be inferred from the transform's payload.
+
     This class only validates that different given properties are consistent with each other, and that no property is
     empty when given others imply it.
     Caller's responsibility to provide all values, even when the required value is obvious (e.g. source and target are
     given -> delta is implied, but caller must still specify it; like `.exact` does).
     In the most common case, i.e. exact source and target ndim, all properties are specified (use `.exact()`).
     The special cases are:
+
     - ProjectAxis: knows delta, and may know source_min and/or target_min. source, target and *_max are None.
     - Coordinates: fully unconstrained. All None.
     - Displacements: knows delta=0, otherwise unconstrained. All except delta are None.
@@ -170,8 +213,10 @@ class OmeZarrAxis:
         return f"{self.__class__.__name__}({', '.join(items)})"
 
     def with_fields_overridden_by(self, override: Optional["OmeZarrAxis"]) -> "OmeZarrAxis":
-        """Override with non-None fields from `override`, and .unit with `unit_override`.
-        `.name` must already match. If override has a .unit and unit_override is provided, they must match."""
+        """Override with non-None fields from `override`.
+
+        `.name` must already match.
+        """
         if override is None:
             return self
         result = self
@@ -234,8 +279,11 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
 
     def with_axes(self, axes: OrderedAxes, *, infer_inserted_types: bool = True) -> "OmeZarrAxes":
         """Order like axes. Insert a blank OmeZarrAxis for target axes not already present.
-        infer_inserted_types: If True, infer types *only for newly inserted axes*.
-        If you want to infer for all axes, call `.with_types_inferred` on the result."""
+
+        Args:
+            infer_inserted_types: If True, infer types *only for newly inserted axes*.
+                If you want to infer for all axes, call `.with_types_inferred` on the result.
+        """
         if not axes:
             raise ValueError(f"Cannot create empty OmeZarrAxes. Attempted reorder to: {axes!r}")
         if list(axes) == list(self.keys()):
@@ -250,12 +298,14 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
     def with_axes_carried_over(self, target_axes: OrderedAxes, links: AxisLinks) -> "OmeZarrAxes":
         """Build axes for `target_axes` from `self`, sourcing properties according to `links`
         (see SpatialRelation._axis_links).
+
         - A target without sources is an insert (-> blank).
         - An exact target *is* its source: It carries all properties, except for the unit if the scale is not +-1.
           (A unit tells how large a step in the axis is, which scaling changes.)
         - Any other target is the result of mixing. Its unit cannot be known, and one with untraced coupling (mixed with
           axes that cannot be traced) carries nothing. Otherwise `discrete`, `type` and `long_name` are carried over if they
-          agree between all sources. A source without a value counts as disagreeing."""
+          agree between all sources. A source without a value counts as disagreeing.
+        """
         target_axes = tuple(target_axes)
         assert links.target_axes == target_axes, f"Received links for {links.target_axes!r}, not {target_axes!r}."
 
@@ -277,15 +327,15 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
         return self.__class__((axis, carry_forward(axis, link)) for axis, link in zip(target_axes, links.links))
 
     def with_unit_merged(self, unit: Unit) -> "OmeZarrAxes":
-        """Override any .unit property on self.values with provided (only for axes where provided has non-empty string)"""
+        """Override any .unit property on self.values with provided (only for axes where provided has non-empty string)."""
         aligned = unit.with_axes(self.keys())
         replaced = self.__class__((a, replace(ax, unit=aligned[a]) if aligned[a] else ax) for a, ax in self.items())
         return replaced if replaced != self else self
 
     def with_types_inferred(self) -> "OmeZarrAxes":
-        """Infers `type` for any axis where `type` is None and the key is recognised.
+        """Infer `type` for any axis where `type` is None and the key is recognized.
 
-        Recognised keys are: t, time, timestep, timepoint, c, ch, channel, channels, z, y, x
+        Recognized keys are: t, time, timestep, timepoint, c, ch, channel, channels, z, y, x
         Inferred types are: "time", "channel", "space"
         """
         inferred_types = {
@@ -358,9 +408,10 @@ class TransformGraphNode(ABC):
 
 @dataclass(frozen=True, slots=True)
 class NodeRef(Generic[TransformGraphNodeT]):
-    """
-    Essentially a fancy tuple to act like dict-keys for selecting nodes inside transform graphs.
+    """Essentially a fancy tuple to act like dict-keys for selecting nodes inside transform graphs.
+
     This solves multiple problems:
+
     - nodes can be of different types (Multiscale or CoordinateSystem -- TransformGraphNode subclasses),
     - nodes can be absent entirely (_UnresolvedRef),
     - and node referencing must be possible via object identity and/or name
@@ -401,7 +452,7 @@ class NodeRef(Generic[TransformGraphNodeT]):
         return _UnresolvedRef(name=self.name, path=path or None).to_ome_zarr(version=version)
 
     def to_signature(self, rename: Mapping["NodeRef", str]) -> "NodeSignature":
-        """Return a value-comparable representation of self"""
+        """Return a value-comparable representation of self."""
         return NodeSignature(name=rename.get(self, self.name), owner=self.owner)
 
 
@@ -412,8 +463,9 @@ class _UnresolvedRef:
     Also used for the awkwardness that multiscale-datasets have an actual zarr-array as input (path-only ref)."""
 
     name: Optional[CoordinateSystemName]
-    """name is required. Optional only to acommodate one specific case inside OME-Zarr 0.6
-    dataset['coordinateTransformations'][]['input'], where name must be null/omitted."""
+    """name is required. Optional only to accommodate one specific case inside OME-Zarr 0.6
+    dataset['coordinateTransformations'][]['input'], where name must be null/omitted.
+    """
     path: Optional[str] = None
     """Path to the referenced zarr array or group, relative to the group whose metadata holds this reference."""
 
@@ -449,7 +501,7 @@ class _UnresolvedRef:
         return d
 
     def to_signature(self, rename: Mapping["NodeRef", str]) -> "_UnresolvedRef":
-        """Unlike NodeRef, UnresolvedRef is value-comparable (no conversion needed)"""
+        """Unlike NodeRef, UnresolvedRef is value-comparable (no conversion needed)."""
         return self
 
 
@@ -480,10 +532,11 @@ class TransformSignature:
 
 
 class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
-    """
-    Fulfills two functions:
-    * Representation specifically of OME-Zarr 0.6 coordinateSystem object
-    * 'Virtual' graph node representing a space without attached data, as OME-Zarr 0.6 coordinateSystems are
+    """Fulfills two functions:
+
+    - Representation specifically of OME-Zarr 0.6 coordinateSystem object
+    - 'Virtual' graph node representing a space without attached data, as OME-Zarr 0.6 coordinateSystems are
+
     Kept separate from OmeZarrAxes to separate private graph implementation concerns from the public axis-property concerns.
     Also to avoid confusion, because the public "coordinate_system" concept isn't quite the same as this CoordinateSystem.
     """
@@ -543,9 +596,9 @@ class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
 
 @dataclass(frozen=True, slots=True)
 class Transform(ABC):
-    """
-    Coordinate transformation with OME-Zarr convention for source/target coordinates:
+    """Coordinate transformation with OME-Zarr convention for source/target coordinates:
     `source_coords x t = target_coords`
+
     This convention prioritises *technical simplicity*, not mathematical theory.
     Transforming array indices or slicings to meaningful physical coordinates is simple:
     `[0, 124, 124] x Scale(1, 0.2, 0.2) = [0, 24.8, 24.8]`.
@@ -556,7 +609,7 @@ class Transform(ABC):
     They should ideally remain an implementation detail for serializing image processing concepts like
     Multiscale and Scene (spatial relationships between Multiscales) to OME-Zarr; not part of the package API.
 
-    Example: PixelSize has to/from vigra converters and arithmetic interactions with e.g. Factor.
+    For example, PixelSize has to/from vigra converters and arithmetic interactions with e.g. Factor.
     ScaleTransform conceptually corresponds to pixel size, but knows nothing about axes and does not do arithmetic
     outside of e.g. dimensionality-validating its endpoints and composing inside a TransformSequence.
     """
@@ -607,15 +660,20 @@ class Transform(ABC):
     def _axis_dependencies(self, source_ndim: int) -> Optional[AxisDependencies]:
         """For a source with `source_ndim` axes, tell which source axes each target axis depends on.
 
-        Returns one tuple per target axis, in target order, holding the indices of the source axes whose coordinates
-        influence that target axis:
-        - `()`: newly created axis (depends on nothing).
-        - `(i,)`: the target axis descends from source axis `i` alone (it may still be scaled, flipped, or shifted by a constant).
-        - `(i, j, ...)`: the target axis mixes several source axes (e.g. rotations).
-        Source axes that no entry mentions are dropped.
-        Returns None if this can't be determined from the payload alone: default; path-backed payloads; and transforms
-        whose dependence lives in array contents (displacements, coordinates).
-        Subclasses raise ValueError if `source_ndim` does not fit their payload.
+        Returns:
+            One tuple per target axis, in target order, holding the indices of the source axes whose coordinates
+            influence that target axis:
+
+            - `()`: newly created axis (depends on nothing).
+            - `(i,)`: the target axis descends from source axis `i` alone (it may still be scaled, flipped, or shifted by a constant).
+            - `(i, j, ...)`: the target axis mixes several source axes (e.g. rotations).
+
+            Source axes that no entry mentions are dropped.
+            None if this can't be determined from the payload alone: default; path-backed payloads; and transforms
+            whose dependence lives in array contents (displacements, coordinates).
+
+        Raises:
+            ValueError: Subclasses raise if `source_ndim` does not fit their payload.
         """
         return None
 
@@ -935,7 +993,7 @@ class Transform(ABC):
         return self.target if self.target is not None else earlier.target
 
     def to_signature(self, rename: Mapping["NodeRef", str]) -> "TransformSignature":
-        """Return a value-comparable representation of self (NodeRef endpoints use identity-based eq)"""
+        """Return a value-comparable representation of self (NodeRef endpoints use identity-based eq)."""
         assert (
             self.source is not None
         ), "should only be used in context of a TransformGraph, where all Transforms are fully bound"
@@ -1113,12 +1171,15 @@ class TransformSequence(Transform):
         return replace(self, transforms=tuple(c.unbound() for c in self.transforms), source=None, target=None)
 
     def collapsed(self, *, raise_uncollapsed: bool = False) -> "Transform | TransformSequence":
-        """
-        Reduce the sequence's length by composing the contained transforms, flattening contained TransformSequences.
-        Returns the shortest sequence that is semantically identical.
-        Returns a single Transform if the entire sequence and all (deeply) nested children can be composed.
-        Raises ValueError if raise_uncollapsed and the sequence cannot be composed into a single Transform.
-        The returned transform(s) may be more 'complex' types (e.g. [Scale, Translation] -> Affine).
+        """Reduce the sequence's length by composing the contained transforms, flattening contained TransformSequences.
+
+        Returns:
+            The shortest sequence that is semantically identical.
+            A single Transform if the entire sequence and all (deeply) nested children can be composed.
+            The returned transform(s) may be more 'complex' types (e.g. [Scale, Translation] -> Affine).
+
+        Raises:
+            ValueError: If `raise_uncollapsed` and the sequence cannot be composed into a single Transform.
         """
         flattened = iter(self._iter_flattened())
         result: List[Transform] = [next(flattened)]
@@ -1222,24 +1283,29 @@ def _ordered_unique_refs(refs: Iterable[_RefT]) -> Tuple[_RefT, ...]:
 
 
 def _is_owner_coordinate_system(ref: Optional[AnyRef]) -> TypeGuard[NodeRef["CoordinateSystem"]]:
-    """Makes pyright happy with TransformGraph.connected_system_refs"""
+    """Makes pyright happy with TransformGraph.connected_system_refs."""
     return isinstance(ref, NodeRef) and isinstance(ref.owner, CoordinateSystem)
 
 
 @dataclass(frozen=True, init=False)
 class TransformGraph:
-    """
-    Transform graphs consist of
+    """Transform graphs consist of
+
     - Transforms as edges, and
     - Multiscales and CoordinateSystems as nodes.
+
     The TransformGraph is defined primarily via Transforms.
     Nodes are managed by the respective Transforms.
 
     In OME-Zarr, the TransformGraph corresponds to two metadata keys:
+
+    ```
     {
       "coordinateSystems": [...],
       "coordinateTransformations": [...],
     }
+    ```
+
     As present on multiscale and scene metadata.
     """
 
@@ -1255,17 +1321,17 @@ class TransformGraph:
 
     @functools.cached_property
     def all_system_refs(self) -> Tuple[NodeRef[CoordinateSystem], ...]:
-        """All CoordinateSystem instances this graph knows"""
+        """All CoordinateSystem instances this graph knows."""
         return _ordered_unique_refs(chain(self.system_refs, self.connected_system_refs))
 
     @functools.cached_property
     def connected_system_refs(self) -> Tuple[NodeRef[CoordinateSystem], ...]:
-        """Only CoordinateSystem instances that can be reached by graph traversal"""
+        """Only CoordinateSystem instances that can be reached by graph traversal."""
         return tuple(ref for ref in self.node_refs if _is_owner_coordinate_system(ref))
 
     @functools.cached_property
     def node_refs(self) -> Tuple[AnyRef, ...]:
-        """All nodes (CoordinateSystems and Multiscales) that can be reached by graph traversal"""
+        """All nodes (CoordinateSystems and Multiscales) that can be reached by graph traversal."""
         return _ordered_unique_refs(ref for t in self.transforms for ref in (t.source, t.target) if ref is not None)
 
     @functools.cached_property
@@ -1348,11 +1414,14 @@ class TransformGraph:
         version="0.6",
         nodes_by_path: Optional[NodesByPath] = None,
     ) -> Dict[str, Json]:
-        """
-        Returns dict like {
+        """Return a dict like:
+
+        ```
+        {
             "coordinateSystems": List[Dict] (required for Multiscale, optional for Scene)
-            "coordinateTransformations: List[Dict] (required for Scene, optional for Multiscale)
+            "coordinateTransformations": List[Dict] (required for Scene, optional for Multiscale)
         }
+        ```
         """
         if version != "0.6":
             raise ValueError(f"Unsupported OME-Zarr version {version!r}. Graphs can only be written to '0.6'.")

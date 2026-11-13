@@ -1,0 +1,11 @@
+.md-typeset h1:has(> .home-logo) {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.md-typeset h1 > .home-logo {
+  flex: none;
+  width: 3.5rem;
+  height: auto;
+}

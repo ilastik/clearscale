@@ -31,6 +31,7 @@ from clearscale._transforms import (
     AnyRef,
     Transform,
     TransformGraph,
+    require_inline_transform_payloads,
 )
 from clearscale._transforms._base import _is_owner_coordinate_system, TransformGraphNode
 
@@ -166,8 +167,7 @@ class Scene:
         unit: Optional[Union[Unit, Mapping[AxisKeyT, str]]] = None,
         ome_zarr_axes: Optional[OmeZarrAxesParam] = "infer",
     ) -> "Scene":
-        """
-        Relate several Multiscales to one new coordinate system that they share (e.g. tiles to a stage):
+        """Relate several Multiscales to one new coordinate system that they share (e.g. tiles to a stage):
 
         ```
         Scene.from_shared_coordinate_system(
@@ -268,13 +268,12 @@ class Scene:
         a_path: RelativePath,
         b_path: RelativePath,
     ) -> "Scene":
-        """
-        Relate two Multiscales to each other, e.g. an image to the atlas it was registered to.
+        """Relate two Multiscales to each other, e.g. an image to the atlas it was registered to.
 
         Use `a_to_b` for the relation that specifies how to reach b from a (a --a_to_b--> b), same as:
-          `a.with_coordinate_system("b", reached_by=a_to_b)`
+        `a.with_coordinate_system("b", reached_by=a_to_b)`
         or
-          `a.as_derived_from(b, reached_by=a_to_b)`.
+        `a.as_derived_from(b, reached_by=a_to_b)`.
         Spatial relations map coordinates from `a` to `b`: `Translation(p)` adds p to each coordinate,
         while `ProjectionTo(axes)` drops or inserts axes. `SameSpace()` means the same space.
 
@@ -317,12 +316,14 @@ class Scene:
         *,
         multiscale_paths: MultiscalesByPath,
     ) -> "Scene":
-        """
-        Basic low-level constructor by directly specifying graph edges (source->transform->target):
+        """Basic low-level constructor by directly specifying graph edges (source->transform->target):
+
+        ```
         Scene._from_graph_edges([
             (moving_ms1, AffineTransform(...), fixed_ms),
             (moving_ms2, AffineTransform(...), fixed_ms),
         ], multiscale_paths={"moving1": moving_ms1, "moving2": moving_ms2, "fixed": fixed_ms})
+        ```
         """
 
         def node_to_ref(node: Node) -> NodeRef:
@@ -346,7 +347,12 @@ class Scene:
 
     @classmethod
     def from_ome_zarr(cls, scene_attrs: Mapping[str, Any]) -> "Scene":
+        """Read a Scene, raising ValueError if a transform requires unsupported external payload data.
+
+        Paths identifying transform endpoints are supported; paths identifying transform payloads are not (yet).
+        """
         transform_dicts = scene_attrs.get("coordinateTransformations", [])
+        require_inline_transform_payloads(transform_dicts)
         system_dicts = scene_attrs.get("coordinateSystems", [])
         graph = TransformGraph.from_ome_zarr(transform_dicts, system_dicts)
         return cls(graph, _multiscale_paths={})
@@ -385,25 +391,28 @@ class Scene:
         *,
         to: ResolvedSystemKey,
     ) -> Optional[SpatialRelation]:
-        """
-        Return the spatial relation that leads from the space `source` to the space `to`: `source --R--> to`.
+        """Return the spatial relation that leads from the space `source` to the space `to`: `source --R--> to`.
         As for all relations, R says what you do with an image in `source`'s space to obtain `to`'s space.
         This is the same reading as for the relations the constructors accept:
-        `Scene.from_multiscale_pair(a=a, b=b, a_to_b=R, a_path="a", b_path="b").relation_from(a, to=b)` returns `R`, in canonical form
-        (e.g. a chain of two Translations comes out as one Translation).
+        `Scene.from_multiscale_pair(a=a, b=b, a_to_b=R, a_path="a", b_path="b").relation_from(a, to=b)` returns `R`,
+        in canonical form (e.g. a chain of two Translations comes out as one Translation).
 
         `source` and `to` select spaces as follows:
+
         - a name selects one of the Scene's coordinate systems
         - a Multiscale selects the space of its own data, and `(multiscale, name)` selects one of its other
           coordinate systems
 
-        Returns `SameSpace()` if the two spaces are the same.
-        Returns None if no relation expresses the connection: There is no way to get from `source` to `to`
-        (e.g. spaces reached by dropping axes can't be traced backwards, or the two are not connected at all), or the
-        connection cannot be expressed as spatial relations, which can happen for Scenes read from OME-Zarr that
-        contain e.g. displacement fields.
-        Raises ValueError if either space can't be found or isn't resolved yet (see `with_resolved`: the axes of
-        spaces of unresolved Multiscales are unknown).
+        Returns:
+            `SameSpace()` if the two spaces are the same.
+            None if no relation expresses the connection: There is no way to get from `source` to `to`
+            (e.g. spaces reached by dropping axes can't be traced backwards, or the two are not connected at all), or the
+            connection cannot be expressed as spatial relations, which can happen for Scenes read from OME-Zarr that
+            contain e.g. displacement fields.
+
+        Raises:
+            ValueError: If either space can't be found or isn't resolved yet (see `with_resolved`: the axes of
+                spaces of unresolved Multiscales are unknown).
         """
         # include_children: Could add optional kwarg if anyone specifically needs to exclude transforms between child
         # multiscales and the additional coordinate systems they define internally. For now kept out of the API.
@@ -477,7 +486,7 @@ class Scene:
 
     @staticmethod
     def _source_ome_zarr_axes(ref: NodeRef[Multiscale]) -> OmeZarrAxes:
-        """Axis properties of the coordinate system that `ref` selects within its Multiscale"""
+        """Axis properties of the coordinate system that `ref` selects within its Multiscale."""
         multiscale = ref.owner
         if ref.name == multiscale._intrinsic_ref.name:
             return multiscale.ome_zarr_axes

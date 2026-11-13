@@ -292,7 +292,9 @@ class TestBlueprintApply:
         )
 
         blueprint = BlueprintShapes({"s0": Shape(c=3, y=8, x=12), "s1": Shape(c=3, y=4, x=3)})
-        multiscale = blueprint.apply_to_scale(base)
+        multiscale = blueprint.apply_to_scale(
+            base, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation"
+        )
 
         assert multiscale == Multiscale(
             {
@@ -316,7 +318,9 @@ class TestBlueprintApply:
             translation=Translation(y=10.0, x=-5.0),
         )
 
-        multiscale = blueprint.apply_to_scale(base, translating=half_pixel_space_preservation)
+        multiscale = blueprint.apply_to_scale(
+            base, pixel_sizing="shape_ratio", translating=half_pixel_space_preservation
+        )
 
         # Along y: 8 -> 4 px = factor 2. Pixel size 2.0 * 2 = 4.0
         #   s0 data space begins at 10.0-(2.0/2) = 9.0
@@ -335,7 +339,7 @@ class TestBlueprintApply:
             translation=Translation(y=10.0, x=-5.0),
         )
 
-        multiscale = blueprint.apply_to_scale(base, translating=discrete_bin_center)
+        multiscale = blueprint.apply_to_scale(base, pixel_sizing="shape_ratio", translating=discrete_bin_center)
 
         # Along y: 5 -> 2 px = factor 2.5 (Pixel size 0.6 * 2.5 = 1.5)
         #   Implicit bin size = ceil(2.5) = 3
@@ -356,13 +360,15 @@ class TestBlueprintApply:
             TypeError,
             match="See clearscale.characterization.half_pixel_space_preservation for an example implementation",
         ):
-            _ = bp.apply_to_scale(base, translating=shift_func)  # noqa
+            _ = bp.apply_to_scale(base, pixel_sizing="shape_ratio", translating=shift_func)  # noqa
 
     def test_shapes_can_use_corner_ratio_pixel_sizing(self):
         blueprint = BlueprintShapes({"s0": Shape(y=5, x=9), "s1": Shape(y=5, x=3)})
         base = Scale(shape=Shape(y=5, x=9), pixel_size=PixelSize(y=2.0, x=1.5))
 
-        multiscale = blueprint.apply_to_scale(base, pixel_sizing="corner_ratio")
+        multiscale = blueprint.apply_to_scale(
+            base, pixel_sizing="corner_ratio", translating="half_pixel_space_preservation"
+        )
 
         # x: corner_ratio factor = (9-1)/(3-1) = 4.0 -> pixel size 1.5 * 4.0 = 6.0
         # y: unscaled (5 -> 5) -> factor 1.0 -> pixel size unchanged
@@ -372,7 +378,9 @@ class TestBlueprintApply:
         blueprint = BlueprintShapes({"s0": Shape(y=5, x=9), "s1": Shape(y=2, x=1)})
         base = Scale(shape=Shape(y=5, x=9), pixel_size=PixelSize(y=2.0, x=1.5))
 
-        multiscale = blueprint.apply_to_scale(base, pixel_sizing="corner_ratio")
+        multiscale = blueprint.apply_to_scale(
+            base, pixel_sizing="corner_ratio", translating="half_pixel_space_preservation"
+        )
 
         # x collapses to a single output pixel: (input_len - 1) / (output_len - 1) would be div-by-0
         # falls back to shape_ratio (9/1 = 9.0) -> pixel size 1.5 * 9.0 = 13.5
@@ -384,7 +392,7 @@ class TestBlueprintApply:
         base = Scale(shape=Shape(x=4))
 
         with pytest.raises(ValueError, match="only BlueprintFactors.apply_to_scale can compute"):
-            blueprint.apply_to_scale(base, pixel_sizing="exact_factor")
+            blueprint.apply_to_scale(base, pixel_sizing="exact_factor", translating="half_pixel_space_preservation")
 
     def test_factors_derives_scale_metadata_from_base(self):
         base = Scale(
@@ -531,12 +539,15 @@ class TestBlueprintApply:
 
 
 class TestScalingMethodRequirements:
-    """Shape blueprints have sensible scaling-method defaults. Factor blueprints do not, and must be told how."""
+    """Neither kind of blueprint can guess how a scaling method behaves, and must be told how.
+    Without a blueprint, nothing is scaled, and nothing needs to be said.
+    """
 
     factors = BlueprintFactors({"s0": Factor(y=1.0, x=1.0), "s1": Factor(y=2.0, x=2.0)})
     shapes = BlueprintShapes({"s0": Shape(y=8, x=8), "s1": Shape(y=4, x=4)})
     base = Scale(shape=Shape(y=8, x=8), pixel_size=PixelSize(y=1.0, x=1.0))
-    complete = dict(rounding="ceil", pixel_sizing="shape_ratio", translating="first_value_decimation")
+    kwargs_for_factors = dict(rounding="ceil", pixel_sizing="shape_ratio", translating="first_value_decimation")
+    kwargs_for_shapes = dict(pixel_sizing="shape_ratio", translating="first_value_decimation")
 
     def _call(self, entry_point, **kwargs):
         kwargs.setdefault("blueprint", self.factors)
@@ -547,7 +558,7 @@ class TestScalingMethodRequirements:
     @pytest.mark.parametrize("missing", ["rounding", "pixel_sizing", "translating"])
     @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
     def test_factors_name_the_missing_scaling_method_parameter(self, entry_point, missing):
-        kwargs = {k: v for k, v in self.complete.items() if k != missing}
+        kwargs = {k: v for k, v in self.kwargs_for_factors.items() if k != missing}
         with pytest.raises(ValueError, match=f"Missing: {missing}\\."):
             self._call(entry_point, **kwargs)
 
@@ -558,8 +569,8 @@ class TestScalingMethodRequirements:
 
     @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
     def test_factors_with_everything_specified_match_apply_to_scale(self, entry_point):
-        expected = self.factors.apply_to_scale(self.base, **self.complete)  # type: ignore[arg-type]
-        assert self._call(entry_point, **self.complete) == expected
+        expected = self.factors.apply_to_scale(self.base, **self.kwargs_for_factors)  # type: ignore[arg-type]
+        assert self._call(entry_point, **self.kwargs_for_factors) == expected
 
     def test_from_factors_requires_pixel_sizing_and_translating(self):
         with pytest.raises(TypeError, match="pixel_sizing"):
@@ -573,19 +584,37 @@ class TestScalingMethodRequirements:
 
     def test_shapes_apply_to_scale_rejects_none_translating(self):
         with pytest.raises(TypeError, match="Use translating='first_value_decimation' for no shift"):
-            self.shapes.apply_to_scale(self.base, translating=None)  # type: ignore[arg-type]
+            self.shapes.apply_to_scale(self.base, pixel_sizing="shape_ratio", translating=None)  # type: ignore[arg-type]
 
-    def test_shapes_default_to_shape_ratio_with_half_pixel_space_preservation(self):
-        explicit = self.shapes.apply_to_scale(
-            self.base, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation"
-        )
-        assert self.shapes.apply_to_scale(self.base) == explicit
-        assert Multiscale.from_shapes(self.shapes, base=self.base) == explicit
-        assert explicit["s1"].translation == Translation(y=0.5 * (2.0 - 1.0), x=0.5 * (2.0 - 1.0))
+    def test_shapes_apply_to_scale_requires_pixel_sizing_and_translating(self):
+        with pytest.raises(TypeError, match="pixel_sizing"):
+            self.shapes.apply_to_scale(self.base, translating="first_value_decimation")  # type: ignore[call-arg]
+        with pytest.raises(TypeError, match="translating"):
+            self.shapes.apply_to_scale(self.base, pixel_sizing="shape_ratio")  # type: ignore[call-arg]
+
+    def test_from_shapes_requires_pixel_sizing_and_translating(self):
+        with pytest.raises(TypeError, match="pixel_sizing"):
+            Multiscale.from_shapes(self.shapes, base=self.base, translating="first_value_decimation")  # type: ignore[call-arg]
+        with pytest.raises(TypeError, match="translating"):
+            Multiscale.from_shapes(self.shapes, base=self.base, pixel_sizing="shape_ratio")  # type: ignore[call-arg]
+
+    @pytest.mark.parametrize("missing", ["pixel_sizing", "translating"])
+    @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
+    def test_shapes_name_the_missing_scaling_method_parameter(self, entry_point, missing):
+        kwargs = {k: v for k, v in self.kwargs_for_shapes.items() if k != missing}
+        with pytest.raises(ValueError, match=f"Missing: {missing}\\."):
+            self._call(entry_point, blueprint=self.shapes, **kwargs)
 
     @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
-    def test_shapes_unspecified_use_the_blueprint_defaults(self, entry_point):
-        assert self._call(entry_point, blueprint=self.shapes) == self.shapes.apply_to_scale(self.base)
+    def test_shapes_name_all_missing_scaling_method_parameters(self, entry_point):
+        with pytest.raises(ValueError, match="Missing: pixel_sizing, translating\\."):
+            self._call(entry_point, blueprint=self.shapes)
+
+    @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
+    def test_shapes_with_a_single_entry_still_need_the_parameters(self, entry_point):
+        # A blueprint can rescale even with one entry (when its shape differs from the base's), so it always asks.
+        with pytest.raises(ValueError, match="Missing: pixel_sizing, translating\\."):
+            self._call(entry_point, blueprint=BlueprintShapes({"s0": self.base.shape}))
 
     @pytest.mark.parametrize("entry_point", ["from_single", "derive"])
     def test_shapes_specified_values_are_forwarded(self, entry_point):
@@ -1373,7 +1402,12 @@ class TestPropertyCarryover:
         assert multiscale.has_shapes is False, "broke test setup"
 
         non_singleton = BlueprintShapes({"scale0": Shape(y=105, x=105)})
-        assert multiscale.derive("s1", blueprint=non_singleton).has_shapes is True
+        assert (
+            multiscale.derive(
+                "s1", blueprint=non_singleton, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation"
+            ).has_shapes
+            is True
+        )
 
     def test_derive_does_not_carry_over_ome_properties(self, read_multiscale):
         derived = read_multiscale.derive("s1")

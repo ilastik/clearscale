@@ -56,8 +56,10 @@ class TestAliasesInPublicMethods:
 
     @pytest.mark.parametrize("name", ALL_NAMES)
     def test_shapes_apply_to_scale_matches_passing_the_function(self, name):
-        by_name = self.shapes.apply_to_scale(self.base, translating=name)
-        by_function = self.shapes.apply_to_scale(self.base, translating=getattr(characterization, name))
+        by_name = self.shapes.apply_to_scale(self.base, pixel_sizing="shape_ratio", translating=name)
+        by_function = self.shapes.apply_to_scale(
+            self.base, pixel_sizing="shape_ratio", translating=getattr(characterization, name)
+        )
         assert by_name == by_function
 
     @pytest.mark.parametrize("name", ALL_NAMES)
@@ -82,13 +84,118 @@ class TestAliasesInPublicMethods:
         # Validation happens at the entry point, not lazily per target scale
         single = BlueprintShapes({"s0": Shape(y=8, x=8)})
         with pytest.raises(ValueError, match="Unknown translating method"):
-            single.apply_to_scale(self.base, translating="nope")  # type: ignore[arg-type]
+            single.apply_to_scale(self.base, pixel_sizing="shape_ratio", translating="nope")  # type: ignore[arg-type]
 
     def test_from_single_accepts_names(self):
-        ms = Multiscale.from_single(self.base, blueprint=self.shapes, translating="half_pixel_space_preservation")
+        ms = Multiscale.from_single(
+            self.base, blueprint=self.shapes, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation"
+        )
         assert ms["s1"].translation == Translation(y=11.0, x=-0.5)
 
     def test_derive_accepts_names(self):
         parent = Multiscale.from_single(self.base)
-        derived = parent.derive("s0", blueprint=self.shapes, translating="half_pixel_space_preservation")
+        derived = parent.derive(
+            "s0", blueprint=self.shapes, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation"
+        )
         assert derived["s1"].translation == Translation(y=11.0, x=-0.5)
+
+
+def _scale(pixel_size_items):
+    """Shape should be irrelevant for all calculations.
+    Pixel size will always be the precise source of information for what scaling was done."""
+    ps = PixelSize(pixel_size_items)
+    sh = Shape.all_singletons(ps)
+    return Scale(shape=sh, pixel_size=ps)
+
+
+class TestShiftFunctions:
+    def test_half_pixel_space_preservation_computes_axis_wise_shift(self):
+        base = _scale([("t", 12.0), ("z", 0.4), ("y", 0.6), ("x", 2.0)])
+        target = _scale([("t", 12.0), ("z", 0.2), ("y", 1.5), ("x", 6.0)])
+
+        shift = _translating.half_pixel_space_preservation(base, target)
+
+        assert shift == Translation([("t", 0.0), ("z", -0.1), ("y", 0.45), ("x", 2.0)])
+
+    def test_discrete_bin_center_computes_center_of_first_implicit_bin(self):
+        base = _scale([("z", 0.4), ("y", 0.6), ("x", 2.0)])
+        target = _scale([("z", 0.2), ("y", 1.5), ("x", 6.0)])
+
+        shift = _translating.discrete_bin_center(base, target)
+
+        assert shift == Translation([("z", 0.0), ("y", 0.6), ("x", 2.0)])
+
+    @pytest.mark.parametrize(
+        ("base_pixel_size", "target_pixel_size", "expected_shift"),
+        [
+            (0.4, 0.2, 0.0),
+            (0.4, 0.4, 0.0),
+            (0.4, 0.8, 0.2),
+            (0.4, 1.0, 0.4),
+            (0.4, 1.01, 0.4),
+            (0.4, 1.21, 0.6),
+            # Ratios just above integers must not add a pixel (odd and even bin sizes).
+            (0.1, 0.30000000000000004, 0.1),
+            (0.1, 0.6000000000000001, 0.25),
+            (0.3, 2.1, 0.9),
+            (0.8, 2.4000000000000004, 0.8),
+            (0.8, 4.800000000000001, 2.0),
+            # A ratio just below an integer must still use the full bin.
+            (0.65, 4.55, 1.95),
+            # Exactly representable pixel sizes above one, including a larger bin.
+            (2.5, 5.0, 1.25),
+            (2.5, 7.5, 2.5),
+            (2.5, 25.0, 11.25),
+            # Genuinely fractional bins still round up.
+            (1.0, 2.5, 1.0),
+            (1.0, 3.0000001, 1.5),
+            (1.0, 2.9999999, 1.0),
+            (1.0, 1.4, 0.5),
+        ],
+    )
+    def test_discrete_bin_center_uses_ceiled_implicit_bin_size(
+        self, base_pixel_size, target_pixel_size, expected_shift
+    ):
+        base = _scale([("x", base_pixel_size)])
+        target = _scale([("x", target_pixel_size)])
+
+        shift = _translating.discrete_bin_center(base, target)
+
+        assert dict(shift) == pytest.approx({"x": expected_shift}, rel=1e-12, abs=1e-15)
+
+    def test_first_value_decimation_returns_identity_translation(self):
+        base = _scale([("cookies", 0.5), ("y", 1.0), ("x", 2.0)])
+        target = _scale([("cookies", 0.0000212), ("y", 126.0), ("x", 4.0)])
+
+        shift = _translating.first_value_decimation(base, target)
+
+        assert shift == Translation([("cookies", 0.0), ("y", 0.0), ("x", 0.0)])
+
+    @pytest.mark.parametrize("shift_function", _translating.known_shift_functions)
+    @pytest.mark.parametrize(
+        "target",
+        [
+            _scale([("x", 4.0), ("y", 2.0)]),
+            _scale([("y", 2.0), ("z", 4.0)]),
+        ],
+    )
+    def test_all_shift_functions_reject_axis_mismatches(self, shift_function, target):
+        base = _scale([("y", 1.0), ("x", 2.0)])
+
+        with pytest.raises(ValueError, match="Axis mismatch"):
+            shift_function(base, target)
+
+    @pytest.mark.parametrize("pixel_size", [0.1, 0.3, 0.8])
+    @pytest.mark.parametrize("factor", [3.0, 6.0, 7.0])
+    def test_discrete_bin_center_blueprint_with_exact_factors_is_exact(self, pixel_size, factor):
+        base = Scale(shape=Shape(y=1000, x=1000), pixel_size=PixelSize(y=pixel_size, x=pixel_size))
+        blueprint = BlueprintFactors({"s0": Factor(y=1.0, x=1.0), "s1": Factor(y=factor, x=factor)})
+
+        multiscale = blueprint.apply_to_scale(
+            base, rounding="ceil", pixel_sizing="exact_factor", translating="discrete_bin_center"
+        )
+
+        for axis in "yx":
+            assert multiscale["s1"].translation[axis] == pytest.approx(
+                pixel_size * (factor - 1) / 2, rel=1e-12, abs=1e-15
+            )

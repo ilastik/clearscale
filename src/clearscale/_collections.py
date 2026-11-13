@@ -37,7 +37,7 @@ class GroupKind(str, Enum):
     which *might* exist, and if it exists, it *might* resolve to GroupKind.BF2RAW_OME and tell you which children exist.
     If it does exist, it will report the child paths relative to itself, i.e.  "../ms_0", "../ms_1", etc.
     You will need to strip the leading "../" to use with the parent `bf2raw_group` for example like 
-    `bf2raw_group[ bfw2raw_ome_group.children[0].path[3:] ]`.
+    `bf2raw_group[ bf2raw_ome_group.children[0].path[3:] ]`.
     If it does not exist, or it does not specify children, this means there are an unknown number of multiscale children 
     at sequential number paths like `bf2raw_group["0"]`, `bf2raw_group["1"]`, `bf2raw_group["2"]`, etc."""
     BF2RAW_OME = "bioformats2raw-OME"
@@ -47,7 +47,7 @@ class GroupKind(str, Enum):
     COLLECTION = "collection"
     """Generic OME-Zarr container. Contains some combination of the other kinds (some mix of multiscales, scenes and/or children)."""
     INVALID = "invalid"
-    """The group's metadata defines multiscales and/or a scene, but all of them are invalid (see `OmeZarrGroup.invalid_objects`
+    """The group's metadata defines multiscales and/or a scene, but all of them are invalid or unsupported (see `OmeZarrGroup.invalid_objects`
     for the reasons), and there is nothing else (valid) in it.
     Different from `kind=None`: None means there is no OME-Zarr metadata in the group at all."""
 
@@ -128,7 +128,8 @@ class OmeZarrGroup:
     """Contains potentially present subgroups implied by the OME-Zarr standard. "OME" for BF2RAW or 
     "labels" for groups with .multiscales."""
     invalid_objects: Tuple[InvalidObject, ...] = ()
-    """Multiscales and scenes found in the metadata that violate OME-Zarr requirements, and the reasons.
+    """Multiscales and scenes found in the metadata that are invalid or unsupported, and the reasons.
+    Valid OME-Zarr objects requiring external transform payload data are currently unsupported.
     Can be non-empty for any `kind`. Invalid objects are not part of `multiscales` or `scenes`, and are not written
     by `to_attrs`."""
 
@@ -175,9 +176,9 @@ class OmeZarrGroup:
 
     @classmethod
     def from_attrs(cls, attrs: Mapping[str, Any], *, shape_source: ShapeSource):
-        """
-        Parse the provided metadata to obtain any Multiscale and Scene definitions it contains.
+        """Parse the provided metadata to obtain any Multiscale and Scene definitions it contains.
         If it contains plate, well or labels metadata, collect the contained paths to multiscales.
+        Invalid or unsupported objects are preserved in `invalid_objects`, including their original metadata.
         """
         ome_attrs = attrs.get("ome") or attrs
 
@@ -271,8 +272,7 @@ class OmeZarrGroup:
 
     @classmethod
     def from_group(cls, group: ZarrGroup, *, shape_source: Optional[ShapeSource] = None):
-        """
-        Parse a zarr group's metadata to obtain any Multiscale and Scene definitions it contains.
+        """Parse a zarr group's metadata to obtain any Multiscale and Scene definitions it contains.
         If the group contains plate, well or labels metadata, collect the contained paths to multiscales.
         Use the provided group as the Multiscale shape_source by default.
         This can be expensive/slow when the group is on a remote server, so consider other shape_source
@@ -284,15 +284,16 @@ class OmeZarrGroup:
         self,
         version: Literal["0.4", "0.5", "0.6"],
         *,
-        override_multi_multiscales=False,
+        override_multi_multiscales: bool = False,
     ) -> Dict[str, Json]:
         """Return attributes for the zarr group described by this OmeZarrGroup metadata.
         Pass this to `zarr_group.attrs.update()` to make zarr_group an OME-Zarr dataset.
 
-        override_multi_multiscales: bool, default False. None of the current OME-Zarr versions genuinely support
-          arbitrary collections of multiple multiscales. It is technically possible to specify multiple "multiscales",
-          but this is badly supported across the tool ecosystem. Pass True to write multiple entries in "multiscales"
-          anyway. Only do this if all Multiscales describe different ways of downsampling the same raw data.
+        Args:
+            override_multi_multiscales: None of the current OME-Zarr versions genuinely support
+                arbitrary collections of multiple multiscales. It is technically possible to specify multiple "multiscales",
+                but this is badly supported across the tool ecosystem. Pass True to write multiple entries in "multiscales"
+                anyway. Only do this if all Multiscales describe different ways of downsampling the same raw data.
         """
         if version not in SUPPORTED_VERSIONS_WRITE:
             raise ValueError(f"Cannot write OME-Zarr with {version=}")

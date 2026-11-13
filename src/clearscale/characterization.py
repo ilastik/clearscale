@@ -14,7 +14,7 @@ from typing import (
     Literal,
 )
 
-from clearscale._axis_values import PixelSize, RoundingMethod, Shape
+from clearscale._axis_values import PixelSize, Shape
 from clearscale._multiscale import Scale
 from clearscale._services.translating import (
     discrete_bin_center,
@@ -22,7 +22,7 @@ from clearscale._services.translating import (
     half_pixel_space_preservation,
     known_shift_functions,
 )
-from clearscale.types import PixelSizingMethod, TranslationShiftFunction
+from clearscale.types import PixelSizingMethod, TranslationShiftFunction, RoundingMethod
 
 
 class ShapeScalingKwargs(TypedDict):
@@ -53,36 +53,86 @@ class ScalingMethodCharacterization:
     pixel_sizing_error: float
     rounding: Union[RoundingMethod, Literal["indeterminate"], None]
     """One of:
+
     - Rounding method that correctly predicted output shape for *all* probes.
     - None for `characterize_shape_scaling_method` (shape-parametrized calls = no shape-rounding).
-    - "indeterminate" for methods that scale by factor, but showed inconsistent shape rounding behavior."""
+    - "indeterminate" for methods that scale by factor, but showed inconsistent shape rounding behavior.
+    """
     warnings: Tuple[str, ...] = ()
-    """Non-fatal concerns about the characterization's reliability (noisy/ambiguous fits etc).
-    Non-empty means `translating`, `pixel_sizing` and/or `rounding` might be plain wrong."""
+    """Concerns about the characterization's reliability (noisy/ambiguous fits etc).
+    Non-empty means `translating`, `pixel_sizing` and/or `rounding` might be plain wrong,
+    so `to_shape_kwargs` and `to_factor_kwargs` raise."""
     probe_results: Tuple["ProbeResult", ...] = field(default=(), compare=False, repr=False)
     """What the scaling function returned (or the error it raised) for every probe the characterization tried.
     For debugging how the method behaves."""
 
     def to_shape_kwargs(self) -> ShapeScalingKwargs:
-        """kwargs to `**`-splat into `BlueprintShapes.apply_to_scale(scale, **shape_kwargs)`."""
+        """Return kwargs to `**`-splat into `BlueprintShapes.apply_to_scale(scale, **shape_kwargs)`.
+
+        If this raises, the characterization was questionable. If it does not, the kwargs can be used.
+
+        Raises:
+            ValueError: If the characterization has warnings (is questionable), or if `pixel_sizing` is "exact_factor"
+            (only `BlueprintFactors` can compute that; use `to_factor_kwargs` instead).
+        """
+        if self.pixel_sizing == "exact_factor":
+            if self.rounding == "indeterminate":
+                raise self._exact_factor_with_indeterminate_rounding_error()
+            raise ValueError(
+                'The characterization found pixel_sizing="exact_factor", which `BlueprintShapes` cannot compute. '
+                "Use `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())` instead."
+            )
+        self._raise_if_questionable()
         return ShapeScalingKwargs(pixel_sizing=self.pixel_sizing, translating=self.translating)
 
     def to_factor_kwargs(self) -> FactorScalingKwargs:
-        """kwargs to `**`-splat into `BlueprintFactors.apply_to_scale(scale, **factor_kwargs)`."""
+        """Return kwargs to `**`-splat into `BlueprintFactors.apply_to_scale(scale, **factor_kwargs)`.
+
+        If this raises, the characterization was questionable. If it does not, the kwargs can be used.
+
+        Raises:
+            ValueError: If the characterization describes a shape-scaling method (use `to_shape_kwargs`), could not
+            determine the `rounding` behavior, or has `warnings` (is questionable).
+        """
         if self.rounding == "indeterminate":
+            if self.pixel_sizing == "exact_factor":
+                raise self._exact_factor_with_indeterminate_rounding_error()
             raise ValueError(
                 "The characterization could not determine rounding behavior of the supplied scaling method. "
                 "This means `BlueprintFactors.apply_to_scale` will predict incorrect output shapes. "
-                "You should instead first run the actual scaling, and record the shapes it produced along the way. "
+                "You could instead first run the actual scaling, and record the shapes it produced along the way. "
                 "Construct `BlueprintShapes(zip(scale_keys, recorded_shapes))`, and use "
                 "`blueprint.apply_to_scale(scale, **characterization.to_shape_kwargs())`."
             )
         if self.rounding is None:
             raise ValueError("This characterization describes a shape-scaling method. Use `.to_shape_kwargs`.")
+        self._raise_if_questionable()
         return FactorScalingKwargs(
             pixel_sizing=self.pixel_sizing,
             translating=self.translating,
             rounding=self.rounding,
+        )
+
+    def _raise_if_questionable(self) -> None:
+        """Characterization is meant for finding out what parameters to hard-code, not for use on unknown methods.
+        So whoever asks for the parameters of one that came out doubtful finds out right away."""
+        if self.warnings:
+            raise ValueError(
+                "The characterization is questionable; its results should be manually verified. "
+                f"Warnings found: {' '.join(self.warnings)} "
+            )
+
+    @staticmethod
+    def _exact_factor_with_indeterminate_rounding_error() -> ValueError:
+        """Neither blueprint can describe such a method from its characterization alone.
+        `BlueprintShapes` cannot compute exact_factor pixel sizes, and `BlueprintFactors` needs the rounding."""
+        return ValueError(
+            "The characterization could not determine rounding behavior of the supplied scaling method, "
+            'and its pixel_sizing is "exact_factor". '
+            "Only `BlueprintFactors` can compute pixel sizes in this case, "
+            "but without accurate rounding it will predict incorrect output shapes. "
+            "See the 'Rounding' section of the characterization docs. "
+            "Please open an issue on GitHub if you run into this."
         )
 
 
@@ -125,8 +175,7 @@ RoundingRuleTable = Mapping[RoundingMethod, RoundingRule]
 def characterize_shape_scaling_method(
     scaling_function: Callable[[Sequence[float], int], Iterable[float]],
 ) -> ScalingMethodCharacterization:
-    """
-    Characterize a scaling implementation that accepts target shape as its scaling parameter
+    """Characterize a scaling implementation that accepts target shape as its scaling parameter
     (e.g. `skimage.transform.resize(x, output_shape=...)`).
     Feed the result to `BlueprintShapes.apply_to_scale(scale, **characterization.to_shape_kwargs())`.
     """
@@ -152,14 +201,14 @@ def characterize_shape_scaling_method(
 def characterize_shape_factor_scaling_method(
     scaling_function: Callable[[Sequence[float], float], Iterable[float]],
 ) -> ScalingMethodCharacterization:
-    """
-    Characterize a scaling implementation that accepts a shape *multiplier*
+    """Characterize a scaling implementation that accepts a shape *multiplier*
     (scipy.ndimage.zoom / skimage.transform.rescale convention: factor < 1 for downscaling,
     factor > 1 for upscaling).
     Feed the result to `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())`.
 
-    Note that clearscale.Factor is a shape *divisor*, so when calling such a scaling function
-    to execute the blueprint, pass `factor.inverted().values_tuple()`.
+    Note:
+        clearscale.Factor is a shape *divisor*, so when calling such a scaling function
+        to execute the blueprint, pass `factor.inverted().values_tuple()`.
     """
     rounding_rules: RoundingRuleTable = {
         "floor": lambda p: math.floor(p.source_length * p.factor),
@@ -194,8 +243,7 @@ def characterize_shape_factor_scaling_method(
 def characterize_step_factor_scaling_method(
     scaling_function: Callable[[Sequence[float], float], Iterable[float]],
 ) -> ScalingMethodCharacterization:
-    """
-    Characterize a scaling implementation that accepts a shape *divisor*
+    """Characterize a scaling implementation that accepts a shape *divisor*
     (skimage.measure.block_reduce convention, manual striding, and similar:
     factor > 1 for downscaling, factor < 1 for upscaling).
     Feed the result to `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())`.
@@ -239,8 +287,7 @@ def _characterize_factor_scaling_method(
     rounding_to_implementation: RoundingRuleTable,
     factor_to_spacing: Callable[[float], float],
 ) -> ScalingMethodCharacterization:
-    """
-    Shared implementation for the two factor-parametrized characterize_* functions.
+    """Shared implementation for the two factor-parametrized characterize_* functions.
 
     `factor_to_spacing` resolves a probe's factor value to its predicted "exact_factor"
     pixel spacing under the caller's convention (1/f for multiplier, f for divisor).
@@ -271,21 +318,13 @@ def _characterize_factor_scaling_method(
     all_successes = [(p, o) for p, o in (*discriminating_results.items(), *exact_results.items()) if o is not None]
     # exact_results can't distinguish pixel_sizing "shape_ratio" from "exact_factor" (without shape rounding, both produce the same number)
     pixel_sizing_tie_expected = rounding == "error_on_round"
-    characterization = _get_first_unambiguous_affine_characterization(
-        all_successes, factor_to_spacing, pixel_sizing_tie_expected
+    # If no probe with a fractional factor succeeded, the method only accepts integer scaling factors
+    uses_integer_factors_only = all(
+        isinstance(probe.factor, int) or probe.factor.is_integer() for probe, _o in all_successes
     )
-
-    if (
-        all(isinstance(probe.factor, int) or probe.factor.is_integer() for probe, _o in all_successes)
-        and characterization.translating is half_pixel_space_preservation
-    ):
-        # No probe with a fractional factor succeeded; the method only accepts integer scaling factors
-        assert (
-            characterization.translating_error == 0.0
-        ), "translating should be exact for scaling methods that only accept int step factors"
-        # half_pixel_space_preservation and discrete_bin_center are numerically *identical* in this case: 0.5 * (spacing - 1) == 0.5 * (ceil(spacing) - 1)
-        # But the more descriptive name is discrete_bin_center, because that's what the method is more likely to actually be doing if it only accepts int.
-        characterization = replace(characterization, translating=discrete_bin_center)
+    characterization = _get_first_unambiguous_affine_characterization(
+        all_successes, factor_to_spacing, pixel_sizing_tie_expected, uses_integer_factors_only
+    )
 
     return replace(
         characterization,
@@ -347,6 +386,7 @@ def _get_first_unambiguous_affine_characterization(
     successes: Sequence[Tuple[Probe, Sequence[float]]],
     factor_to_spacing: Callable[[float], float],
     pixel_sizing_tie_expected: bool,
+    uses_integer_factors_only: bool,
 ) -> ScalingMethodCharacterization:
     for probe, output in successes:
         try:
@@ -354,6 +394,7 @@ def _get_first_unambiguous_affine_characterization(
                 output,
                 probe.source_length,
                 exact_factor_spacing=factor_to_spacing(probe.factor),
+                uses_integer_factors_only=uses_integer_factors_only,
             )
         except ValueError as e:
             raise ValueError(f"Probe {probe!r} produced unusable output. {e}") from e
@@ -369,12 +410,15 @@ def _characterize_affine(
     source_length: int,
     *,
     exact_factor_spacing: Optional[float],
+    uses_integer_factors_only: bool = False,
 ) -> Tuple[ScalingMethodCharacterization, bool]:
-    """
-    Characterize the output produced after running a particular probe.
+    """Characterize the output produced after running a particular probe.
+
     `exact_factor_spacing` is the expected pixel spacing multiplier given the scaling factor
     the method was parametrized with, if any
     (i.e. expected if the method multiplies input spacing exactly by the factor).
+
+    `uses_integer_factors_only` is whether the method only accepted integer scaling factors (probably works in discrete bins).
     """
     target_length = len(out)
     min_target_length = 150
@@ -438,6 +482,16 @@ def _characterize_affine(
         rms = math.sqrt(sum((y - (spacing * x + predicted)) ** 2 for x, y in zip(xs, ys)) / n)
         translation_scores.append((rule, rms))
     translating, translating_error = min(translation_scores, key=lambda item: item[1])
+    if uses_integer_factors_only and translating is half_pixel_space_preservation:
+        # A method that only accepts integer factors is more likely using discrete bins.
+        # half_pixel_space_preservation and discrete_bin_center are numerically identical when spacing is integer:
+        # 0.5 * (spacing - 1) == 0.5 * (ceil(spacing) - 1).
+        # So prefer the more descriptive discrete_bin_center when this is the case.
+        translating_tie_threshold = 1e-9 * abs(spacing)
+        """Shift rules whose errors differ by less than this are considered equal."""
+        bin_center_error = dict(translation_scores)[discrete_bin_center]
+        if bin_center_error - translating_error <= translating_tie_threshold:
+            translating, translating_error = discrete_bin_center, bin_center_error
 
     warning_msgs: List[str] = []
     if pixel_sizing_error > relative_error_warning_threshold * abs(spacing):
@@ -448,7 +502,8 @@ def _characterize_affine(
     if translating_error > relative_error_warning_threshold * abs(spacing):
         warning_msgs.append(
             f"Ambiguous or noisy translation characterization (matched {translating.__name__!r}, "
-            f"error {translating_error:.3g}, spacing {spacing:.3g})."
+            f"error {translating_error:.3g}, spacing {spacing:.3g}). "
+            "If no built-in shift function describes your method, you can pass your own as `translating`."
         )
 
     assert pixel_sizing in ("shape_ratio", "corner_ratio", "exact_factor")

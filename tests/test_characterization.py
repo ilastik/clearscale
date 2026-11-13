@@ -11,9 +11,9 @@ from clearscale import (
     BlueprintShapes,
     BlueprintFactors,
     Factor,
+    Multiscale,
 )
 from clearscale.characterization import (
-    known_shift_functions,
     characterize_shape_scaling_method,
     characterize_shape_factor_scaling_method,
     characterize_step_factor_scaling_method,
@@ -21,7 +21,6 @@ from clearscale.characterization import (
     first_value_decimation,
     half_pixel_space_preservation,
     Probe,
-    ProbeResult,
     ScalingMethodCharacterization,
 )
 
@@ -39,67 +38,16 @@ def _scale(pixel_size_items):
     return Scale(shape=sh, pixel_size=ps)
 
 
-class TestShiftFunctions:
-    def test_half_pixel_space_preservation_computes_axis_wise_shift(self):
-        base = _scale([("t", 12.0), ("z", 0.4), ("y", 0.6), ("x", 2.0)])
-        target = _scale([("t", 12.0), ("z", 0.2), ("y", 1.5), ("x", 6.0)])
-
-        shift = half_pixel_space_preservation(base, target)
-
-        assert shift == Translation([("t", 0.0), ("z", -0.1), ("y", 0.45), ("x", 2.0)])
-
-    def test_discrete_bin_center_computes_center_of_first_implicit_bin(self):
-        base = _scale([("z", 0.4), ("y", 0.6), ("x", 2.0)])
-        target = _scale([("z", 0.2), ("y", 1.5), ("x", 6.0)])
-
-        shift = discrete_bin_center(base, target)
-
-        assert shift == Translation([("z", 0.0), ("y", 0.6), ("x", 2.0)])
-
-    @pytest.mark.parametrize(
-        ("target_pixel_size", "expected_shift"),
-        [
-            (0.2, 0.0),
-            (0.4, 0.0),
-            (0.8, 0.2),
-            (1.0, 0.4),
-            (1.01, 0.4),
-            (1.21, 0.6000000000000001),
-        ],
-    )
-    def test_discrete_bin_center_uses_ceiled_implicit_bin_size(self, target_pixel_size, expected_shift):
-        base = _scale([("x", 0.4)])
-        target = _scale([("x", target_pixel_size)])
-
-        shift = discrete_bin_center(base, target)
-
-        assert shift == Translation(x=expected_shift)
-
-    def test_first_value_decimation_returns_identity_translation(self):
-        base = _scale([("cookies", 0.5), ("y", 1.0), ("x", 2.0)])
-        target = _scale([("cookies", 0.0000212), ("y", 126.0), ("x", 4.0)])
-
-        shift = first_value_decimation(base, target)
-
-        assert shift == Translation([("cookies", 0.0), ("y", 0.0), ("x", 0.0)])
-
-    @pytest.mark.parametrize("shift_function", known_shift_functions)
-    @pytest.mark.parametrize(
-        "target",
-        [
-            _scale([("x", 4.0), ("y", 2.0)]),
-            _scale([("y", 2.0), ("z", 4.0)]),
-        ],
-    )
-    def test_all_shift_functions_reject_axis_mismatches(self, shift_function, target):
-        base = _scale([("y", 1.0), ("x", 2.0)])
-
-        with pytest.raises(ValueError, match="Axis mismatch"):
-            shift_function(base, target)
-
-
 def _linear_values(*, start: float, spacing: float, length: int) -> List[float]:
     return [start + spacing * index for index in range(length)]
+
+
+def _erratic_rounding_scaling_function(source, factor):
+    """A shape-factor method whose rounding depends on the input length: No single rounding rule fits it."""
+    n = len(source)
+    target_length = math.ceil(n * factor) if n % 2 == 0 else math.floor(n * factor)
+    spacing = 1.0 / factor
+    return _linear_values(start=0.0, spacing=spacing, length=target_length)
 
 
 class TestCharacterizeShapeScaler:
@@ -332,13 +280,7 @@ class TestCharacterizeShapeFactorScaler:
         assert characterization.pixel_sizing_error < 1e-9
 
     def test_detects_inconsistent_rounding_behaviour(self):
-        def erratic_scaling_function(source, factor):
-            n = len(source)
-            target_length = math.ceil(n * factor) if n % 2 == 0 else math.floor(n * factor)
-            spacing = 1.0 / factor
-            return _linear_values(start=0.0, spacing=spacing, length=target_length)
-
-        characterization = characterize_shape_factor_scaling_method(erratic_scaling_function)
+        characterization = characterize_shape_factor_scaling_method(_erratic_rounding_scaling_function)
 
         assert characterization.rounding == "indeterminate"
         assert characterization.pixel_sizing == "exact_factor"
@@ -598,7 +540,8 @@ class TestCharacterizationKwargsApply:
 
     def test_pipeline_indeterminate_rounding_redirects_to_blueprint_shapes(self):
         """Not a real characterization. The implementation detail of the scaling method that would cause "indeterminate" is not important here.
-        What matters is that `to_factor_kwargs` raises, and `to_shapes_kwargs` works, as the error messages promise."""
+        What matters is that `to_factor_kwargs` raises, and `to_shapes_kwargs` works, as the error messages promise.
+        This only holds for pixel_sizing other than "exact_factor", which BlueprintShapes cannot compute (see below)."""
         characterization = ScalingMethodCharacterization(
             translating=discrete_bin_center,
             translating_error=0.0,
@@ -621,3 +564,223 @@ class TestCharacterizationKwargsApply:
         assert multiscale["s1"].shape == actually_produced_shape
         assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=101 / 37))
         assert multiscale["s1"].translation == _as_xy(Translation(x=1.0))
+
+    def test_to_shape_kwargs_rejects_exact_factor_and_points_to_blueprint_factors(self):
+        """Binning: exact_factor + ceil + discrete_bin_center. Shapes cannot express the exact factor."""
+
+        def binning(source, factor):
+            if factor != int(factor) or factor < 1:
+                raise ValueError("Bin size must be a positive integer")
+            step = int(factor)
+            bins = [source[i : i + step] for i in range(0, len(source), step)]
+            return [sum(bin_) / len(bin_) for bin_ in bins]
+
+        characterization = characterize_step_factor_scaling_method(binning)
+        assert characterization.rounding == "ceil"
+        assert characterization.pixel_sizing == "exact_factor"
+        assert characterization.translating is discrete_bin_center
+
+        with pytest.raises(ValueError, match='pixel_sizing="exact_factor"') as error:
+            characterization.to_shape_kwargs()
+        assert "`BlueprintShapes` cannot compute" in str(error.value)
+        assert "to_factor_kwargs" in str(error.value)
+
+        # What the message points to does work, and matches the real output, also for a length that does not divide:
+        base = _as_xy(Scale(shape=Shape(x=1001), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
+        real_output = binning([float(i) for i in range(1001)], 2)
+        blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=2.0)})
+        multiscale = blueprint.apply_to_scale(base, **characterization.to_factor_kwargs())
+
+        assert multiscale["s1"].shape == _as_xy(Shape(x=len(real_output)))
+        assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=real_output[1] - real_output[0]))  # exactly 2.0
+        assert multiscale["s1"].translation == _as_xy(Translation(x=real_output[0]))
+
+    def test_indeterminate_rounding_with_exact_factor_is_not_redirected_to_blueprint_shapes(self):
+        """Real characterization (not hand-built): no blueprint can describe it from the characterization alone."""
+        characterization = characterize_shape_factor_scaling_method(_erratic_rounding_scaling_function)
+        assert characterization.rounding == "indeterminate"
+        assert characterization.pixel_sizing == "exact_factor"
+
+        for to_kwargs in (characterization.to_factor_kwargs, characterization.to_shape_kwargs):
+            with pytest.raises(ValueError, match="could not determine rounding behavior") as error:
+                to_kwargs()
+            assert "recorded_shapes" not in str(error.value)  # Not the advice that cannot work here
+
+        # Why that advice cannot work:
+        base = _as_xy(Scale(shape=Shape(x=100), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
+        shapes = BlueprintShapes({"s0": base.shape, "s1": _as_xy(Shape(x=50))})
+        with pytest.raises(ValueError, match="only BlueprintFactors"):
+            shapes.apply_to_scale(
+                base, pixel_sizing=characterization.pixel_sizing, translating=characterization.translating
+            )
+
+        # What the message offers instead: your own rounding function, with BlueprintFactors.
+        factors = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=2.0)})
+        multiscale = factors.apply_to_scale(
+            base,
+            rounding=math.ceil,
+            pixel_sizing=characterization.pixel_sizing,
+            translating=characterization.translating,
+        )
+        assert multiscale["s1"].shape == _as_xy(Shape(x=50))
+        assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=2.0))
+
+    def test_convolution_with_indeterminate_rounding_is_described_by_building_scales_by_hand(self):
+        """Kernel size 2, stride = factor, no padding. Reaches the indeterminate + exact_factor case, where the
+        characterization's `translating` is wrong, and the error says to build the Scales yourself."""
+
+        def strided_convolution(source, factor):
+            if factor != int(factor) or factor < 1:
+                raise ValueError("Stride must be a positive integer")
+            kernel_size, stride = 2, int(factor)
+            output_length = (len(source) - kernel_size) // stride + 1
+            return [i * stride + (kernel_size - 1) / 2 for i in range(output_length)]  # window centers
+
+        characterization = characterize_step_factor_scaling_method(strided_convolution)
+        assert characterization.rounding == "indeterminate"
+        assert characterization.pixel_sizing == "exact_factor"
+        assert characterization.warnings  # It says itself that `translating` is not to be trusted
+
+        for to_kwargs in (characterization.to_factor_kwargs, characterization.to_shape_kwargs):
+            with pytest.raises(ValueError, match="Please open an issue on GitHub") as error:
+                to_kwargs()
+            assert "construct the `Scale`s of a `Multiscale` directly" in str(error.value)
+
+        base = _as_xy(Scale(shape=Shape(x=1001), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
+        real_output = strided_convolution([float(i) for i in range(1001)], 2)
+        assert real_output[0] == 0.5  # The reason not to trust the characterization:
+        unscaled_target = _as_xy(Scale(shape=Shape(x=len(real_output)), pixel_size=PixelSize(x=2.0)))
+        assert characterization.translating(base, unscaled_target) == _as_xy(Translation(x=0.0))
+
+        # What the message says to do instead, and what the docs show:
+        by_hand = _as_xy(
+            Scale(
+                shape=Shape(x=len(real_output)),
+                pixel_size=PixelSize(x=2.0),
+                translation=Translation(x=(2 - 1) / 2),
+            )
+        )
+        multiscale = Multiscale({"s0": base, "s1": by_hand})
+        assert multiscale["s1"].shape == _as_xy(Shape(x=500))
+        assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=real_output[1] - real_output[0]))
+        assert multiscale["s1"].translation == _as_xy(Translation(x=real_output[0]))
+
+
+class TestMethodsThatOnlyAcceptIntegerFactors:
+    """Such methods work in discrete bins, so `discrete_bin_center` is preferred over its numerical twin.
+    How well the shift fits is reported like for any other method: As an error, and as a warning if it is large.
+    """
+
+    @staticmethod
+    def _require_integer(factor):
+        if factor != int(factor) or factor < 1:
+            raise ValueError("Factor must be a positive integer")
+        return int(factor)
+
+    @pytest.mark.parametrize("kernel_size", [3, 5])
+    def test_a_shift_that_no_builtin_describes_is_a_warning(self, kernel_size):
+        """The shift of a strided convolution (window centers) depends on its kernel. This used to be an assertion."""
+
+        def strided_convolution(source, factor):
+            stride = self._require_integer(factor)
+            return [i * stride + (kernel_size - 1) / 2 for i in range((len(source) - kernel_size) // stride + 1)]
+
+        characterization = characterize_step_factor_scaling_method(strided_convolution)
+
+        assert characterization.translating is discrete_bin_center
+        assert characterization.translating_error == pytest.approx(0.5)
+        (warning,) = [w for w in characterization.warnings if "translation" in w]
+        assert "'discrete_bin_center'" in warning  # It names what is reported, not what was matched before renaming
+        assert "pass your own as `translating`" in warning
+
+    def test_a_half_pixel_shift_with_a_fractional_spacing_is_not_renamed(self):
+        """For a spacing that is not a whole number, `discrete_bin_center` is not the same shift. This used to be an
+        assertion error, because the error of an exact fit is not exactly 0.0."""
+
+        def method(source, factor):
+            spacing = self._require_integer(factor) ** 1.2
+            return [i * spacing + 0.5 * (spacing - 1) for i in range(math.ceil(len(source) / spacing))]
+
+        characterization = characterize_step_factor_scaling_method(method)
+
+        assert characterization.translating is half_pixel_space_preservation
+        assert characterization.translating_error < 1e-9
+        assert not characterization.warnings
+
+
+class TestKwargsRefuseQuestionableCharacterizations:
+    """`to_*_kwargs` are the quick way to find out whether a characterization was fine. If they raise, it was not."""
+
+    @staticmethod
+    def _strided_convolution(kernel_size):
+        def convolution(source, factor):
+            if factor != int(factor) or factor < 1:
+                raise ValueError("Stride must be a positive integer")
+            stride = int(factor)
+            return [i * stride + (kernel_size - 1) / 2 for i in range((len(source) - kernel_size) // stride + 1)]
+
+        return convolution
+
+    def test_a_shift_that_no_builtin_describes_makes_to_shape_kwargs_raise(self):
+        def shifted_resize(source, shape):
+            spacing = len(source) / shape
+            return [i * spacing + 0.3 * spacing + 0.17 for i in range(shape)]
+
+        characterization = characterize_shape_scaling_method(shifted_resize)
+        assert characterization.warnings
+
+        with pytest.raises(ValueError, match="questionable") as error:
+            characterization.to_shape_kwargs()
+        assert characterization.warnings[0] in str(error.value)
+        assert (
+            characterization.translating_error > 0.1
+        )  # The values themselves can still be read, to decide for oneself
+
+    def test_a_convolution_makes_to_factor_kwargs_raise(self):
+        characterization = characterize_step_factor_scaling_method(self._strided_convolution(kernel_size=3))
+        assert characterization.rounding == "round"  # Nothing that has a more specific error
+        assert characterization.warnings
+
+        with pytest.raises(ValueError, match="questionable") as error:
+            characterization.to_factor_kwargs()
+        assert characterization.warnings[0] in str(error.value)
+
+    def test_specific_errors_come_before_the_general_one(self):
+        """Kernel size 5 is indeterminate in rounding as well, and its error says what to do about that."""
+        characterization = characterize_step_factor_scaling_method(self._strided_convolution(kernel_size=5))
+        assert characterization.rounding == "indeterminate"
+        assert characterization.warnings
+
+        for to_kwargs in (characterization.to_factor_kwargs, characterization.to_shape_kwargs):
+            with pytest.raises(ValueError, match="could not determine rounding behavior"):
+                to_kwargs()
+
+    def test_without_warnings_the_kwargs_can_be_used(self):
+        characterization = characterize_shape_scaling_method(
+            lambda source, shape: _linear_values(start=0.0, spacing=len(source) / shape, length=shape)
+        )
+        assert not characterization.warnings
+
+        assert characterization.to_shape_kwargs() == {
+            "pixel_sizing": characterization.pixel_sizing,
+            "translating": characterization.translating,
+        }
+
+    @pytest.mark.parametrize("to_kwargs_name", ["to_shape_kwargs", "to_factor_kwargs"])
+    def test_the_message_has_every_warning_and_says_how_to_go_on(self, to_kwargs_name):
+        characterization = ScalingMethodCharacterization(
+            translating=half_pixel_space_preservation,
+            translating_error=0.0,
+            pixel_sizing="shape_ratio",
+            pixel_sizing_error=0.0,
+            rounding="ceil",
+            warnings=("First concern.", "Second concern."),
+        )
+
+        with pytest.raises(ValueError) as error:
+            getattr(characterization, to_kwargs_name)()
+
+        message = str(error.value)
+        assert "First concern. Second concern." in message
+        assert "Debugging a characterization" in message
+        assert "`pixel_sizing`, `translating` and `rounding`" in message

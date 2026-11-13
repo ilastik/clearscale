@@ -3,7 +3,7 @@ from typing import cast, Literal, Dict, TypedDict
 import pytest
 
 from clearscale import BlueprintFactors, BlueprintShapes, DuplicatePolicy, Factor, PixelSize, Shape
-from clearscale._axis_values import RoundingMethod
+from clearscale.types import RoundingMethod
 
 
 class TestFactorsToShapes:

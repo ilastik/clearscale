@@ -14,7 +14,6 @@ Clone the repo, `pip install -e .[dev]`, and start coding.
 Planned future development ("deferred" features):
 * Transforms
     * Remaining SpatialRelation subclasses for currently unrepresented Transforms (Coordinates, Displacements, Bijection, ByDimension)
-    * Transform -> SpatialRelation conversion
     * Composition, decomposition, matrix algebra with Linear/Affine (the algebra already exists in `matrices.py`, just needs to be extracted and used for Affine)
 * Other currently missing operator methods to complete axis-wise algebra (with semantically unambiguous operations)
 * Building metadata for entire zarr group hierarchies (-> HCS plates, bioformats2raw, OME-Zarr RFC-8 collections).

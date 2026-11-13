@@ -28,7 +28,9 @@ Json: TypeAlias = Union[str, int, float, bool, Mapping[str, "Json"], Sequence["J
 
 class _Ordered(Protocol[AxisKeyT_co]):
     """Defined order (unlike Iterable, Collection), but not necessarily indexable (unlike Sequence).
-    To match e.g. strings, but also odict_keys and of course _AxisMapping"""
+
+    To match e.g. strings, but also odict_keys and of course _AxisMapping.
+    """
 
     def __iter__(self) -> Iterator[AxisKeyT_co]: ...
     def __len__(self) -> int: ...
@@ -37,24 +39,38 @@ class _Ordered(Protocol[AxisKeyT_co]):
 OrderedAxes = _Ordered[AxisKey]
 ShapeLike = Union["Shape[AxisKeyT]", Mapping[AxisKeyT, int]]
 FactorLike = Union["Factor[AxisKeyT]", Mapping[AxisKeyT, float]]
-TranslationShiftFunction = Callable[["Scale", "Scale"], "Translation"]
+RoundingMethod: TypeAlias = Union[
+    Literal["ceil", "floor", "round", "round_half_up", "error_on_round"], Callable[[float], int]
+]
+"""What the `rounding` parameter accepts: a built-in rule or a function.
+
+- `"ceil"`: Round toward positive infinity.
+- `"floor"`: Round toward negative infinity.
+- `"round"`: Round to the nearest integer, with ties going to the even integer (Python's `round`).
+- `"round_half_up"`: Round to the nearest integer, with ties going to the larger integer (positive infinity).
+- `"error_on_round"`: Require an integer-valued input; raise `ValueError` if rounding would be needed.
+- Callable: A function that accepts the unrounded `float` value for one axis and returns an `int`.
 """
-base_scale: the reference scale being transformed from
-target_scale: the new scale being created (with 0 translation)
-Returns: target_scale's translation
+TranslationShiftFunction = Callable[["Scale", "Scale"], "Translation"]
+"""- base_scale: The reference scale being transformed from.
+- target_scale: The new scale being created (with 0 translation).
+- Returns: `target_scale`'s translation.
 """
 TranslatingMethodName = Literal["half_pixel_space_preservation", "discrete_bin_center", "first_value_decimation"]
 """Names of the built-in `TranslationShiftFunction`s (they are the functions' own names)."""
 TranslatingMethod = Union[TranslatingMethodName, TranslationShiftFunction]
 """What the `translating` parameter accepts: the name of a built-in function, or a function."""
 PixelSizingMethod = Literal["shape_ratio", "corner_ratio", "exact_factor"]
-"""
-How the scaling method used spaces output pixels.
+"""How the scaling method used spaces output pixels.
+
 Options for both BlueprintShapes and BlueprintFactors:
-* shape_ratio: output_spacing = input_spacing * input_shape / output_shape
-* corner_ratio: output_spacing = input_spacing * (input_shape - 1) / (output_shape - 1)
+
+- shape_ratio: output_spacing = input_spacing * input_shape / output_shape
+- corner_ratio: output_spacing = input_spacing * (input_shape - 1) / (output_shape - 1)
+
 Option only for BlueprintFactors:
-* exact_factor: output_spacing = input_spacing * factor
+
+- exact_factor: output_spacing = input_spacing * factor
 """
 
 
@@ -64,8 +80,10 @@ class HasShape(Protocol):
 
 
 class HasPixelGrid(Protocol):
-    """Anything that describes where an array's pixels lie in physical space, like a `Scale`:
-    Physical coordinate of pixel index `i` is `i * pixel_size + translation`."""
+    """Anything that describes where an array's pixels lie in physical space, like a [Scale][clearscale.Scale].
+
+    Physical coordinate of pixel index `i` is `i * pixel_size + translation`.
+    """
 
     @property
     def pixel_size(self) -> "PixelSize": ...
@@ -81,14 +99,15 @@ class ShapeSourceMap(Protocol):
 
 
 ShapeSource = Union[Literal["singletons"], Callable[[str], ShapeValue], ShapeSourceMap, Mapping[str, ShapeValue]]
-"""
-Lets clearscale know how to obtain a zarr's array shape in this Python environment.
+"""Lets clearscale know how to obtain a zarr's array shape in this Python environment.
+
 Options:
-- "singletons": Skip obtaining shapes and use placeholder all-singleton shapes (like `Shape(x=1, y=1, z=1)`)
+
+- "singletons": Skip obtaining shapes and use placeholder all-singleton shapes (like `Shape(x=1, y=1, z=1)`).
     This sets `Multiscale.has_shapes = False` as a convenience indicator.
-- Callable: A function that takes a relative path that *should* point to an array, and retrieves its shape tuple
+- Callable: A function that takes a relative path that *should* point to an array, and retrieves its shape tuple.
     Example: zarr.open_array
-- Map: A dict-like that can be indexed to retrieve shapes like `{ <relative path> : <shape tuple or array> }`
+- Map: A dict-like that can be indexed to retrieve shapes like `{ <relative path> : <shape tuple or array> }`.
     Example: zarr.Group or fsspec.FSMap
 """
 
@@ -109,6 +128,7 @@ __all__ = [
     "OrderedAxes",
     "ShapeLike",
     "FactorLike",
+    "RoundingMethod",
     "TranslationShiftFunction",
     "TranslatingMethodName",
     "TranslatingMethod",

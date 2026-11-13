@@ -9,23 +9,24 @@ if TYPE_CHECKING:
 
 
 def half_pixel_space_preservation(base: "Scale", target: "Scale") -> "Translation":
-    """
-    The translation shift is the first scaled pixel's coordinate within the original (unscaled) space.
+    """The translation shift is the first scaled pixel's coordinate within the original (unscaled) space.
 
     Space-preserving half-pixel shift is the appropriate shift for downsampling methods that
     preserve the full extent of the data space under the pixel-center (a.k.a. cell-center) convention,
     with uniformly spaced sampling or interpolation of the scaled points.
 
     1D Example:
-    Example intensities = [12, 11, 9, 95, 95]
-    Pixel size = 0.6
-    Data coordinates = [0.0, 0.6, 1.2, 1.8, 2.4]
-    Full data space under pixel-center convention (+- half-pixel): -0.3 to 2.7 (total extent 5 * 0.6 = 3.0)
+
+    - Example intensities = [12, 11, 9, 95, 95]
+    - Pixel size = 0.6
+    - Data coordinates = [0.0, 0.6, 1.2, 1.8, 2.4]
+    - Full data space under pixel-center convention (+- half-pixel): -0.3 to 2.7 (total extent 5 * 0.6 = 3.0)
 
     When resampling 2 uniformly spaced points:
-    New pixel size (preserving the full data space of 3.0): 3.0 / 2 = 1.5
-    First scaled pixel data space range: -0.3 to (-0.3 + 1.5) = 1.2
-    First scaled pixel coordinate (center of its space range): -0.3 + (1.5 / 2) = 0.45
+
+    - New pixel size (preserving the full data space of 3.0): 3.0 / 2 = 1.5
+    - First scaled pixel data space range: -0.3 to (-0.3 + 1.5) = 1.2
+    - First scaled pixel coordinate (center of its space range): -0.3 + (1.5 / 2) = 0.45
 
     The general, simple formula is `(new_pixel_size - base_pixel_size) / 2`.
     In this example: (1.5 - 0.6) / 2 = 0.9 / 2 = 0.45
@@ -39,24 +40,34 @@ def half_pixel_space_preservation(base: "Scale", target: "Scale") -> "Translatio
     return Translation(shift_items)
 
 
-def discrete_bin_center(base: "Scale", target: "Scale") -> "Translation":
+def _ceil_ignoring_float_error(value: float) -> int:
+    """`math.ceil`, except that a value within float error of an integer is that integer.
+
+    A ratio of pixel sizes like `(0.8 * 3) / 0.8` is `3.0000000000000004`, which `math.ceil` would round up to 4.
     """
-    The translation shift is the first scaled pixel's coordinate within the original (unscaled) space.
+    nearest = round(value)
+    return nearest if math.isclose(value, nearest, rel_tol=1e-9) else math.ceil(value)
+
+
+def discrete_bin_center(base: "Scale", target: "Scale") -> "Translation":
+    """The translation shift is the first scaled pixel's coordinate within the original (unscaled) space.
 
     Discrete bin center is the appropriate shift for downsampling methods that pool an integer number of
     raw pixels into a bin and compute their values into a new pixel that represents the center of the bin.
     Most commonly, averaging the bin, or for uneven bin sizes, keeping only the center value.
 
     1D Example:
-    Example intensities = [12, 11, 9, 95, 95]
-    Pixel size = 0.6
-    Data coordinates = [0.0, 0.6, 1.2, 1.8, 2.4]
-    Full data space under pixel-center convention (+- half-pixel): -0.3 to 2.7 (total extent 5 * 0.6 = 3.0)
+
+    - Example intensities = [12, 11, 9, 95, 95]
+    - Pixel size = 0.6
+    - Data coordinates = [0.0, 0.6, 1.2, 1.8, 2.4]
+    - Full data space under pixel-center convention (+- half-pixel): -0.3 to 2.7 (total extent 5 * 0.6 = 3.0)
 
     When binning with bin size 3:
-    New pixel size: 3 * 0.6 = 1.8
-    First bin: [12, 11, 9] at coordinates [0.0, 0.6, 1.2] representing space from -0.3 to 1.5
-    Averaging the bin means that the new value represents the data in the center, so first pixel coordinate: 0.6
+
+    - New pixel size: 3 * 0.6 = 1.8
+    - First bin: [12, 11, 9] at coordinates [0.0, 0.6, 1.2] representing space from -0.3 to 1.5
+    - Averaging the bin means that the new value represents the data in the center, so first pixel coordinate: 0.6
 
     The general formula for the first bin center from the data space origin would be:
     `data_space_origin + raw_pixel_size * bin_pixels / 2`
@@ -70,14 +81,13 @@ def discrete_bin_center(base: "Scale", target: "Scale") -> "Translation":
     for axis, target_pixel_size in target.pixel_size.items():
         base_pixel_size = base.pixel_size[axis]
         implicit_bin_size = target_pixel_size / base_pixel_size
-        source_pixels_in_first_bin = max(math.ceil(implicit_bin_size), 1)
+        source_pixels_in_first_bin = max(_ceil_ignoring_float_error(implicit_bin_size), 1)
         shift_items.append((axis, 0.5 * (source_pixels_in_first_bin - 1) * base_pixel_size))
     return Translation(shift_items)
 
 
 def first_value_decimation(base: "Scale", target: "Scale") -> "Translation":
-    """
-    The translation shift is the first scaled pixel's coordinate within the original (unscaled) space.
+    """The translation shift is the first scaled pixel's coordinate within the original (unscaled) space.
 
     First-value decimation is the appropriate shift for downsampling methods that decimate the raw pixels
     by only keeping every n-th value. A simple example is `decimated = 1d_raw_data[::2]`.

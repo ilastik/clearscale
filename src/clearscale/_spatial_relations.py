@@ -17,8 +17,10 @@ class SpatialRelation(ABC):
     def _axis_links(self, source_axes: OrderedAxes) -> AxisLinks:
         """Raise if self is not compatible with `source_axes`, and return for each `self.target_axes` the links to
         the `source_axes` it depends on / descends from.
+
         Allows axis properties (type, unit, ...) to follow the axes they belong to through renamings, rearrangements
-        and scalings."""
+        and scalings.
+        """
 
     def _bidirectional_axis_links(self, source_axes: OrderedAxes) -> AxisLinks:
         """Raise if self is not compatible with `source_axes`, and return for each of them the links to the
@@ -27,18 +29,20 @@ class SpatialRelation(ABC):
 
         The links are bidirectional: Each target may mix several sources, and each source may be mixed into several
         targets, so a source is linked to every target in its connected component of the relation's links.
-        See `AxisLinks.reversed`."""
+        See `AxisLinks.reversed`.
+        """
         return self._axis_links(source_axes).reversed()
 
 
 @dataclass(frozen=True, slots=True)
 class SameSpace(SpatialRelation):
-    """The identity relation: The target is the same space as the source. Every coordinate maps to itself, and the
-    axes stay as they are.
+    """The identity relation: The target is the same space as the source.
 
+    Every coordinate maps to itself, and the axes stay as they are.
     Use it where a relation is expected and the two spaces only differ by name, e.g.
     `ms.with_coordinate_system("same", reached_by=SameSpace())`.
-    It works with any source axes. All `SameSpace` instances are equal."""
+    It works with any source axes. All `SameSpace` instances are equal.
+    """
 
     def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
         return tuple(source_axes)
@@ -170,7 +174,8 @@ class AxisRenaming(SpatialRelation):
 
     Axes that aren't mentioned keep their names. All renames apply simultaneously, so
     `AxisRenaming(y="x", x="y")` swaps the names (it does not move any data, unlike `PermutationTo`).
-    Applying it to axes that don't exist, or producing duplicate axis names, raises."""
+    Applying it to axes that don't exist, or producing duplicate axis names, raises.
+    """
 
     _renames: Tuple[Tuple[AxisKey, AxisKey], ...]
 
@@ -185,7 +190,7 @@ class AxisRenaming(SpatialRelation):
 
     @property
     def mapping(self) -> Dict[AxisKey, AxisKey]:
-        """{old_name: new_name} (a copy)"""
+        """`{old_name: new_name}` (a copy)."""
         return dict(self._renames)
 
     def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
@@ -233,10 +238,11 @@ class SpatialRelationSequence(SpatialRelation, Sequence[SpatialRelation]):
         return axes
 
     def _axis_links(self, source_axes: OrderedAxes) -> AxisLinks:
-        """
-        Traces links step-by-step. As a consequence, it cannot detect when inverse dependencies across steps
-        cancel out. This is a (probably mostly theoretical) chains-of-Affine edge case, see
-        test_affine_chain_dependencies_are_an_upper_bound_when_the_steps_cancel_out
+        """Trace links step-by-step.
+
+        As a consequence, it cannot detect when inverse dependencies across steps cancel out.
+        This is a (probably mostly theoretical) chains-of-Affine edge case, see
+        test_affine_chain_dependencies_are_an_upper_bound_when_the_steps_cancel_out.
         """
         links = AxisLinks.identity(source_axes)
         for relation in self.relations:
@@ -244,8 +250,9 @@ class SpatialRelationSequence(SpatialRelation, Sequence[SpatialRelation]):
         return links
 
     def _bidirectional_axis_links(self, source_axes: OrderedAxes) -> AxisLinks:
-        """Folds the bidirectional links of the steps from last to first, rather than reversing the links of the whole
-        chain, which are traced forward step by step and hence cannot see coupling that a later step discards."""
+        """Fold the bidirectional links of the steps from last to first, rather than reversing the links of the whole
+        chain, which are traced forward step by step and hence cannot see coupling that a later step discards.
+        """
         axes = [tuple(source_axes)]
         for relation in self.relations:
             axes.append(relation.target_axes(axes[-1]))
@@ -272,14 +279,16 @@ class SpatialRelationSequence(SpatialRelation, Sequence[SpatialRelation]):
 
 RelationsParam = Union[SpatialRelation, Sequence[SpatialRelation]]
 """What public APIs accept to describe a relation: One SpatialRelation, or a chain of them (applied first to last).
-An empty chain is the same as `SameSpace()`."""
+
+An empty chain is the same as `SameSpace()`.
+"""
 
 
 def normalize_relations_param(relations: RelationsParam) -> SpatialRelation:
-    """
-    Normalize the ergonomic `Union[SpatialRelation, Sequence[SpatialRelation]]` accepted by
+    """Normalize the ergonomic `Union[SpatialRelation, Sequence[SpatialRelation]]` accepted by
     public APIs (`Multiscale.with_coordinate_system`, `Multiscale.as_derived_from`, ...) into a single
     SpatialRelation (a `SpatialRelationSequence` for more than one hop).
+
     An empty sequence results in `SameSpace()`.
     """
     if isinstance(relations, SpatialRelation):
