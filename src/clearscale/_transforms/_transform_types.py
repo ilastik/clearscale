@@ -1237,21 +1237,27 @@ class BijectionTransform(Transform):
     def composed_with(self, earlier: "Transform") -> Optional["Transform"]:
         if not self._endpoints_can_chain_after(earlier):
             return None
+        if not earlier.is_invertible:
+            return None
 
+        # Child endpoints may be omitted: only the outer operands carry the full composition context.
+        forward_self = self.forward.unbound()
+        inverse_self = self.inverse.unbound()
         if isinstance(earlier, BijectionTransform):
-            forward = self.forward.composed_with(earlier.forward)
+            forward = forward_self.composed_with(earlier.forward.unbound())
             if forward is None:
                 return None
 
-            inverse = earlier.inverse.composed_with(self.inverse)
+            inverse = earlier.inverse.unbound().composed_with(inverse_self)
             if inverse is None:
                 return None
         else:
-            forward = self.forward.composed_with(earlier)
+            earlier_payload = earlier.unbound()
+            forward = forward_self.composed_with(earlier_payload)
             if forward is None:
                 return None
 
-            inverse = earlier.inverted().composed_with(self.inverse)
+            inverse = earlier_payload.inverted().composed_with(inverse_self)
             if inverse is None:
                 return None
 

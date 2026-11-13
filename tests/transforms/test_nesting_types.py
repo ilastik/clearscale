@@ -10,6 +10,7 @@ from clearscale._transforms import (
     IdentityTransform,
     ProjectAxisTransform,
     ScaleTransform,
+    AffineTransform,
     RotationTransform,
     CoordinatesTransform,
     Transform,
@@ -126,6 +127,92 @@ def test_bijection_composed_with_bijection():
     assert isinstance(composed, BijectionTransform)
     assert composed.forward == later.forward.composed_with(earlier.forward)
     assert composed.inverse == earlier.inverse.composed_with(later.inverse)
+
+
+@pytest.mark.parametrize("declaration", ["implicit", "explicit", "partial"])
+@pytest.mark.parametrize("predecessor", ["identity", "translation", "bijection"])
+def test_bijection_composition_uses_outer_endpoints(declaration, predecessor):
+    source, intermediate, target = (_sys_ref(name, "x") for name in ("A", "B", "C"))
+
+    def bijection(forward, inverse, source, target):
+        if declaration == "explicit":
+            forward = forward.bound(source=source, target=target)
+            inverse = inverse.bound(source=target, target=source)
+        elif declaration == "partial":
+            forward = forward.bound(source=source, target=None)
+            inverse = inverse.bound(source=target, target=None)
+        return BijectionTransform(forward=forward, inverse=inverse, source=source, target=target)
+
+    later = bijection(ScaleTransform((2.0,)), ScaleTransform((0.5,)), intermediate, target)
+    if predecessor == "bijection":
+        earlier = bijection(TranslationTransform((3.0,)), TranslationTransform((-3.0,)), source, intermediate)
+    elif predecessor == "translation":
+        earlier = TranslationTransform((3.0,), source=source, target=intermediate)
+    else:
+        earlier = IdentityTransform(source=source, target=intermediate)
+    composed = later.composed_with(earlier)
+    assert isinstance(composed, BijectionTransform)
+    assert composed.source is source
+    assert composed.target is target
+    assert composed.forward.source is composed.forward.target is None
+    assert composed.inverse.source is composed.inverse.target is None
+    if predecessor == "identity":
+        assert composed.forward == ScaleTransform((2.0,))
+        assert composed.inverse == ScaleTransform((0.5,))
+    else:
+        # 2 * (x + 3), with inverse x / 2 - 3: the order matters.
+        assert composed.forward == AffineTransform(((2.0, 6.0),))
+        assert composed.inverse == AffineTransform(((0.5, -3.0),))
+
+
+def test_bijection_composition_rejects_incompatible_outer_endpoints():
+    source, intermediate, target = (_sys_ref(name, "x") for name in ("A", "B", "C"))
+    later = BijectionTransform(
+        forward=ScaleTransform((2.0,)), inverse=ScaleTransform((0.5,)), source=intermediate, target=target
+    )
+    assert later.composed_with(IdentityTransform(source=source, target=target)) is None
+
+
+def test_bijection_composition_recursively_unbinds_child_sequences():
+    source, intermediate, inner, target = (_sys_ref(name, "x") for name in ("A", "B", "inner", "C"))
+    forward = TransformSequence(
+        (
+            ScaleTransform((2.0,), source=intermediate, target=inner),
+            TranslationTransform((3.0,), source=inner, target=target),
+        )
+    )
+    later = BijectionTransform(forward=forward, inverse=forward.inverted(), source=intermediate, target=target)
+    composed = later.composed_with(IdentityTransform(source=source, target=intermediate))
+    assert isinstance(composed, BijectionTransform)
+    assert composed.source is source
+    assert composed.target is target
+    assert isinstance(composed.forward, TransformSequence)
+    assert isinstance(composed.inverse, TransformSequence)
+    assert all(
+        child.source is child.target is None for child in (*composed.forward.transforms, *composed.inverse.transforms)
+    )
+    assert composed.forward.collapsed() == AffineTransform(((2.0, 3.0),))
+    assert composed.inverse.collapsed() == AffineTransform(((0.5, -1.5),))
+
+
+@pytest.mark.parametrize("earlier", [ScaleTransform((0.0,)), ProjectAxisTransform(drops=(0,), inserts=(0,))])
+def test_bijection_after_noninvertible_transform_remains_sequence(earlier):
+    later = BijectionTransform(forward=ScaleTransform((2.0,)), inverse=ScaleTransform((0.5,)))
+    assert later.composed_with(earlier) is None
+    sequence = TransformSequence((earlier, later))
+    assert sequence.collapsed() == sequence
+
+
+@pytest.mark.parametrize(
+    "forward,inverse",
+    [
+        (CoordinatesTransform(path="forward"), ScaleTransform((0.5,))),
+        (ScaleTransform((2.0,)), CoordinatesTransform(path="inverse")),
+    ],
+)
+def test_bijection_composition_declines_if_either_child_cannot_compose(forward, inverse):
+    later = BijectionTransform(forward=forward, inverse=inverse)
+    assert later.composed_with(ScaleTransform((3.0,))) is None
 
 
 def test_bijection_composition_commutes_with_inversion():

@@ -3,6 +3,7 @@ import pytest
 from clearscale._axis_values import Shape
 from clearscale._multiscale import Multiscale, Scale
 from clearscale._spatial_relations import ProjectionTo, SameSpace
+from clearscale import Affine
 from clearscale._transforms import (
     CoordinateSystem,
     IdentityTransform,
@@ -14,6 +15,37 @@ from clearscale._transforms import (
 
 def _multiscale(axes="zyx", size=4):
     return Multiscale({"s0": Scale(shape=Shape(zip(axes, [size] * len(axes))))})
+
+
+def test_as_derived_from_preserves_inline_bijection_relation_and_roundtrip():
+    axes = [{"name": "y", "type": "space"}, {"name": "x", "type": "space"}]
+    original = Multiscale.from_ome_zarr(
+        {
+            "version": "0.6",
+            "coordinateSystems": [{"name": "physical", "axes": axes}, {"name": "world", "axes": axes}],
+            "datasets": [
+                {
+                    "path": "s0",
+                    "coordinateTransformations": [{"type": "scale", "scale": [1, 1], "output": {"name": "physical"}}],
+                }
+            ],
+            "coordinateTransformations": [
+                {
+                    "type": "bijection",
+                    "input": {"name": "physical"},
+                    "output": {"name": "world"},
+                    "forward": {"type": "scale", "scale": [2, 4]},
+                    "inverse": {"type": "scale", "scale": [0.5, 0.25]},
+                }
+            ],
+        },
+        shape_source=lambda _: (4, 4),
+    )
+    result = _multiscale("yx").as_derived_from(original)
+    assert result.relation_to_coordinate_system("world") == Affine.from_factor({"y": 2, "x": 4})
+    assert result.relation_from_coordinate_system("world") == Affine.from_factor({"y": 0.5, "x": 0.25})
+    written = result.to_ome_zarr(version="0.6")
+    assert Multiscale.from_ome_zarr(written, shape_source=lambda _: (4, 4)) == result
 
 
 def _with_edge(ms, name, target_axes, *, direction="forward", via=None):
