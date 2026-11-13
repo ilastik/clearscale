@@ -31,6 +31,7 @@ from clearscale._transforms import (
     AnyRef,
     Transform,
     TransformGraph,
+    require_inline_transform_payloads,
 )
 from clearscale._transforms._base import _is_owner_coordinate_system, TransformGraphNode
 
@@ -346,7 +347,12 @@ class Scene:
 
     @classmethod
     def from_ome_zarr(cls, scene_attrs: Mapping[str, Any]) -> "Scene":
+        """Read a Scene, raising ValueError if a transform requires unsupported external payload data.
+
+        Paths identifying transform endpoints are supported; paths identifying transform payloads are not (yet).
+        """
         transform_dicts = scene_attrs.get("coordinateTransformations", [])
+        require_inline_transform_payloads(transform_dicts)
         system_dicts = scene_attrs.get("coordinateSystems", [])
         graph = TransformGraph.from_ome_zarr(transform_dicts, system_dicts)
         return cls(graph, _multiscale_paths={})

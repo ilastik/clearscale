@@ -47,7 +47,7 @@ class GroupKind(str, Enum):
     COLLECTION = "collection"
     """Generic OME-Zarr container. Contains some combination of the other kinds (some mix of multiscales, scenes and/or children)."""
     INVALID = "invalid"
-    """The group's metadata defines multiscales and/or a scene, but all of them are invalid (see `OmeZarrGroup.invalid_objects`
+    """The group's metadata defines multiscales and/or a scene, but all of them are invalid or unsupported (see `OmeZarrGroup.invalid_objects`
     for the reasons), and there is nothing else (valid) in it.
     Different from `kind=None`: None means there is no OME-Zarr metadata in the group at all."""
 
@@ -128,7 +128,8 @@ class OmeZarrGroup:
     """Contains potentially present subgroups implied by the OME-Zarr standard. "OME" for BF2RAW or 
     "labels" for groups with .multiscales."""
     invalid_objects: Tuple[InvalidObject, ...] = ()
-    """Multiscales and scenes found in the metadata that violate OME-Zarr requirements, and the reasons.
+    """Multiscales and scenes found in the metadata that are invalid or unsupported, and the reasons.
+    Valid OME-Zarr objects requiring external transform payload data are currently unsupported.
     Can be non-empty for any `kind`. Invalid objects are not part of `multiscales` or `scenes`, and are not written
     by `to_attrs`."""
 
@@ -177,6 +178,7 @@ class OmeZarrGroup:
     def from_attrs(cls, attrs: Mapping[str, Any], *, shape_source: ShapeSource):
         """Parse the provided metadata to obtain any Multiscale and Scene definitions it contains.
         If it contains plate, well or labels metadata, collect the contained paths to multiscales.
+        Invalid or unsupported objects are preserved in `invalid_objects`, including their original metadata.
         """
         ome_attrs = attrs.get("ome") or attrs
 

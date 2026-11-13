@@ -44,10 +44,16 @@ Partial support:
 
 |                       | Read existing | Create new | Write | Note                                                      |
 |-----------------------|---------------|------------|-------|-----------------------------------------------------------|
-| Non-linear transforms | (✅)           | ❌          | (✅)   | Preserved on round-trip; access via internal classes only |
 | labels groups         | ✅             | (✅)        | (✅)   | Creation/writing possible but not optimized or tested     |
 | HCS plates            | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only             |
 | bioformats2raw        | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only             |
+
+Not supported:
+
+Non-linear transforms (coordinates, displacements, bijection, byDimension).
+They are technically implemented internally (and available to power users), but the public API does not support them yet.
+Hence, any Multiscale or Scene containing them is rejected.
+Please get in touch if you can share how you want to use them.
 
 ## Micro-intro: zarr attrs
 

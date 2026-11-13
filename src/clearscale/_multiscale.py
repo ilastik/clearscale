@@ -68,6 +68,7 @@ from clearscale._transforms import (
     OmeZarrAxis,
     relation_to_transform_canonic,
     transform_to_relation,
+    require_inline_transform_payloads,
 )
 from clearscale._services import ome_zarr, precomputed
 from clearscale._services.axis_properties_across_relations import (
@@ -1705,7 +1706,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         *,
         shape_source: ShapeSource,
     ):
+        """Read a Multiscale, rejecting global transforms that require external payload data.
+
+        Raises ValueError for unsupported external transform data, even if other metadata could be recovered.
+        Dataset transforms retain their permissive parsing behavior.
+        """
         ome_zarr.require_dataset_paths(multiscale_dict)
+        require_inline_transform_payloads(multiscale_dict.get("coordinateTransformations"))
         get_shape = ome_zarr.normalize_shape_source_to_callable(shape_source, multiscale_dict)
         global_meta = global_t_scale = None
         try:
