@@ -11,6 +11,7 @@ from clearscale import (
     BlueprintShapes,
     BlueprintFactors,
     Factor,
+    Multiscale,
 )
 from clearscale.characterization import (
     characterize_shape_scaling_method,
@@ -39,6 +40,14 @@ def _scale(pixel_size_items):
 
 def _linear_values(*, start: float, spacing: float, length: int) -> List[float]:
     return [start + spacing * index for index in range(length)]
+
+
+def _erratic_rounding_scaling_function(source, factor):
+    """A shape-factor method whose rounding depends on the input length: No single rounding rule fits it."""
+    n = len(source)
+    target_length = math.ceil(n * factor) if n % 2 == 0 else math.floor(n * factor)
+    spacing = 1.0 / factor
+    return _linear_values(start=0.0, spacing=spacing, length=target_length)
 
 
 class TestCharacterizeShapeScaler:
@@ -271,13 +280,7 @@ class TestCharacterizeShapeFactorScaler:
         assert characterization.pixel_sizing_error < 1e-9
 
     def test_detects_inconsistent_rounding_behaviour(self):
-        def erratic_scaling_function(source, factor):
-            n = len(source)
-            target_length = math.ceil(n * factor) if n % 2 == 0 else math.floor(n * factor)
-            spacing = 1.0 / factor
-            return _linear_values(start=0.0, spacing=spacing, length=target_length)
-
-        characterization = characterize_shape_factor_scaling_method(erratic_scaling_function)
+        characterization = characterize_shape_factor_scaling_method(_erratic_rounding_scaling_function)
 
         assert characterization.rounding == "indeterminate"
         assert characterization.pixel_sizing == "exact_factor"
@@ -537,7 +540,8 @@ class TestCharacterizationKwargsApply:
 
     def test_pipeline_indeterminate_rounding_redirects_to_blueprint_shapes(self):
         """Not a real characterization. The implementation detail of the scaling method that would cause "indeterminate" is not important here.
-        What matters is that `to_factor_kwargs` raises, and `to_shapes_kwargs` works, as the error messages promise."""
+        What matters is that `to_factor_kwargs` raises, and `to_shapes_kwargs` works, as the error messages promise.
+        This only holds for pixel_sizing other than "exact_factor", which BlueprintShapes cannot compute (see below)."""
         characterization = ScalingMethodCharacterization(
             translating=discrete_bin_center,
             translating_error=0.0,
@@ -560,3 +564,103 @@ class TestCharacterizationKwargsApply:
         assert multiscale["s1"].shape == actually_produced_shape
         assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=101 / 37))
         assert multiscale["s1"].translation == _as_xy(Translation(x=1.0))
+
+    def test_to_shape_kwargs_rejects_exact_factor_and_points_to_blueprint_factors(self):
+        """Binning: exact_factor + ceil + discrete_bin_center. Shapes cannot express the exact factor."""
+
+        def binning(source, factor):
+            if factor != int(factor) or factor < 1:
+                raise ValueError("Bin size must be a positive integer")
+            step = int(factor)
+            bins = [source[i : i + step] for i in range(0, len(source), step)]
+            return [sum(bin_) / len(bin_) for bin_ in bins]
+
+        characterization = characterize_step_factor_scaling_method(binning)
+        assert characterization.rounding == "ceil"
+        assert characterization.pixel_sizing == "exact_factor"
+        assert characterization.translating is discrete_bin_center
+
+        with pytest.raises(ValueError, match='pixel_sizing="exact_factor"') as error:
+            characterization.to_shape_kwargs()
+        assert "`BlueprintShapes` cannot compute" in str(error.value)
+        assert "to_factor_kwargs" in str(error.value)
+
+        # What the message points to does work, and matches the real output, also for a length that does not divide:
+        base = _as_xy(Scale(shape=Shape(x=1001), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
+        real_output = binning([float(i) for i in range(1001)], 2)
+        blueprint = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=2.0)})
+        multiscale = blueprint.apply_to_scale(base, **characterization.to_factor_kwargs())
+
+        assert multiscale["s1"].shape == _as_xy(Shape(x=len(real_output)))
+        assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=real_output[1] - real_output[0]))  # exactly 2.0
+        assert multiscale["s1"].translation == _as_xy(Translation(x=real_output[0]))
+
+    def test_indeterminate_rounding_with_exact_factor_is_not_redirected_to_blueprint_shapes(self):
+        """Real characterization (not hand-built): no blueprint can describe it from the characterization alone."""
+        characterization = characterize_shape_factor_scaling_method(_erratic_rounding_scaling_function)
+        assert characterization.rounding == "indeterminate"
+        assert characterization.pixel_sizing == "exact_factor"
+
+        for to_kwargs in (characterization.to_factor_kwargs, characterization.to_shape_kwargs):
+            with pytest.raises(ValueError, match="could not determine rounding behavior") as error:
+                to_kwargs()
+            assert "recorded_shapes" not in str(error.value)  # Not the advice that cannot work here
+
+        # Why that advice cannot work:
+        base = _as_xy(Scale(shape=Shape(x=100), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
+        shapes = BlueprintShapes({"s0": base.shape, "s1": _as_xy(Shape(x=50))})
+        with pytest.raises(ValueError, match="only BlueprintFactors"):
+            shapes.apply_to_scale(
+                base, pixel_sizing=characterization.pixel_sizing, translating=characterization.translating
+            )
+
+        # What the message offers instead: your own rounding function, with BlueprintFactors.
+        factors = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=2.0)})
+        multiscale = factors.apply_to_scale(
+            base,
+            rounding=math.ceil,
+            pixel_sizing=characterization.pixel_sizing,
+            translating=characterization.translating,
+        )
+        assert multiscale["s1"].shape == _as_xy(Shape(x=50))
+        assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=2.0))
+
+    def test_convolution_with_indeterminate_rounding_is_described_by_building_scales_by_hand(self):
+        """Kernel size 2, stride = factor, no padding. Reaches the indeterminate + exact_factor case, where the
+        characterization's `translating` is wrong, and the error says to build the Scales yourself."""
+
+        def strided_convolution(source, factor):
+            if factor != int(factor) or factor < 1:
+                raise ValueError("Stride must be a positive integer")
+            kernel_size, stride = 2, int(factor)
+            output_length = (len(source) - kernel_size) // stride + 1
+            return [i * stride + (kernel_size - 1) / 2 for i in range(output_length)]  # window centers
+
+        characterization = characterize_step_factor_scaling_method(strided_convolution)
+        assert characterization.rounding == "indeterminate"
+        assert characterization.pixel_sizing == "exact_factor"
+        assert characterization.warnings  # It says itself that `translating` is not to be trusted
+
+        for to_kwargs in (characterization.to_factor_kwargs, characterization.to_shape_kwargs):
+            with pytest.raises(ValueError, match="Please open an issue on GitHub") as error:
+                to_kwargs()
+            assert "construct the `Scale`s of a `Multiscale` directly" in str(error.value)
+
+        base = _as_xy(Scale(shape=Shape(x=1001), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
+        real_output = strided_convolution([float(i) for i in range(1001)], 2)
+        assert real_output[0] == 0.5  # The reason not to trust the characterization:
+        unscaled_target = _as_xy(Scale(shape=Shape(x=len(real_output)), pixel_size=PixelSize(x=2.0)))
+        assert characterization.translating(base, unscaled_target) == _as_xy(Translation(x=0.0))
+
+        # What the message says to do instead, and what the docs show:
+        by_hand = _as_xy(
+            Scale(
+                shape=Shape(x=len(real_output)),
+                pixel_size=PixelSize(x=2.0),
+                translation=Translation(x=(2 - 1) / 2),
+            )
+        )
+        multiscale = Multiscale({"s0": base, "s1": by_hand})
+        assert multiscale["s1"].shape == _as_xy(Shape(x=500))
+        assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=real_output[1] - real_output[0]))
+        assert multiscale["s1"].translation == _as_xy(Translation(x=real_output[0]))

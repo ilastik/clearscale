@@ -193,6 +193,15 @@ You can pass `rounding=` either:
 * one of the keywords for common rounding methods: `"floor", "ceil", "round"` or `"round_half_up"` (`round_half_up` means `.5` rounds to the next *larger* integer; `round` means to the next *even* integer, i.e. Python's own `round()`)
 * a function (`Callable[[float], int]`) that accepts the theoretical fractional output array length along one axis (`float`) and rounds it as your own scaling method would, returning the rounded length (`int`)
 
+If your method does not round consistently, its characterization reports `rounding="indeterminate"`, and `to_factor_kwargs()` raises, because a `BlueprintFactors` would predict wrong output shapes.
+What to do instead depends on the `pixel_sizing` that was determined:
+
+* `shape_ratio` or `corner_ratio`: Record the shapes that your scaling actually produced, build a `BlueprintShapes` from them, and use `characterization.to_shape_kwargs()`.
+* `exact_factor`: Shapes cannot express this, because they do not contain the factor (`to_shape_kwargs()` raises too). If you can write your method's rounding as a function, pass it as `rounding` to a `BlueprintFactors`, as described above.
+
+Otherwise, you may have to construct the correct Scales manually (convolutional striding could be an example).
+Please open an issue on GitHub if you run into this, so that we can figure out how to support such scaling methods.
+
 ## Pixel size
 
 Different scaling methods implement various forms of how exactly they modify the spacing of pixel values in the output.

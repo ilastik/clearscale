@@ -66,16 +66,35 @@ class ScalingMethodCharacterization:
     For debugging how the method behaves."""
 
     def to_shape_kwargs(self) -> ShapeScalingKwargs:
-        """Return kwargs to `**`-splat into `BlueprintShapes.apply_to_scale(scale, **shape_kwargs)`."""
+        """Return kwargs to `**`-splat into `BlueprintShapes.apply_to_scale(scale, **shape_kwargs)`.
+
+        Raises:
+            ValueError: If `pixel_sizing` is "exact_factor". Only `BlueprintFactors` can compute that, because shapes
+                do not contain the factor. Use `to_factor_kwargs` instead.
+        """
+        if self.pixel_sizing == "exact_factor":
+            if self.rounding == "indeterminate":
+                raise self._exact_factor_with_indeterminate_rounding_error()
+            raise ValueError(
+                'The characterization found pixel_sizing="exact_factor", which `BlueprintShapes` cannot compute. '
+                "Use `BlueprintFactors.apply_to_scale(scale, **characterization.to_factor_kwargs())` instead."
+            )
         return ShapeScalingKwargs(pixel_sizing=self.pixel_sizing, translating=self.translating)
 
     def to_factor_kwargs(self) -> FactorScalingKwargs:
-        """Return kwargs to `**`-splat into `BlueprintFactors.apply_to_scale(scale, **factor_kwargs)`."""
+        """Return kwargs to `**`-splat into `BlueprintFactors.apply_to_scale(scale, **factor_kwargs)`.
+
+        Raises:
+            ValueError: If the characterization describes a shape-scaling method (use `to_shape_kwargs`), or if it
+                could not determine the `rounding` of a factor-scaling method. For that case, the error says what to do.
+        """
         if self.rounding == "indeterminate":
+            if self.pixel_sizing == "exact_factor":
+                raise self._exact_factor_with_indeterminate_rounding_error()
             raise ValueError(
                 "The characterization could not determine rounding behavior of the supplied scaling method. "
                 "This means `BlueprintFactors.apply_to_scale` will predict incorrect output shapes. "
-                "You should instead first run the actual scaling, and record the shapes it produced along the way. "
+                "You could instead first run the actual scaling, and record the shapes it produced along the way. "
                 "Construct `BlueprintShapes(zip(scale_keys, recorded_shapes))`, and use "
                 "`blueprint.apply_to_scale(scale, **characterization.to_shape_kwargs())`."
             )
@@ -85,6 +104,19 @@ class ScalingMethodCharacterization:
             pixel_sizing=self.pixel_sizing,
             translating=self.translating,
             rounding=self.rounding,
+        )
+
+    @staticmethod
+    def _exact_factor_with_indeterminate_rounding_error() -> ValueError:
+        """Neither blueprint can describe such a method from its characterization alone.
+        `BlueprintShapes` cannot compute exact_factor pixel sizes, and `BlueprintFactors` needs the rounding."""
+        return ValueError(
+            "The characterization could not determine rounding behavior of the supplied scaling method, "
+            'and its pixel_sizing is "exact_factor". '
+            "Only `BlueprintFactors` can compute pixel sizes in this case, "
+            "but without accurate rounding it will predict incorrect output shapes. "
+            "See the 'Rounding' section of the characterization docs. "
+            "Please open an issue on GitHub if you run into this."
         )
 
 
