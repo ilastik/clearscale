@@ -302,21 +302,13 @@ def _characterize_factor_scaling_method(
     all_successes = [(p, o) for p, o in (*discriminating_results.items(), *exact_results.items()) if o is not None]
     # exact_results can't distinguish pixel_sizing "shape_ratio" from "exact_factor" (without shape rounding, both produce the same number)
     pixel_sizing_tie_expected = rounding == "error_on_round"
-    characterization = _get_first_unambiguous_affine_characterization(
-        all_successes, factor_to_spacing, pixel_sizing_tie_expected
+    # If no probe with a fractional factor succeeded, the method only accepts integer scaling factors
+    uses_integer_factors_only = all(
+        isinstance(probe.factor, int) or probe.factor.is_integer() for probe, _o in all_successes
     )
-
-    if (
-        all(isinstance(probe.factor, int) or probe.factor.is_integer() for probe, _o in all_successes)
-        and characterization.translating is half_pixel_space_preservation
-    ):
-        # No probe with a fractional factor succeeded; the method only accepts integer scaling factors
-        assert (
-            characterization.translating_error == 0.0
-        ), "translating should be exact for scaling methods that only accept int step factors"
-        # half_pixel_space_preservation and discrete_bin_center are numerically *identical* in this case: 0.5 * (spacing - 1) == 0.5 * (ceil(spacing) - 1)
-        # But the more descriptive name is discrete_bin_center, because that's what the method is more likely to actually be doing if it only accepts int.
-        characterization = replace(characterization, translating=discrete_bin_center)
+    characterization = _get_first_unambiguous_affine_characterization(
+        all_successes, factor_to_spacing, pixel_sizing_tie_expected, uses_integer_factors_only
+    )
 
     return replace(
         characterization,
@@ -378,6 +370,7 @@ def _get_first_unambiguous_affine_characterization(
     successes: Sequence[Tuple[Probe, Sequence[float]]],
     factor_to_spacing: Callable[[float], float],
     pixel_sizing_tie_expected: bool,
+    uses_integer_factors_only: bool,
 ) -> ScalingMethodCharacterization:
     for probe, output in successes:
         try:
@@ -385,6 +378,7 @@ def _get_first_unambiguous_affine_characterization(
                 output,
                 probe.source_length,
                 exact_factor_spacing=factor_to_spacing(probe.factor),
+                uses_integer_factors_only=uses_integer_factors_only,
             )
         except ValueError as e:
             raise ValueError(f"Probe {probe!r} produced unusable output. {e}") from e
@@ -400,12 +394,15 @@ def _characterize_affine(
     source_length: int,
     *,
     exact_factor_spacing: Optional[float],
+    uses_integer_factors_only: bool = False,
 ) -> Tuple[ScalingMethodCharacterization, bool]:
     """Characterize the output produced after running a particular probe.
 
     `exact_factor_spacing` is the expected pixel spacing multiplier given the scaling factor
     the method was parametrized with, if any
     (i.e. expected if the method multiplies input spacing exactly by the factor).
+
+    `uses_integer_factors_only` is whether the method only accepted integer scaling factors (probably works in discrete bins).
     """
     target_length = len(out)
     min_target_length = 150
@@ -469,6 +466,16 @@ def _characterize_affine(
         rms = math.sqrt(sum((y - (spacing * x + predicted)) ** 2 for x, y in zip(xs, ys)) / n)
         translation_scores.append((rule, rms))
     translating, translating_error = min(translation_scores, key=lambda item: item[1])
+    if uses_integer_factors_only and translating is half_pixel_space_preservation:
+        # A method that only accepts integer factors is more likely using discrete bins.
+        # half_pixel_space_preservation and discrete_bin_center are numerically identical when spacing is integer:
+        # 0.5 * (spacing - 1) == 0.5 * (ceil(spacing) - 1).
+        # So prefer the more descriptive discrete_bin_center when this is the case.
+        translating_tie_threshold = 1e-9 * abs(spacing)
+        """Shift rules whose errors differ by less than this are considered equal."""
+        bin_center_error = dict(translation_scores)[discrete_bin_center]
+        if bin_center_error - translating_error <= translating_tie_threshold:
+            translating, translating_error = discrete_bin_center, bin_center_error
 
     warning_msgs: List[str] = []
     if pixel_sizing_error > relative_error_warning_threshold * abs(spacing):
@@ -479,7 +486,8 @@ def _characterize_affine(
     if translating_error > relative_error_warning_threshold * abs(spacing):
         warning_msgs.append(
             f"Ambiguous or noisy translation characterization (matched {translating.__name__!r}, "
-            f"error {translating_error:.3g}, spacing {spacing:.3g})."
+            f"error {translating_error:.3g}, spacing {spacing:.3g}). "
+            "If no built-in shift function describes your method, you can pass your own as `translating`."
         )
 
     assert pixel_sizing in ("shape_ratio", "corner_ratio", "exact_factor")

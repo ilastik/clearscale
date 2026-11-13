@@ -664,3 +664,45 @@ class TestCharacterizationKwargsApply:
         assert multiscale["s1"].shape == _as_xy(Shape(x=500))
         assert multiscale["s1"].pixel_size == _as_xy(PixelSize(x=real_output[1] - real_output[0]))
         assert multiscale["s1"].translation == _as_xy(Translation(x=real_output[0]))
+
+
+class TestMethodsThatOnlyAcceptIntegerFactors:
+    """Such methods work in discrete bins, so `discrete_bin_center` is preferred over its numerical twin.
+    How well the shift fits is reported like for any other method: As an error, and as a warning if it is large.
+    """
+
+    @staticmethod
+    def _require_integer(factor):
+        if factor != int(factor) or factor < 1:
+            raise ValueError("Factor must be a positive integer")
+        return int(factor)
+
+    @pytest.mark.parametrize("kernel_size", [3, 5])
+    def test_a_shift_that_no_builtin_describes_is_a_warning(self, kernel_size):
+        """The shift of a strided convolution (window centers) depends on its kernel. This used to be an assertion."""
+
+        def strided_convolution(source, factor):
+            stride = self._require_integer(factor)
+            return [i * stride + (kernel_size - 1) / 2 for i in range((len(source) - kernel_size) // stride + 1)]
+
+        characterization = characterize_step_factor_scaling_method(strided_convolution)
+
+        assert characterization.translating is discrete_bin_center
+        assert characterization.translating_error == pytest.approx(0.5)
+        (warning,) = [w for w in characterization.warnings if "translation" in w]
+        assert "'discrete_bin_center'" in warning  # It names what is reported, not what was matched before renaming
+        assert "pass your own as `translating`" in warning
+
+    def test_a_half_pixel_shift_with_a_fractional_spacing_is_not_renamed(self):
+        """For a spacing that is not a whole number, `discrete_bin_center` is not the same shift. This used to be an
+        assertion error, because the error of an exact fit is not exactly 0.0."""
+
+        def method(source, factor):
+            spacing = self._require_integer(factor) ** 1.2
+            return [i * spacing + 0.5 * (spacing - 1) for i in range(math.ceil(len(source) / spacing))]
+
+        characterization = characterize_step_factor_scaling_method(method)
+
+        assert characterization.translating is half_pixel_space_preservation
+        assert characterization.translating_error < 1e-9
+        assert not characterization.warnings

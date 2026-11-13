@@ -164,6 +164,12 @@ Each `ProbeResult` has the `probe` (input length and factor), the `output` (or `
 The probe input is the sequence `0, 1, 2, ...`, so the output values are the input positions the method sampled.
 The failure messages of the `characterize_*` functions list every probe and its error.
 
+If the best match fits poorly, the characterization still reports it, but adds a message to `characterization.warnings`:
+The error is more than 1% of the measured pixel spacing, and the reported `pixel_sizing` or `translating` might be plain wrong.
+For `translating`, this means that none of the [built-in shift functions](#translation-shift) describes your method (the shift of a convolution depends on its kernel, for example).
+Implement your own `translating` function as described there.
+For `pixel_sizing`, there is no such option yet: [Construct the `Scale`s yourself](#rounding) from the shapes that your scaling produced.
+
 ## Rounding
 
 Factor-based scaling methods have a problem:
