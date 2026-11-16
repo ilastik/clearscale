@@ -262,3 +262,55 @@ def test_axis_values_allow_keys_with_the_same_str():
     Multiscale does enforce unique str, but on the primitives it's not per se a problem."""
     shape = Shape({1: 4, "1": 5})
     assert tuple(shape.items()) == ((1, 4), ("1", 5))
+
+
+class TestShapeMatches:
+    def test_equal_shapes_match(self):
+        assert Shape(y=2, x=3).matches(Shape(y=2, x=3))
+
+    def test_differing_shared_axis_does_not_match(self):
+        assert not Shape(y=2, x=3).matches(Shape(y=2, x=4))
+
+    def test_only_shared_axes_are_compared(self):
+        assert Shape(y=2, x=3).matches(Shape(x=3, z=99))
+        assert Shape(x=3, z=99).matches(Shape(y=2, x=3))
+
+    def test_axis_order_does_not_matter(self):
+        assert Shape(y=2, x=3).matches(Shape(x=3, y=2))
+
+    def test_shapes_without_shared_axes_match_vacuously(self):
+        assert Shape(y=2).matches(Shape(x=3))
+
+    def test_accepts_plain_mapping(self):
+        assert Shape(y=2, x=3).matches({"x": 3})
+        assert not Shape(y=2, x=3).matches({"x": 4})
+
+    def test_only_restricts_comparison_to_given_axes(self):
+        left, right = Shape(y=2, x=3), Shape(y=2, x=4)
+
+        assert left.matches(right, only="y")
+        assert not left.matches(right, only="x")
+        assert not left.matches(right, only=("y", "x"))
+
+    def test_only_with_axes_that_are_not_shared_matches_vacuously(self):
+        assert Shape(y=2, x=3).matches(Shape(y=5, x=4), only="z")
+
+
+class TestShapeScaledBy:
+    def test_missing_factor_axes_default_to_no_change(self):
+        assert Shape(y=10, x=10).scaled_by(Factor(x=2.0), rounding="floor") == Shape(y=10, x=5)
+
+    def test_factor_axis_order_does_not_matter(self):
+        shape = Shape(y=10, x=20)
+
+        assert shape.scaled_by(Factor(x=2.0, y=5.0), rounding="floor") == Shape(y=2, x=10)
+
+    def test_rejects_extra_factor_axes_like_pixel_size_and_translation(self):
+        with pytest.raises(ValueError, match="Attempted to scale axes with no base shape"):
+            Shape(x=10).scaled_by(Factor(x=2.0, z=2.0), rounding="floor")
+
+    def test_never_scales_below_one(self):
+        assert Shape(x=2).scaled_by(Factor(x=10.0), rounding="floor") == Shape(x=1)
+
+    def test_empty_only_restricts_to_nothing_like_with_values(self):
+        assert Shape(y=2, x=3).matches(Shape(y=5, x=4), only=())
