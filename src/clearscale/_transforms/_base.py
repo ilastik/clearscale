@@ -192,8 +192,9 @@ class OmeZarrAxis:
     Only the longName property is pythonized as long_name.
     `.discrete` and `.long_name` were introduced in OME-Zarr 0.6 and are omitted when writing older versions.
 
-    `axis.name` is autofilled inside `ome_zarr.Axes` mappings."""
-    name: Optional[AxisKey] = None
+    `axis.name` is autofilled inside `ome_zarr.Axes` mappings. It is always a str, and equals `str(key)` for the key
+    that the axis is stored under."""
+    name: Optional[str] = None
     discrete: Optional[bool] = None
     type: Optional[str] = None
     unit: Optional[str] = None
@@ -254,8 +255,8 @@ def _ensure_axis_keys_and_names_synced(mapping: "OrderedDict[AxisKey, OmeZarrAxi
             mapping[key] = replace(axis, name=str(key))
         elif axis.name != str(key):
             raise ValueError(
-                f"OmeZarrAxis.name {axis.name!r} does not match its axis key {key!r}. "
-                "Either omit `name` or set it equal to the key."
+                f"OmeZarrAxis.name {axis.name!r} does not match its axis key {key!r}, whose str() is {str(key)!r}. "
+                "Either omit `name` or set it equal to the str() of the key."
             )
 
 
@@ -560,7 +561,7 @@ class CoordinateSystem(_AxisMapping[AxisKey, OmeZarrAxis], TransformGraphNode):
 
     @classmethod
     def fromkeys(cls, axes: OrderedAxes) -> "CoordinateSystem":
-        return cls([(a, OmeZarrAxis(name=a)) for a in axes])
+        return cls([(a, OmeZarrAxis(name=str(a))) for a in axes])
 
     @classmethod
     def from_ome_zarr(cls, system_or_multiscale_dict: Mapping[str, Any]):

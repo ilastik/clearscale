@@ -18,6 +18,7 @@ from clearscale import (
     Factor,
 )
 from clearscale._services.axis_links import AxisLinks
+from clearscale._transforms import CoordinateSystem
 from clearscale._spatial_relations import SpatialRelationSequence
 
 
@@ -81,6 +82,21 @@ class TestOmeZarrAxes:
         key = self.AxKey()
         axes = ome_zarr.Axes({key: ome_zarr.Axis(type="space")})
         assert axes[key].name == str(key)
+
+    def test_coordinate_system_fromkeys_handles_axis_key_object(self):
+        key = self.AxKey("x")
+        system = CoordinateSystem.fromkeys([key])
+        assert system[key].name == "x"
+
+    def test_multiscale_with_axis_key_objects_exports_their_str_as_axis_names(self):
+        y, x = self.AxKey("y"), self.AxKey("x")
+        ms = Multiscale(
+            {"s0": Scale(Shape({y: 10, x: 10})), "s1": Scale(Shape({y: 5, x: 5}))},
+        )
+
+        assert [ms.ome_zarr_axes[a].name for a in (y, x)] == ["y", "x"]
+        roundtrip = Multiscale.from_ome_zarr(ms.to_ome_zarr(version="0.6"), shape_source="singletons")
+        assert list(roundtrip.axes) == ["y", "x"]
 
     def test_name_mismatch_raises(self):
         with pytest.raises(ValueError, match="does not match its axis key"):
