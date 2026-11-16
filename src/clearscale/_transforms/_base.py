@@ -994,6 +994,21 @@ class Transform(ABC):
     def _composed_target(self, earlier: "Transform") -> Optional[AnyRef]:
         return self.target if self.target is not None else earlier.target
 
+    def _summary(self) -> str:
+        """One-line description in OME-Zarr's vocabulary: type and flat payload, omitting nested payloads."""
+        payload = self.unbound().to_ome_zarr("0.6")
+        kind = payload.pop("type")
+        flat_values = [
+            str(value)
+            for key, value in payload.items()
+            if (
+                key != "name"
+                and not isinstance(value, dict)
+                and not (isinstance(value, list) and any(isinstance(item, dict) for item in value))
+            )
+        ]
+        return " ".join([str(kind), *flat_values])
+
     def to_signature(self, rename: Mapping["NodeRef", str]) -> "TransformSignature":
         """Return a value-comparable representation of self (NodeRef endpoints use identity-based eq)."""
         assert (
@@ -1270,6 +1285,9 @@ class TransformSequence(Transform):
                 f"{earlier_target_max} target axes from {source_ndim} source axes, but the target has {target_ndim}."
             )
 
+    def _summary(self) -> str:
+        return " -> ".join(transform._summary() for transform in self.transforms)
+
     def _iter_flattened(self) -> Iterator[Transform]:
         """Performance-optimisation for recursively iterating and flattening this sequence and its child sequences."""
         for transform in self.transforms:
@@ -1484,9 +1502,22 @@ class TransformGraph:
         )
         return ["  graph:", *lines] if lines else []
 
+    def _str_lines(self, names: Callable[[AnyRef], Optional[str]] = lambda ref: None) -> List[str]:
+        """One `source -> target: kind payload` line per transform for the str of an object containing this graph.
+        `names` is as in `_repr_lines`."""
+        return list_truncated(
+            self.transforms,
+            lambda t: (
+                f"{self._repr_label(t.source, names, compact=True)} -> {self._repr_label(t.target, names, compact=True)}: "
+                f"{t._summary()}"
+            ),
+            "transforms",
+            indent="  ",
+        )
+
     @staticmethod
-    def _repr_label(ref: Optional[AnyRef], names: Callable[[AnyRef], Optional[str]]) -> str:
-        """Name a graph endpoint for display."""
+    def _repr_label(ref: Optional[AnyRef], names: Callable[[AnyRef], Optional[str]], compact: bool = False) -> str:
+        """Name a graph endpoint for display. `compact` renders axes like (z, y, x) instead of ('z', 'y', 'x')."""
         if ref is None:  # Graphs only hold bound transforms, but repr must never raise
             return "<unbound>"
         name = names(ref)
@@ -1494,7 +1525,8 @@ class TransformGraph:
             return name
         if isinstance(ref, _UnresolvedRef):
             return repr(f"{ref.path}#{ref.name}" if ref.path and ref.name else ref.path or ref.name)
-        return f"{ref.name!r}{ref.axes}"
+        axes = f"({', '.join(map(str, ref.axes))})" if compact else str(ref.axes)
+        return f"{ref.name!r}{axes}"
 
     def path_between(
         self,
