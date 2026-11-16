@@ -454,9 +454,8 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
             raise TypeError(f"Scale keys must be strings. Received: {non_string_keys!r}")
         ome_zarr.require_valid_scale_keys(self._mapping.keys())
 
-    def __repr__(self):
-        map_substr = self._mapping.__repr__()[len(type(self._mapping).__name__) :]
-        return str(self.__class__.__name__) + map_substr
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({dict(self._mapping)!r})"
 
     def __getitem__(self, key: ScaleKey) -> ValueType:
         if key not in self:
