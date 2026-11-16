@@ -201,8 +201,10 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
         replaced_items = []
         for a, old_v in self.items():
             new_v: Union[Scalar, str] = old_v
-            if (only is None or _axis_in(a, only)) and a in other and other[a] is not None:
+            if (only is None or _axis_in(a, only)) and a in other:
                 new_v = other[a]
+                if new_v is None:
+                    raise ValueError(f"None values not allowed. Got None for axis {a!r}.")
             if type(old_v) is type(new_v):
                 pass
             elif isinstance(old_v, bool) and isinstance(new_v, numbers.Integral):

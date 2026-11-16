@@ -1190,3 +1190,19 @@ def test_affine_selectors_match_individual_keys_and_allow_supersets():
     assert kept.translation == Translation({"xy": 0, "x": 3, "y": 3, 1: 0})
     assert linear.with_values({"xy": {"xy": 9}, "x": {"xy": 9, "x": 9}}, only="cxy").at("xy", "xy") == 2
     assert linear.with_values({"xy": {"xy": 9}, "x": {"xy": 9, "x": 9}}, only="cxy").at("x", "xy") == 0
+
+
+@pytest.mark.parametrize("only", [None, "cx"])
+def test_linear_rejects_applied_none_replacements(only):
+    linear = Linear.identity("xy")
+    with pytest.raises(ValueError, match="None values not allowed"):
+        linear.with_values({"x": {"x": None}}, only=only)  # type: ignore[arg-type]
+    assert linear == Linear.identity("xy")
+
+
+@pytest.mark.parametrize("only", ["cy", (), "unknown"])
+def test_linear_ignores_none_outside_effective_axes(only):
+    linear = Linear.identity("xy")
+    assert linear.with_values({"x": {"x": None}, "z": {"y": None}}, only=only) == linear  # type: ignore[arg-type]
+    assert linear.with_values({"y": {"x": None}}, only="cy") == linear  # type: ignore[arg-type]
+    assert linear.with_values({"x": {"z": None}}) == linear  # type: ignore[arg-type]
