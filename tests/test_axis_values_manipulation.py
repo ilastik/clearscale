@@ -78,13 +78,11 @@ class TestWithValues:
     def test_ignores_axes_not_present(self):
         assert Shape(y=2).with_values({"z": 5}) == Shape(y=2)
 
-    def test_skips_none_values(self):
-        assert Shape(y=2, x=3).with_values({"y": None}) == Shape(y=2, x=3)  # type: ignore[reportArgumentType]
-
-    def test_empty_replacements_return_self(self):
+    def test_empty_replacements_preserve_value_and_input(self):
         shape = Shape(y=2)
 
-        assert shape.with_values({}) is shape
+        assert shape.with_values({}) == shape
+        assert tuple(shape.items()) == (("y", 2),)
 
     def test_empty_only_replaces_nothing(self):
         shape = Shape(y=2, x=3)
@@ -203,3 +201,20 @@ def test_empty_selectors_keep_existing_filtering_contract():
     assert shape.with_default_except(()) == Shape(y=1, x=1)
     with pytest.raises(ValueError, match="None of the specified axes"):
         shape.without_axes_except(())
+
+
+@pytest.mark.parametrize("cls", [Shape, Factor, PixelSize, Translation, Unit, PixelOffset])
+@pytest.mark.parametrize("only", [None, "tcy"])
+def test_applied_none_replacements_are_rejected(cls, only):
+    value = cls.fromkeys("yx")
+    with pytest.raises(ValueError, match="None values not allowed.*'y'"):
+        value.with_values({"y": None}, only=only)
+    assert value == cls.fromkeys("yx")
+
+
+@pytest.mark.parametrize("cls", [Shape, Factor, PixelSize, Translation, Unit, PixelOffset])
+@pytest.mark.parametrize("only", ["tcx", (), "unknown"])
+def test_none_outside_effective_replacement_axes_is_ignored(cls, only):
+    value = cls.fromkeys("yx")
+    assert value.with_values({"y": None, "z": None, "x": value["x"]}, only=only) == value
+    assert value.with_values({"z": None}) == value

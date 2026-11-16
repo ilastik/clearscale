@@ -2049,3 +2049,22 @@ class TestBlueprintShapesApplyToScaleAxes:
         assert via_factors["s1"].shape == Shape(z=2, y=4, x=4)
         # ...whereas inserting an axis into the shapes means "size 1".
         assert blueprint.with_axes("zyx")["s0"] == Shape(z=1, y=8, x=8)
+
+
+@pytest.mark.parametrize(
+    "blueprint_cls, value_cls, method",
+    [(BlueprintShapes, Shape, "with_sizes"), (BlueprintFactors, Factor, "with_factors")],
+)
+@pytest.mark.parametrize("nested", [False, True])
+def test_blueprint_replacement_validates_only_effective_values(blueprint_cls, value_cls, method, nested):
+    blueprint = blueprint_cls({"s0": value_cls.fromkeys("yx"), "s1": value_cls.fromkeys("yx")})
+    replace = getattr(blueprint, method)
+    invalid = {"y": None}
+    replacements = {"s0": invalid} if nested else invalid
+    with pytest.raises(ValueError, match="None values not allowed"):
+        replace(replacements, only_axes="tcy")
+    assert replace(replacements, only_axes="tcx") == blueprint
+    assert replace(replacements, only_axes=()) == blueprint
+    unknown = {"z": None}
+    assert replace({"s0": unknown} if nested else unknown) == blueprint
+    assert blueprint == blueprint_cls({"s0": value_cls.fromkeys("yx"), "s1": value_cls.fromkeys("yx")})
