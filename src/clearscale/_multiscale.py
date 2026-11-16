@@ -78,6 +78,7 @@ from clearscale._services.axis_properties_across_relations import (
     merge_ome_zarr_axes,
     require_consistent_axis_properties,
 )
+from clearscale._services.display import limited
 from clearscale._services.units import unit_conversion_factor
 from clearscale._services.translating import resolve_translating
 from clearscale.types import (
@@ -1577,13 +1578,20 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
             parts.append("  graph=(")
             parts.extend(
-                f"    {ref.name!r}={ref.owner!r},"
-                for ref in self._transform_graph.system_refs
-                if ref != self._intrinsic_ref
+                limited(
+                    [ref for ref in self._transform_graph.system_refs if ref != self._intrinsic_ref],
+                    lambda ref: f"{ref.name!r}={ref.owner!r},",
+                    "coordinate systems",
+                    indent="    ",
+                )
             )
             parts.extend(
-                f"    ({label(t.source)} -> {label(t.target)})=Transform({t.unbound().to_ome_zarr('0.6')}),"
-                for t in self._transform_graph.transforms
+                limited(
+                    self._transform_graph.transforms,
+                    lambda t: f"({label(t.source)} -> {label(t.target)})=Transform({t.unbound().to_ome_zarr('0.6')}),",
+                    "transforms",
+                    indent="    ",
+                )
             )
             parts.append("  )")
         return f"{type(self).__name__}(\n" + "\n".join(parts) + "\n)"
