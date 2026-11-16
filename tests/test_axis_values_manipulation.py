@@ -29,22 +29,6 @@ class TestWithAxes:
             Shape(y=2).with_axes("")
 
 
-class TestWithAxesOrder:
-    def test_reorders(self):
-        assert list(Shape(y=2, x=3).with_axes_order("xy").items()) == [("x", 3), ("y", 2)]
-
-    def test_ignores_given_axes_that_are_not_present(self):
-        assert list(Shape(y=2, x=3).with_axes_order("zxy").items()) == [("x", 3), ("y", 2)]
-
-    def test_refuses_to_drop_axes(self):
-        with pytest.raises(ValueError, match=r"This would drop: \('y',\)"):
-            Shape(y=2, x=3).with_axes_order("x")
-
-    def test_non_string_axis_keys_against_string_axes_are_reported_as_dropped(self):
-        with pytest.raises(ValueError, match="This would drop: "):
-            Shape({1: 2, "x": 3}).with_axes_order("x")
-
-
 class TestWithoutAxes:
     def test_removes_given_axes(self):
         assert Shape(y=2, x=3).without_axes("y") == Shape(x=3)

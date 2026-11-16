@@ -158,3 +158,15 @@ class TestUnitConstruction:
 
     def test_accepts_empty_string_as_unspecified(self):
         assert Unit(x="").is_default()
+
+
+@pytest.mark.parametrize("cls", ALL_CLASSES)
+def test_with_axes_reordering_preserves_values_and_ordered_equality(cls):
+    y, x = VALID_EXAMPLE[cls]
+    original = cls(y=y, x=x)
+    reordered = original.with_axes("xy")
+    assert tuple(reordered.items()) == (("x", x), ("y", y))
+    assert reordered != original
+    assert reordered.with_axes("yx") == original
+    assert hash(reordered.with_axes("yx")) == hash(original)
+    assert tuple(original.items()) == (("y", y), ("x", x))

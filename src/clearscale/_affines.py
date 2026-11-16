@@ -136,16 +136,6 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
         reordered_items = [(a, self[a].with_axes(axes) if _axis_in(a, self) else identity_rows[a]) for a in axes]
         return self.__class__(reordered_items)
 
-    def with_axes_order(self, axes: OrderedAxes) -> "Linear":
-        """Order like given axes (but no new insertions or drops)."""
-        if not axes:
-            raise ValueError(f"Cannot create empty Linear. Attempted reorder to {axes!r}.")
-        would_drop = tuple(a for a in self if a not in axes)
-        if would_drop:
-            raise ValueError(f"Cannot reorder Linear to axes {axes!r}. This would drop: {would_drop!r}.")
-        reordered_items = [(a, self[a].with_axes_order(axes)) for a in axes if a in self]
-        return self.__class__(reordered_items)
-
     def without_axes_except(self, axes: Axes) -> "Linear":
         """Keep only given axes (no reordering or inserts)."""
         kept_items = [(a, self[a].without_axes_except(axes)) for a in self if _axis_in(a, axes)]
@@ -496,13 +486,6 @@ class Affine(SpatialRelation):
         return self.__class__(
             linear=self.linear.with_axes(axes),
             translation=self.translation.with_axes(axes),
-        )
-
-    def with_axes_order(self, axes: OrderedAxes) -> "Affine":
-        """Order like given axes (but no new insertions or drops)."""
-        return self.__class__(
-            linear=self.linear.with_axes_order(axes),
-            translation=self.translation.with_axes_order(axes),
         )
 
     def without_axes_except(self, axes: Axes) -> "Affine":

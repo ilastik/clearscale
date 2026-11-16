@@ -119,20 +119,6 @@ class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, A
     def values_list(self) -> List[AxisMappedHashable]:
         return list(self.values())
 
-    def with_axes_order(self: _AxisMappingSelf, axes: OrderedAxesT) -> _AxisMappingSelf:
-        """Order like given axes (but no new insertions or drops)."""
-        if not axes:
-            raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to {axes!r}.")
-        # Iterating gives single axes even for strings like "xyz", so tuple membership is safe for any hashable.
-        ordered_axes = tuple(axes)
-        would_drop = tuple(a for a in self if a not in ordered_axes)
-        if would_drop:
-            raise ValueError(
-                f"Cannot reorder {self.__class__.__name__} to axes {axes!r}. This would drop: {would_drop!r}."
-            )
-        reordered_items = [(a, self[a]) for a in ordered_axes if a in self]
-        return self.__class__(reordered_items)
-
     def without_axes_except(self: _AxisMappingSelf, axes: Axes) -> _AxisMappingSelf:
         """Keep only given axes (no reordering)."""
         kept_items = [(a, self[a]) for a in self if _axis_in(a, axes)]
