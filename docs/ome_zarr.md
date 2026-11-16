@@ -49,7 +49,7 @@ Partial support:
 | HCS plates            | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only             |
 | bioformats2raw        | (✅)           | ❌          | ❌     | Path discovery for contained Multiscales only             |
 
-# Micro-intro: zarr attrs
+## Micro-intro: zarr attrs
 
 OME-Zarr "datasets" are always described in the metadata (attributes) of a plain zarr "group".
 
@@ -79,7 +79,7 @@ The location of "the attrs" again differs by zarr-format version:
 
 If you use `tensorstore`, you probably need to implement a small adapter to read and write the "attrs" using the logic above :)
 
-# Reading OME-Zarr
+## Reading OME-Zarr
 
 Typically, you're given a path to some dataset:
 
@@ -107,7 +107,7 @@ else:
 
 The next thing you will want to know is, "Is this *zarr* group an *OME-Zarr* group?"
 
-## "Is this zarr thing an OME-Zarr thing?"
+### "Is this zarr thing an OME-Zarr thing?"
 `clearscale.OmeZarrGroup` answers this question.
 
 `OmeZarrGroup` recognizes all OME-Zarr objects of all OME-Zarr versions, up to and including 0.6.
@@ -162,7 +162,7 @@ if ome_zarr_group.kind is clearscale.GroupKind.COLLECTION:
     print(f"- {len(ome_zarr_group.children)} references to OME-Zarr objects at other paths")
 ```
 
-## Obtaining actual image data at a particular scale
+### Obtaining actual image data at a particular scale
 
 In the `MULTISCALE` case, you now know that there is exactly one (valid) multiscale you can find here:
 ```python
@@ -219,7 +219,7 @@ multiscale["s2"] == cs.Scale(
 
 More detail on `.translation` in  [scaling method characterization](characterization.md) (relevant for correct positioning when displaying data from different scales on top of each other).
 
-## Handling the non-OME case
+### Handling the non-OME case
 
 Users don't always provide paths to a zarr group that actually contains OME-Zarr metadata, even though the path is part of an OME-Zarr dataset:
 
@@ -249,7 +249,7 @@ assert "raw/scale3" in parent2_meta.multiscales[0], "Scale key is the full relat
 In practice, the only way to be sure the provided path really is not OME-Zarr, is to iterate all the way up all parents.
 A group of kind `INVALID` does contain OME-Zarr metadata, but it's broken, so looking further up won't necessarily help.
 
-## Retrieving paths for multiple multiscales or collections
+### Retrieving paths for multiple multiscales or collections
 
 The other `GroupKind` are all some form of collection that point to other OME-Zarr groups.
 
@@ -268,7 +268,7 @@ Note that if present, `subgroup_meta.children` will contain paths to more multis
 
 More detail in the "Advanced OME-Zarr features" section.
 
-# Writing OME-Zarr
+## Writing OME-Zarr
 
 You need two things:
 
@@ -277,10 +277,10 @@ You need two things:
 
 clearscale supports writing OME-Zarr metadata in OME-Zarr versions `0.4` and `0.5`, and `0.6`.
 
-## Making new Multiscales
+### Making new Multiscales
 The two most important methods here are: `Multiscale.from_single` and `Multiscale.derive`.
 
-### Creating a Multiscale from scratch
+#### Creating a Multiscale from scratch
 `from_single` is for creating a new Multiscale from scratch, from a single `Scale` object you manually create.
 
 The absolute minimum path when you really have no metadata at all:
@@ -306,7 +306,7 @@ Don't forget to supply how your scaling method handles `pixel_sizing`, `translat
 
 (Also cf. the other examples in [the top-level readme](https://github.com/ilastik/clearscale#end-to-end-examples))
 
-### Deriving a new Multiscale from an existing one
+#### Deriving a new Multiscale from an existing one
 `derive` is for creating new Multiscales from one of an existing Multiscale's entries.
 
 This is intended to match workflows that load a multiscale dataset and select one of its scale levels for further processing.
@@ -322,7 +322,7 @@ new_multiscale = old_multiscale.derive("s3")
 
 If you also scale the processing output derived from that scale, provide the matching blueprint and scaling method characteristics as for `from_single`.
 
-## Making new OmeZarrGroups
+### Making new OmeZarrGroups
 
 All OME-Zarr datasets are zarr *groups*.
 Your own code needs to create the output group, and write the array(s) to the correct paths inside it.
@@ -379,7 +379,7 @@ That's all.
 
 When re-writing existing metadata (like `OmeZarrGroup.from_group(...).to_attrs(...)`), if there were any `invalid_objects`, these are excluded from the output.
 
-## OME-Zarr version specifics
+### OME-Zarr version specifics
 
 There is only one important detail about OME-Zarr versions that you need to know:
 
@@ -390,7 +390,7 @@ For example, in `zarr-python`, this means you need to provide `zarr_format=2` or
 
 clearscale doesn't write data, so you need to make sure you use the correct zarr-format version.
 
-## Which OME-Zarr version should I write?
+### Which OME-Zarr version should I write?
 
 In general, the current "most stable" version is 0.5.
 
@@ -400,11 +400,11 @@ If you have a specific downstream use-case, it is important to check which versi
 
 Very few tools support 0.6.
 
-# Advanced OME-Zarr features
+## Advanced OME-Zarr features
 
 This covers multiple multiscales, HCS plates, labels, bioformats2raw, scenes.
 
-## Path discovery
+### Path discovery
 
 Special cases for further path discovery that you may want to handle for full support:
 
@@ -419,7 +419,7 @@ Special cases for further path discovery that you may want to handle for full su
   If you construct an `OmeZarrGroup` from this subgroup, its kind will be `GroupKind.LABELS` and it will contain some `.children` whose paths point to label multiscales.
 * Scenes can contain paths to multiscales that are part of the scene. The `OmeZarrGroup` folds these into `.children`, so you don't have to retrieve them separately.
 
-### Special treatment for advanced OME-Zarr kinds
+#### Special treatment for advanced OME-Zarr kinds
 
 If a group is `GroupKind.SCENE` (single scene) or `GroupKind.COLLECTION`, the group may contain one or more `.scenes`.
 These are `clearscale.Scene` instances and handle the scene as defined in OME-Zarr version 0.6.
