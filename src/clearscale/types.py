@@ -22,6 +22,12 @@ CoordinateSystemName: TypeAlias = str
 ScaleKey: TypeAlias = str
 """Identifies one scale of a Multiscale or Blueprint: the path of its array, relative to the zarr group that holds it."""
 AxisKey = Hashable
+"""Any hashable object whose `str()` is exactly the axis name, such as "x".
+
+That string is what gets written to OME-Zarr as the axis name, so axes of one Multiscale need distinct strings.
+Plain strings are the usual choice.
+Other objects work if they define `__str__` accordingly (dataclass default does not)`.
+"""
 AxisKeyT = TypeVar("AxisKeyT", bound=AxisKey)
 AxisKeyT_co = TypeVar("AxisKeyT_co", bound=AxisKey, covariant=True)
 Json: TypeAlias = Union[str, int, float, bool, Mapping[str, "Json"], Sequence["Json"], None]

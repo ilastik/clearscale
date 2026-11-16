@@ -10,9 +10,9 @@ If you've been coding for a bit already, you most likely just need to know:
 
 * Shape, Factor, PixelSize, Unit etc. are immutable, ordered `Mapping[AxisKey, <int/float/str respectively>]`
 * The mappings are generic over axis key type:
-  * You can narrow e.g. `Shape[str]` to match `Mapping[str, int]`.
-  * You can use any hashable type as key.
-  * For interoperability, your keys should be, or should str-convert to, single lowercase letters ("t", "c", "z", "y", "x"), like in the examples throughout these docs. Other keys and axis orders are generally badly supported in the OME-Zarr ecosystem.
+    * You can narrow e.g. `Shape[str]` to match `Mapping[str, int]`.
+    * You can use any hashable type as key, as long as `str(key)` is exactly the axis name, e.g. `"x"`.
+    * For interoperability, your keys should be, or should str-convert to, single lowercase letters ("t", "c", "z", "y", "x"), like in the examples throughout these docs. Other keys and axis orders are generally badly supported in the OME-Zarr ecosystem.
 * `.with_axes(new_axis_keys)` reorders, inserts and drops as needed. Each class has its respective default value for inserted axes (`1` for Shape, `""` for Unit etc.)
 * Mathematical operations are axis-wise (PixelSize * Factor, etc.)
 * Blueprints and Multiscale are immutable, ordered `Mapping[ScaleKey, <Shape/Factor/Scale respectively>]`
@@ -78,10 +78,9 @@ unit        = cs.Unit({"t": "seconds", "x": "nm", "y": "nm"})  # axis -> str
 ```
 
 Axis keys don't have to be plain strings.
-You can use any hashable object, such as frozen dataclass instances.
-Or maybe you just want syntactic sugar like `x = "x"` to enable `my_shape[x]` instead of `my_shape["x"]`.
-
-Axis keys do need to support conversion to string with `str(axis_key)` for OME-Zarr export.
+You could use syntactic sugar like `x = "x"` to enable `my_shape[x]` instead of `my_shape["x"]`.
+Any hashable object works as long as `str(axis_key)` returns purely an axis name, such as `"x"`.
+(Note that a dataclass's default `str()` does not qualify).
 
 ### Tracking metadata across axis rearrangements
 

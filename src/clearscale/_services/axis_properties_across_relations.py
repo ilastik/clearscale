@@ -94,7 +94,7 @@ def merge_ome_zarr_axes(axes_list: Sequence[OmeZarrAxes], *, sources: str, confl
                     f"Conflicting {field_name!r} for axis {a!r} across {sources}: {set(values)!r}. {conflict_hint}"
                 )
             merged[a][field_name] = next(iter(values), None)
-    return OmeZarrAxes([(a, OmeZarrAxis(name=a, **merged[a])) for a in axes])
+    return OmeZarrAxes([(a, OmeZarrAxis(name=str(a), **merged[a])) for a in axes])
 
 
 def _unit_mismatch(source_unit: str, target_unit: str, scale: float) -> Optional[str]:
