@@ -1,6 +1,7 @@
 import pytest
 
 from clearscale import Factor, PixelOffset, PixelSize, Shape, Translation, Unit
+from clearscale._affines import Coefficient
 
 
 class TestFromKeys:
@@ -218,3 +219,35 @@ def test_none_outside_effective_replacement_axes_is_ignored(cls, only):
     value = cls.fromkeys("yx")
     assert value.with_values({"y": None, "z": None, "x": value["x"]}, only=only) == value
     assert value.with_values({"z": None}) == value
+
+
+@pytest.mark.parametrize("cls", [Shape, Factor, PixelSize, Translation, PixelOffset, Coefficient])
+@pytest.mark.parametrize("value", [True, False])
+def test_boolean_replacements_are_rejected_only_when_applied(cls, value):
+    original = cls.fromkeys("yx")
+    with pytest.raises(TypeError, match="Boolean values not allowed.*'y'"):
+        original.with_values({"y": value}, only="tcy")
+    assert original.with_values({"y": value, "z": value}, only="tcx") == original
+    assert original.with_values({"z": value}) == original
+    assert original.with_values({"y": value}, only=()) == original
+    assert original == cls.fromkeys("yx")
+
+
+@pytest.mark.parametrize(
+    "cls, invalid, error",
+    [
+        (Shape, 0, ValueError),
+        (Factor, 0, ValueError),
+        (PixelSize, -1, ValueError),
+        (Translation, float("nan"), ValueError),
+        (Coefficient, float("inf"), ValueError),
+        (PixelOffset, 1.5, TypeError),
+        (Unit, 2, TypeError),
+    ],
+)
+def test_replacements_validate_applied_values_with_constructor_rules(cls, invalid, error):
+    original = cls.fromkeys("yx")
+    with pytest.raises(error):
+        original.with_values({"y": invalid})
+    assert original.with_values({"y": invalid, "z": invalid}, only="tcx") == original
+    assert original.with_values({"z": invalid}) == original

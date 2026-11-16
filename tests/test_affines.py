@@ -1206,3 +1206,13 @@ def test_linear_ignores_none_outside_effective_axes(only):
     assert linear.with_values({"x": {"x": None}, "z": {"y": None}}, only=only) == linear  # type: ignore[arg-type]
     assert linear.with_values({"y": {"x": None}}, only="cy") == linear  # type: ignore[arg-type]
     assert linear.with_values({"x": {"z": None}}) == linear  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_linear_rejects_only_applied_boolean_replacements(value):
+    linear = Linear.identity("xy")
+    with pytest.raises(TypeError, match="Boolean values not allowed"):
+        linear.with_values({"x": {"x": value}}, only="cx")
+    assert linear.with_values({"x": {"x": value}}, only="cy") == linear
+    assert linear.with_values({"x": {"y": value}}, only="cx") == linear
+    assert linear.with_values({"z": {"x": value}, "x": {"z": value}}) == linear
