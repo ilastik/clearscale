@@ -79,6 +79,7 @@ Folder with Zarr-format version 3:
 
 In the context of zarr, "attrs" refers to a JSON object containing a zarr group’s user-defined attributes.
 The location of "the attrs" again differs by zarr-format version:
+
 * Zarr-format version 2: The entire contents of `.zattrs` are the "attrs" (a single JSON object)
 * Zarr-format version 3: `zarr.json` contains a JSON object, which contains an `"attributes"` key.
   The "attrs" are the JSON object found at `zarr.json["attributes"]`

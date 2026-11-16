@@ -208,6 +208,7 @@ You can then take the arguments from the Scales, although a little additional ar
 
 Source and output describe the same physical space, so for every axis, the source index of an output pixel is
 `matrix * index_out + offset` with
+
 * `matrix = target.pixel_size / base.pixel_size` and 
 * `offset = (target.translation - base.translation) / base.pixel_size`
 

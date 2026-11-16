@@ -31,6 +31,7 @@ Unplanned but within scope:
 * API simplifications and other refinements for more intuitiveness
 
 Maybe, but probably out of scope / not worth it:
+
 * Dependency-free zarr attrs reading (supporting the multitude of read protocols needed could be tough - from disk, via https, with authentication... - and the consumer must already be using some zarr backend to read data, so not expecting a lot of value from bringing our own)
 
 Out of scope:

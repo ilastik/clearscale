@@ -22,6 +22,7 @@ Which of these functions you should use depends on whether your scaling methods 
 * a step factor that *divides* the input shape (i.e. `factor=2` means "downscale by 2", example: `skimage.transform.downscale_local_mean`)
 
 The functions are named accordingly (`from clearscale.characterization import ...`):
+
 * `characterize_shape_scaling_method` 
 * `characterize_shape_factor_scaling_method`
 * `characterize_step_factor_scaling_method`
