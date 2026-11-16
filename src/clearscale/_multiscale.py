@@ -597,11 +597,12 @@ class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        axes = next(iter(self._mapping.values())).keys()
+        axes = tuple(next(iter(self._mapping.values())).keys())
         for k, v in self._mapping.items():
-            if v.keys() != axes:
+            if tuple(v.keys()) != axes:
                 raise ValueError(
-                    f"All values must have the same axes. (Expected {axes}, received {v.keys()} for key '{k}')"
+                    f"All values must have the same axes in the same order. "
+                    f"(Expected {axes}, received {tuple(v.keys())} for key '{k}')"
                 )
 
     def to_dict(self) -> OrderedDict[str, OrderedDict[AxisKey, Union[int, float]]]:
@@ -1086,7 +1087,8 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
             raise ValueError(
                 f"Cannot apply blueprint with axes {list(self.first_value.keys())} "
                 f"to base scale with axes {list(base.shape.keys())}. "
-                "Axes must match exactly. Maybe blueprint.with_axes(base.shape) first?"
+                "Axes must match exactly. To add axes that stay unscaled, consider "
+                "blueprint.to_factors().with_axes(...).to_shapes(base.shape, ...)"
             )
 
         scales = []
