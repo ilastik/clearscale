@@ -2435,6 +2435,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             ):
                 return True
             scale_found = translation_found = False
+            last_index = len(t.transforms) - 1
             for i, nested in enumerate(t.transforms):
                 compatible_types = (
                     IdentityTransform,
@@ -2447,13 +2448,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     return False  # sequence with something we can't handle
                 if isinstance(nested, ScaleTransform):
                     # scale at start or at end-1 (or end if translation missing)
-                    if scale_found or i not in (0, len(t.transforms), len(t.transforms) - 1):
+                    if scale_found or i not in (0, last_index - 1, last_index):
                         # sequence with multiple scales or scale in middle -- would need to track axes
                         return False
                     scale_found = True
                 if isinstance(nested, TranslationTransform):
                     # translation at 1, 0 if scale missing, or at end (inverted or just axesTo-then-translate)
-                    if translation_found or i not in (0, 1, len(t.transforms)):
+                    if translation_found or i not in (0, 1, last_index):
                         # see above
                         return False
                     translation_found = True
@@ -2501,16 +2502,16 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             # (scale) (+ translation) (+ structural) or (structural) (+ scale) (+ translation)
             if not isinstance(t, TransformSequence):
                 continue
-            children = list(t.transforms)
             scale = translation = None
             scale_i = translation_i = None
-            for i, c in enumerate(children):
+            children = []
+            for i, c in enumerate(t.transforms):
                 if isinstance(c, ScaleTransform):
-                    scale_i = i
-                    scale = children.pop(i)
-                if isinstance(c, TranslationTransform):
-                    translation_i = i
-                    translation = children.pop(i)
+                    scale_i, scale = i, c
+                elif isinstance(c, TranslationTransform):
+                    translation_i, translation = i, c
+                else:
+                    children.append(c)
             if not self._is_pure_axis_reshape(tuple(children)):
                 continue  # Should already be ensured anyway
             if t.source == self._intrinsic_ref:
