@@ -528,7 +528,15 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
                 raise ValueError(f"All new scale keys must be unique. Received: {new_keys}")
             return self._with_items(zip(new_keys, self.values()))
 
-    def with_items_dropped_before(self: _ScaleMappingSelf, key: ScaleKey, inclusive=False) -> _ScaleMappingSelf:
+    def with_items_dropped_before(
+        self: _ScaleMappingSelf, key: ScaleKey, *, inclusive: bool = False
+    ) -> _ScaleMappingSelf:
+        """Drop all items that come before `key`.
+
+        Args:
+            key: The scale key to start from.
+            inclusive: If True, `key` itself is dropped too.
+        """
         keys = list(self.keys())
         if key not in keys:
             raise KeyError(f"No such scale: '{key}' (available: {keys})")
