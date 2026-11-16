@@ -299,22 +299,23 @@ class Affine(SpatialRelation):
         source: Optional[HasPixelGrid] = None,
         target: Optional[HasPixelGrid] = None,
     ) -> "Affine":
-        """Construct an Affine from a matrix shaped either N x (N+1):
-        `[ linear | translation ]`
+        """Construct an Affine from an array shaped either N x (N+1):
+        `[ matrix | offset ]`
         or homogenous form (N+1) x (N+1):
 
         ```
-        [ linear | translation ]
-        [ 0 ... 0 |     1      ]
+        [ matrix  | offset ]
+        [ 0 ... 0 |   1    ]
         ```
 
-        where N == len(axes).
+        where N == len(axes). The N x N `matrix` and the length N `offset` are the same values
+        that [from_matrix_and_offset][clearscale.Affine.from_matrix_and_offset] takes separately.
 
-        The matrix always maps source coordinates to target coordinates ("push" or "forward" direction).
+        The array always maps source coordinates to target coordinates ("push" or "forward" direction).
         Without source/target, values are taken as is in physical units. With `source` and `target`,
-        the matrix is understood to map source *pixel indices* to target pixel indices, and the
+        the array is understood to map source *pixel indices* to target pixel indices, and the
         source/target grids are used to convert to physical coordinates.
-        See [from_linear_and_offset][clearscale.Affine.from_linear_and_offset] for more detail.
+        See [from_matrix_and_offset][clearscale.Affine.from_matrix_and_offset] for more detail.
         """
         axes = tuple(axes)
         ndim = len(axes)
@@ -341,27 +342,27 @@ class Affine(SpatialRelation):
         return cls._from_index_space_if_grids(cls(linear=linear, translation=translation), source, target)
 
     @classmethod
-    def from_linear_and_offset(
+    def from_matrix_and_offset(
         cls,
-        linear: Sequence[Sequence[Scalar]],
+        matrix: Sequence[Sequence[Scalar]],
         offset: Sequence[Scalar],
         axes: OrderedAxes,
         *,
         source: Optional[HasPixelGrid] = None,
         target: Optional[HasPixelGrid] = None,
     ) -> "Affine":
-        """Construct an Affine from a separate N x N linear matrix and a length N offset, where N == len(axes).
+        """Construct an Affine from a separate N x N matrix and a length N offset, where N == len(axes).
 
-        Values always use the "push" or "forward" direction `target = linear @ source + offset`.
+        Values always use the "push" or "forward" direction `target = matrix @ source + offset`.
         Without source/target, they are assumed to be in physical units.
 
         Passing `source` and `target` (both or neither) declares the matrix to operate on pixel indices:
-        `index_target = linear @ index_source + offset`, with integer indices at pixel centers.
+        `index_target = matrix @ index_source + offset`, with integer indices at pixel centers.
         Both grids must have exactly `axes`, in the same order. Each grid uses its own physical units:
 
         ```
-        physical_linear = target.pixel_size * linear / source.pixel_size
-        physical_translation = target.pixel_size * offset + target.translation - physical_linear @ source.translation
+        physical_matrix = target.pixel_size * matrix / source.pixel_size
+        physical_translation = target.pixel_size * offset + target.translation - physical_matrix @ source.translation
         ```
 
         Use a placeholder Scale to describe pixel size of coordinate system grids like for
@@ -369,14 +370,14 @@ class Affine(SpatialRelation):
 
         For a pull matrix such as scipy's `index_input = matrix @ index_output + offset`, pass the
         output grid as `source` and input grid as `target`, then invert the resulting Affine:
-        `Affine.from_linear_and_offset(matrix, offset, axes, source=output_grid, target=input_grid).inverted()`.
+        `Affine.from_matrix_and_offset(matrix, offset, axes, source=output_grid, target=input_grid).inverted()`.
         This gives the physical push mapping from input to output. Without grids, construct from physical
         pull values and call `.inverted()`.
         """
         axes = tuple(axes)
         if len(offset) != len(axes):
             raise ValueError(f"Expected offset of length {len(axes)} for axes {axes!r}, received {len(offset)}.")
-        affine = cls(linear=Linear.from_array(linear, axes), translation=Translation(zip(axes, offset)))
+        affine = cls(linear=Linear.from_array(matrix, axes), translation=Translation(zip(axes, offset)))
         return cls._from_index_space_if_grids(affine, source, target)
 
     @classmethod
@@ -585,23 +586,23 @@ class Affine(SpatialRelation):
     def to_lists_homogenous(self) -> List[List[float]]:
         return self.to_lists() + [[*(0.0 for _ in self.linear), 1.0]]
 
-    def to_linear_and_offset(
+    def to_matrix_and_offset(
         self, *, source: Optional[HasPixelGrid] = None, target: Optional[HasPixelGrid] = None
     ) -> Tuple[FloatMatrix, FloatVector]:
-        """Split into an N x N linear matrix and a length N offset, in the order of `self.axes`.
+        """Split into an N x N matrix and a length N offset, in the order of `self.axes`.
 
-        Values retain the push direction `target = linear @ source + offset`.
+        Values retain the push direction `target = matrix @ source + offset`.
         Without grids, return physical values as is.
         With `source` and `target` (both or neither), return pixel index values:
-        `index_target = linear @ index_source + offset`. Both grids must have exactly `self.axes`, in order;
+        `index_target = matrix @ index_source + offset`. Both grids must have exactly `self.axes`, in order;
         integer indices refer to pixel centers. Each grid's pixel size and translation use its own units.
         The grid shape is not used.
 
-        This reverses [from_linear_and_offset][clearscale.Affine.from_linear_and_offset] with the same grids:
+        This reverses [from_matrix_and_offset][clearscale.Affine.from_matrix_and_offset] with the same grids:
 
         ```
-        Affine.from_linear_and_offset(
-          *affine.to_linear_and_offset(source=a, target=b),
+        Affine.from_matrix_and_offset(
+          *affine.to_matrix_and_offset(source=a, target=b),
           affine.axes,
           source=a,
           target=b
@@ -609,29 +610,29 @@ class Affine(SpatialRelation):
         ```
 
         To obtain "pull" arguments as e.g. scipy uses, invert and swap the grids:
-        `affine.inverted().to_linear_and_offset(source=output_grid, target=input_grid)`.
+        `affine.inverted().to_matrix_and_offset(source=output_grid, target=input_grid)`.
         """
-        physical_linear = self.linear.to_tuples()
+        physical_matrix = self.linear.to_tuples()
         physical_translation = self.translation.values_tuple()
         if source is None and target is None:
-            return physical_linear, physical_translation
+            return physical_matrix, physical_translation
         if source is None or target is None:
             raise ValueError("`source` and `target` must be given together. Pass both to convert to index space.")
         self._require_grids_with_axes(self.axes, source, target)
         source_size = source.pixel_size.values_tuple()
         target_size = target.pixel_size.values_tuple()
-        linear = tuple(
+        matrix = tuple(
             tuple(coefficient * source_size[col] / target_size[row] for col, coefficient in enumerate(coefficients))
-            for row, coefficients in enumerate(physical_linear)
+            for row, coefficients in enumerate(physical_matrix)
         )
         target_origin = target.translation.values_tuple()
         source_origin = source.translation.values_tuple()
         offset = tuple(
             (sum(c * o for c, o in zip(coefficients, source_origin)) + translation - target_origin[row])
             / target_size[row]
-            for row, (coefficients, translation) in enumerate(zip(physical_linear, physical_translation))
+            for row, (coefficients, translation) in enumerate(zip(physical_matrix, physical_translation))
         )
-        return linear, offset
+        return matrix, offset
 
     def is_identity(self) -> bool:
         return self.linear.is_identity() and self.translation.is_identity()
