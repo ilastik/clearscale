@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 CoordinateSystemName: TypeAlias = str
 """The name of a coordinate system, unique within the Multiscale or Scene that has it."""
+ScaleKey: TypeAlias = str
+"""Identifies one scale of a Multiscale or Blueprint: the path of its array, relative to the zarr group that holds it."""
 AxisKey = Hashable
 AxisKeyT = TypeVar("AxisKeyT", bound=AxisKey)
 AxisKeyT_co = TypeVar("AxisKeyT_co", bound=AxisKey, covariant=True)
@@ -121,6 +123,7 @@ class ZarrGroup(ShapeSourceMap, Protocol):
 
 __all__ = [
     "CoordinateSystemName",
+    "ScaleKey",
     "AxisKey",
     "AxisKeyT",
     "AxisKeyT_co",
