@@ -90,9 +90,9 @@ from clearscale.types import (
     ShapeLike,
     FactorLike,
     AxisKeyT,
+    ScaleKey,
 )
 
-ScaleKey = str
 ValueType = TypeVar("ValueType", Shape, Factor, "Scale")
 AxisValuesType = TypeVar("AxisValuesType", Shape, Factor)
 _ScaleMappingSelf = TypeVar("_ScaleMappingSelf", bound="_ScaleMapping[Any]")
@@ -1632,7 +1632,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         cls,
         scale: Scale,
         *,
-        scale_key: Optional[str] = "s0",
+        scale_key: Optional[ScaleKey] = "s0",
         blueprint: Union[BlueprintShapes, BlueprintFactors, None] = None,
         pixel_sizing: Optional[PixelSizingMethod] = None,
         translating: Optional[TranslatingMethod] = None,
