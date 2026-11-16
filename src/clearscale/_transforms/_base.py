@@ -298,7 +298,7 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
         new_axes = self.__class__([(a, self[a] if a in self else inserts[a]) for a in axes])
         return new_axes
 
-    def with_axes_carried_over(self, target_axes: OrderedAxes, links: AxisLinks) -> "OmeZarrAxes":
+    def _with_axes_carried_over(self, target_axes: OrderedAxes, links: AxisLinks) -> "OmeZarrAxes":
         """Build axes for `target_axes` from `self`, sourcing properties according to `links`
         (see SpatialRelation._axis_links).
 
@@ -329,7 +329,7 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
 
         return self.__class__((axis, carry_forward(axis, link)) for axis, link in zip(target_axes, links.links))
 
-    def with_unit_merged(self, unit: Unit) -> "OmeZarrAxes":
+    def _with_unit_merged(self, unit: Unit) -> "OmeZarrAxes":
         """Override any .unit property on self.values with provided (only for axes where provided has non-empty string)."""
         aligned = unit.with_axes(self.keys())
         replaced = self.__class__((a, replace(ax, unit=aligned[a]) if aligned[a] else ax) for a, ax in self.items())
@@ -369,7 +369,7 @@ class OmeZarrAxes(_AxisMapping[AxisKey, OmeZarrAxis]):
         result = self.__class__((a, aligned_other[a].with_fields_overridden_by(self[a])) for a in self)
         return result if result != self else self
 
-    def conflicts_with_unit(self, unit: Unit) -> Dict[AxisKey, Tuple[str, str]]:
+    def _conflicts_with_unit(self, unit: Unit) -> Dict[AxisKey, Tuple[str, str]]:
         """Return {axis: (self_unit, other_unit)} for axes where both self and `unit` state a non-blank,
         disagreeing unit. Different spellings of the same unit ("nm" and "nanometer") do not disagree.
         Empty (falsy) if there's no conflict; axes present on only one side never conflict."""

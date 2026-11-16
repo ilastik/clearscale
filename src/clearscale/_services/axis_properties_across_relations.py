@@ -54,14 +54,14 @@ def reconcile_axis_prop_params(
     unit = Unit.empty(target_axes) if provided_unit is None else Unit(provided_unit)
     parsed_ome_axes = normalize_ome_zarr_axes_param(provided_ome_axes, target_axes)
 
-    conflicts = parsed_ome_axes.conflicts_with_unit(unit)
+    conflicts = parsed_ome_axes._conflicts_with_unit(unit)
     if conflicts:
         raise ValueError(
             f"Conflicting unit between `unit` and `ome_zarr_axes`: "
             f"{ {a: f'{slf!r} vs {oth!r}' for a, (slf, oth) in conflicts.items()} }. Only specify unit once."
         )
 
-    carried_ome_axes = source_ome_axes.with_axes_carried_over(target_axes, links)
+    carried_ome_axes = source_ome_axes._with_axes_carried_over(target_axes, links)
     if provided_ome_axes == "infer":
         result = carried_ome_axes
         inserted_axes = {axis for axis, link in zip(target_axes, links.links) if not link.sources}
@@ -71,7 +71,7 @@ def reconcile_axis_prop_params(
     else:
         result = parsed_ome_axes.with_axes(target_axes).with_blanks_filled_from(carried_ome_axes)
 
-    return result.with_unit_merged(unit)
+    return result._with_unit_merged(unit)
 
 
 def merge_ome_zarr_axes(axes_list: Sequence[OmeZarrAxes], *, sources: str, conflict_hint: str) -> OmeZarrAxes:

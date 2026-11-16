@@ -224,13 +224,13 @@ class Scale:
         parsed_ome_axes = normalize_ome_zarr_axes_param(ome_zarr_axes, keys)
 
         if parsed_unit is not None:
-            conflicts = parsed_ome_axes.conflicts_with_unit(parsed_unit)
+            conflicts = parsed_ome_axes._conflicts_with_unit(parsed_unit)
             if conflicts:
                 raise ValueError(
                     f"Conflicting unit between `unit` and `ome_zarr_axes`: "
                     f"{ {a: f'{slf!r} vs {oth!r}' for a, (slf, oth) in conflicts.items()} }. Only specify unit once."
                 )
-            parsed_ome_axes = parsed_ome_axes.with_unit_merged(parsed_unit.with_axes(keys))
+            parsed_ome_axes = parsed_ome_axes._with_unit_merged(parsed_unit.with_axes(keys))
 
         merged_unit = parsed_ome_axes.get_unit()
         final_unit = parsed_unit if parsed_unit == merged_unit else merged_unit  # preserve instance where possible
@@ -2007,7 +2007,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             self.ome_zarr_axes, original.ome_zarr_axes, relation, source_label="this Multiscale", target_label="`other`"
         )
         links = relation._bidirectional_axis_links(self_axes)
-        carried_from_other = original.ome_zarr_axes.with_axes_carried_over(self_axes, links)
+        carried_from_other = original.ome_zarr_axes._with_axes_carried_over(self_axes, links)
         merged_ome_axes = self.ome_zarr_axes.with_blanks_filled_from(carried_from_other)
         if merged_ome_axes == self.ome_zarr_axes:
             intrinsic_ref = self._intrinsic_ref
