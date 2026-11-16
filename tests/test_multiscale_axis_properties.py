@@ -142,7 +142,7 @@ class TestOmeZarrAxes:
                 links,
                 links=tuple(replace(l, has_untraced_coupling=i in untraced) for i, l in enumerate(links.links)),
             )
-        return source.with_axes_carried_over(target_axes, links)
+        return source._with_axes_carried_over(target_axes, links)
 
     def test_with_axes_carried_over_keeps_only_agreeing_values_for_mixed_sources(self):
         source = ome_zarr.Axes(
@@ -194,7 +194,7 @@ class TestOmeZarrAxes:
     def test_with_axes_carried_over_rejects_incompatible_links(self):
         source = ome_zarr.Axes({"x": ome_zarr.Axis(name="x")})
         with pytest.raises(AssertionError, match="Received links for"):
-            source.with_axes_carried_over(("a",), AxisLinks.identity("x"))
+            source._with_axes_carried_over(("a",), AxisLinks.identity("x"))
 
 
 class TestScale:
