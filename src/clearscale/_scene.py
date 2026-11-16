@@ -52,9 +52,30 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Scene:
+    """Describes how the coordinate systems of several Multiscales relate to each other, and where each Multiscale is
+    stored (OME-Zarr 0.6).
+
+    Create a Scene with one of its constructors:
+
+    - [from_shared_coordinate_system][clearscale.Scene.from_shared_coordinate_system] relates any number of
+      Multiscales to one new coordinate system that they share, e.g. tiles to a stage.
+    - [from_multiscale_pair][clearscale.Scene.from_multiscale_pair] relates two Multiscales to each other,
+      e.g. an image to the atlas it was registered to.
+
+    Scenes read from existing metadata start out with path-only placeholder references to their Multiscales.
+    Use [with_resolved][clearscale.Scene.with_resolved] to resolve them.
+
+    Retrieve how two spaces relate using [relation_from][clearscale.Scene.relation_from].
+    """
+
     class Connection(NamedTuple):
-        """One Multiscale's relation to the coordinate system shared by a Scene's Multiscales,
-        for `Scene.from_shared_coordinate_system`. Plain `(source, to_shared, path)` tuples work as well."""
+        """One Multiscale's relation to the coordinate system shared by a Scene's Multiscales.
+
+        This is a construction helper for
+        [Scene.from_shared_coordinate_system][clearscale.Scene.from_shared_coordinate_system] that exists purely so
+        that the code at the call site reads more descriptively: It adds no behavior, and a plain
+        `(source, to_shared, path)` tuple is equivalent.
+        """
 
         source: MultiscaleSystemKey
         """The Multiscale (its own space), or `(multiscale, name)` for one of the other coordinate systems it knows."""
@@ -271,9 +292,7 @@ class Scene:
         """Relate two Multiscales to each other, e.g. an image to the atlas it was registered to.
 
         Use `a_to_b` for the relation that specifies how to reach b from a (a --a_to_b--> b), same as:
-        `a.with_coordinate_system("b", reached_by=a_to_b)`
-        or
-        `a.as_derived_from(b, reached_by=a_to_b)`.
+        `a.with_coordinate_system("b", reached_by=a_to_b)`.
         Spatial relations map coordinates from `a` to `b`: `Translation(p)` adds p to each coordinate,
         while `ProjectionTo(axes)` drops or inserts axes. `SameSpace()` means the same space.
 
@@ -361,6 +380,20 @@ class Scene:
         self,
         multiscales_by_path: Optional[MultiscalesByPath] = None,
     ) -> "Scene":
+        """Replace unresolved path placeholders in this Scene with the Multiscales you retrieved from each path,
+        so that their coordinate systems and axes are known.
+
+        A Scene read from OME-Zarr starts out without Multiscales (see `unresolved_multiscale_paths` and
+        `is_fully_resolved`). Load the Multiscale stored at each path yourself, and pass them here.
+
+        Args:
+            multiscales_by_path: The Multiscale stored at each path, relative to the group that stores the Scene.
+                Paths that this Scene does not know are ignored, and paths that are not provided stay unresolved.
+
+        Raises:
+            ValueError: If a provided Multiscale does not have a coordinate system matching the Scene's expected name at
+                its path, which means it is either a Multiscale from another path, or the metadata was wrong.
+        """
         if not multiscales_by_path or not isinstance(multiscales_by_path, MappingABC):
             return self
         transforms = []
@@ -381,6 +414,11 @@ class Scene:
         return replace(self, _internal_graph=graph, _multiscale_paths=paths)
 
     def to_ome_zarr(self, *, version: str) -> Dict[str, Json]:
+        """Build OME-Zarr "scene" JSON.
+
+        Args:
+            `version´: Must be "0.6"
+        """
         if version != "0.6":
             raise ValueError(f"Scenes can only be written in OME-Zarr version 0.6. Received: {version}")
         return self._internal_graph.to_ome_zarr(version=version, nodes_by_path=self._multiscale_paths)
@@ -404,15 +442,16 @@ class Scene:
           coordinate systems
 
         Returns:
-            `SameSpace()` if the two spaces are the same.
-            None if no relation expresses the connection: There is no way to get from `source` to `to`
-            (e.g. spaces reached by dropping axes can't be traced backwards, or the two are not connected at all), or the
-            connection cannot be expressed as spatial relations, which can happen for Scenes read from OME-Zarr that
-            contain e.g. displacement fields.
+            `SameSpace()` if the two spaces are the same, otherwise one SpatialRelation or a SpatialRelationSequence
+                of them. None if no relation expresses the connection, because there is no way to get from `source`
+                to `to` (e.g. spaces reached by dropping axes can't be traced backwards, or the two are not connected
+                at all), or the connection cannot be expressed as spatial relations, which can happen for Scenes read
+                from OME-Zarr that contain e.g. displacement fields.
 
         Raises:
-            ValueError: If either space can't be found or isn't resolved yet (see `with_resolved`: the axes of
-                spaces of unresolved Multiscales are unknown).
+            ValueError: If either space can't be found or isn't resolved yet (see
+                [with_resolved][clearscale.Scene.with_resolved]: the axes of spaces of unresolved Multiscales are
+                unknown).
         """
         # include_children: Could add optional kwarg if anyone specifically needs to exclude transforms between child
         # multiscales and the additional coordinate systems they define internally. For now kept out of the API.

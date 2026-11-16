@@ -514,7 +514,7 @@ class PixelSize(_AxisFloats[AxisKeyT]):
 class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
     """Describes a shift in physical units.
 
-    As a spatial relation, it can express e.g. a crop offset. Don't also put such an offset into `Scale.translation`.
+    As a spatial relation, it can express e.g. a crop offset.
     """
 
     @classmethod
@@ -600,7 +600,7 @@ class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
         - Extra axes in `factor` are rejected
 
         Note:
-            If passing a scalar, factor 2.0 means double pixel size = half resolution.
+            Values are multiplied by `factor`: `Translation(x=2.0).scaled_by(2.0)` is `Translation(x=4.0)`.
         """
         # Identical to PixelSize.scaled_by. Maybe extract.
         if isinstance(factor, Factor):
@@ -690,7 +690,10 @@ class Unit(_AxisValues[AxisKeyT, str]):
 
 
 class PixelOffset(_AxisValues[AxisKeyT, int]):
-    """Describes the number of pixels of distance from some reference point to another."""
+    """Describes the number of pixels of distance from some reference point to another.
+
+    The index-space counterpart to [Translation][clearscale.Translation], which is physical.
+    """
 
     @classmethod
     def _default(cls) -> int:
@@ -828,7 +831,11 @@ class Shape(_AxisValues[AxisKeyT, int]):
         return scaled_shape
 
     def scaling_to(self, resized: "Shape[AxisKeyT]") -> "Factor[AxisKeyT]":
-        """Return the Factor of this Shape that would produce the `resized` shape."""
+        """Return the Factor that this Shape is divided by to obtain `resized`: `self / factor = resized`.
+
+        The result is exact. Rounding is not considered, so scaling this Shape by the Factor may need to round to reach
+        `resized`.
+        """
         _require_identical_axes(self, resized)
         # In multiscale image context, scaling "factors" are technically divisors for the shape
         # (factor 2.0 means half the shape).

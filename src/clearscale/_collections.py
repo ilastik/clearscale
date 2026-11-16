@@ -45,7 +45,10 @@ class GroupKind(str, Enum):
     Child paths are relative to this group, i.e.  "../ms_0", "../ms_1", etc.
     You will need to strip the leading "../" to get paths relative to the BF2RAW-kind parent group."""
     COLLECTION = "collection"
-    """Generic OME-Zarr container. Contains some combination of the other kinds (some mix of multiscales, scenes and/or children)."""
+    """Generic OME-Zarr container. Contains some combination of the other kinds (some mix of multiscales, scenes and/or children).
+
+    No current OME-Zarr version defines such generic collections, so none of them can be written (see [to_attrs][clearscale.OmeZarrGroup.to_attrs]).
+    """
     INVALID = "invalid"
     """The group's metadata defines multiscales and/or a scene, but all of them are invalid or unsupported (see `OmeZarrGroup.invalid_objects`
     for the reasons), and there is nothing else (valid) in it.
@@ -122,8 +125,10 @@ class OmeZarrGroup:
     multiscales: Tuple[Multiscale, ...] = ()
     scenes: Tuple[Scene, ...] = ()
     children: Tuple[ChildRef, ...] = ()
-    """Contains *all* references to other OME-Zarr objects mentioned in this group's metadata.
-    This includes references to wells, label-multiscales, and multiscales contained in wells or scenes."""
+    """The other groups that this group's metadata points to: the wells of a plate, the images of a well,
+    label multiscales, bioformats2raw series, and the Multiscales that a Scene relates.
+    Each [ChildRef][clearscale.ChildRef] holds the child's path, relative to this group, and what kind of child it is.
+    Groups that are not named in metadata, but may exist, are in `maybe_subgroups` instead."""
     maybe_subgroups: Tuple[str, ...] = ()
     """Contains potentially present subgroups implied by the OME-Zarr standard. "OME" for BF2RAW or 
     "labels" for groups with .multiscales."""
@@ -166,6 +171,9 @@ class OmeZarrGroup:
 
     @classmethod
     def from_single(cls, obj: Union[Multiscale, Scene]) -> "OmeZarrGroup":
+        """The primary constructor for writing: Wrap a Multiscale or Scene in an OmeZarrGroup, to obtain the metadata
+        for its zarr group using `to_attrs`.
+        """
         if isinstance(obj, Multiscale):
             return cls(multiscales=(obj,))
         if isinstance(obj, Scene):
@@ -272,7 +280,8 @@ class OmeZarrGroup:
 
     @classmethod
     def from_group(cls, group: ZarrGroup, *, shape_source: Optional[ShapeSource] = None):
-        """Parse a zarr group's metadata to obtain any Multiscale and Scene definitions it contains.
+        """The primary constructor for reading: Parse a zarr group's metadata to obtain any Multiscale and Scene
+        definitions it contains.
         If the group contains plate, well or labels metadata, collect the contained paths to multiscales.
         Use the provided group as the Multiscale shape_source by default.
         This can be expensive/slow when the group is on a remote server, so consider other shape_source

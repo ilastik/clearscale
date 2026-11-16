@@ -3,5 +3,3 @@
 ::: clearscale.Scale
 
 ::: clearscale.Multiscale
-
-::: clearscale.DuplicatePolicy

@@ -54,7 +54,7 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
 
     Rows are represented by the Coefficient class, mapping {axis : float}.
     Applied to coordinates along the input axes (columns), it produces coordinates along the output axes (rows).
-    In an `Affine` relation, the output axes are those of the source image, and the input axes those of the target.
+    In an `Affine` relation, the input axes are those of the source, and the output axes those of the target.
     """
 
     @staticmethod

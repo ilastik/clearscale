@@ -102,6 +102,10 @@ DEFAULT_NAME_PATTERN = "s{}"
 
 
 class DuplicatePolicy(str, Enum):
+    """For blueprint generator methods; what to do when several generated items end up with the same Shape or Factor.
+    Passed as `on_duplicate`.
+    """
+
     ERROR = "error"
     """Raise if two scale keys have the same shape or factor value."""
     KEEP_ALL = "keep_all"
@@ -1168,7 +1172,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         on_duplicate=DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintFactors":
         """Generate a blueprint where each scale's factor is an exact power of `step`
-        (step**0, step**1, ...).
+        (`step**0`, `step**1`, ...).
 
         When step < 1 (generating upscales), the result is still ordered such that the generated scaled
         shapes will be largest-to-smallest, with factor=1 at the end of the blueprint.
@@ -1271,8 +1275,8 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
             rounding: Used only to project shapes for limit-checking and to detect duplicates internally.
 
         Returns:
-            Each level's per-axis factor (step ** per-axis step count).
-            The returned factor values are exact powers of `step`.
+            Each level's per-axis factor, `step` to the power of that axis's step count. The factor values are exact
+                powers of `step`.
         """
         resolved = cls._resolve_scaled_axes_and_limits(
             step=step, base_shape=base_shape, scaled_axes=scaled_axes, limit_all=limit_all, limit_any=limit_any
@@ -1326,8 +1330,8 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
             rounding: Used only to project shapes for limit-checking and duplicate detection internally.
 
         Returns:
-            Each level's per-axis factor (step ** per-axis step count).
-            The returned factor values are exact powers of `step`.
+            Each level's per-axis factor, 2 to the power of that axis's step count. The factor values are exact
+                powers of 2.
         """
         xyz = [a for a in base_shape if str(a).lower() in ("x", "y", "z")]
         return cls.adaptive_steps(
@@ -2177,17 +2181,16 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         Use to retrieve the `reached_by` relation in `with_coordinate_system(name, reached_by=relation)` or
         `as_derived_from(other, reached_by=relation)`.
 
-        Returns:
-            `SameSpace()` if `name` is the same space as this Multiscale's own (only under another name).
-            Otherwise one SpatialRelation, or a SpatialRelationSequence of them. The result is in
-            canonical form: It describes the same transformation as what was originally specified, but may be
-            structured differently (merged, reordered; renamings last) and may differ by floating point rounding.
-            The target's units and other axis properties are not part of a relation, see `coordinate_system_ome_zarr_axes`.
+        The result is in canonical form: It describes the same transformation as what was originally specified, but may
+        be structured differently (merged, reordered; renamings last) and may differ by floating point rounding.
+        The target's units and other axis properties are not part of a relation, see `coordinate_system_ome_zarr_axes`.
 
-            None if no relation expresses the connection in this direction: It cannot be inverted to this
-            direction (`relation_from_coordinate_system` is the other direction), or it consists of transformations that
-            have no SpatialRelation equivalent, such as displacement fields. Rotations, shears and flips are expressed as
-            `Affine`.
+        Returns:
+            `SameSpace()` if `name` is the same space as this Multiscale's own (only under another name), otherwise one
+                SpatialRelation or a SpatialRelationSequence of them. None if no relation expresses the connection in
+                this direction, because it cannot be inverted to this direction (`relation_from_coordinate_system` is
+                the other direction) or consists of transformations that have no SpatialRelation equivalent, such as
+                displacement fields. Rotations, shears and flips are expressed as `Affine`.
 
         Raises:
             ValueError: If `name` is not one of `self.coordinate_system_names`.
@@ -2217,8 +2220,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         version: Literal["0.4", "0.5", "0.6"],
         name: Optional[str] = None,
     ) -> Dict[str, Json]:
-        """Raises:
-        ValueError: For unrecognized `version`, or if `self.ome` contains invalid metadata.
+        """Return this Multiscale as the contents of an OME-Zarr "multiscales" entry, for the given OME-Zarr `version`.
+
+        Args:
+            name: Optionally, the "name" to write into the metadata.
+
+        Raises:
+            ValueError: For unrecognized `version`, or if `self.ome` contains invalid metadata.
         """
         if version not in ome_zarr.SUPPORTED_VERSIONS_WRITE:
             raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.")
