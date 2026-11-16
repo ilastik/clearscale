@@ -21,7 +21,7 @@ def _multiscale():
 
 def test_stitching_example():
     scene = Scene.from_ome_zarr(scene_stitching())
-    assert scene.unresolved_paths == ["tile_0", "tile_1", "tile_2", "tile_3"]
+    assert scene.unresolved_multiscale_paths == ["tile_0", "tile_1", "tile_2", "tile_3"]
 
 
 def test_registration_example():

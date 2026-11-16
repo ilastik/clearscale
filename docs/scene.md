@@ -159,7 +159,7 @@ scene = cs.OmeZarrGroup.from_group(zarr_group).scenes[0]
 assert not scene.is_fully_resolved
 multiscales = {
     path: cs.OmeZarrGroup.from_group(zarr_group[path]).multiscales[0]
-    for path in scene.unresolved_paths
+    for path in scene.unresolved_multiscale_paths
 }
 scene = scene.with_resolved(multiscales)
 
@@ -241,5 +241,5 @@ Keep in mind:
   A Multiscale that you re-create later, even from identical parameters, has a different generated name.
   The Scene would then no longer find its space in the metadata you wrote, and `with_resolved` rejects it when reading.
 * Use `scene.multiscale_paths` rather than writing the paths out a second time, so that the layout can't drift from the Scene's metadata.
-* A Scene whose Multiscales are not all resolved (see above) can still be written with `to_attrs`, but it can only tell you where the missing Multiscales are supposed to be (`unresolved_paths`), not write them.
+* A Scene whose Multiscales are not all resolved (see above) can still be written with `to_attrs`, but it can only tell you where the missing Multiscales are supposed to be (`unresolved_multiscale_paths`), not write them.
 * Scenes need OME-Zarr 0.6: `to_attrs(version=...)` raises for earlier versions.
