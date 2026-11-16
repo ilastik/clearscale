@@ -221,6 +221,13 @@ class TestEqAndHash:
         assert left == right
         assert {left, right} == {left}, "Value hash should lead to collapse in sets"
 
+    def test_ome_properties_do_not_matter_for_equality(self):
+        left = Multiscale({"s0": Scale(Shape(y=2, x=3))})
+        right = Multiscale({"s0": Scale(Shape(y=2, x=3))})
+        right.ome.name = "something else"
+
+        assert left == right
+
     def test_multiscale_refs_are_hashable(self):
         left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=self._ref("yx", "physical"))
         right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=self._ref("yx", "physical"))

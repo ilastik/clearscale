@@ -310,7 +310,7 @@ If you're not using standard axis keys (`t, c, z, y, x` or a subset), specify at
 If you're scaling the data, make a matching blueprint and add the `blueprint=your_blueprint` parameter to expand the single Scale to multiple scales matching your blueprint.
 Don't forget to supply how your scaling method handles `pixel_sizing`, `translating` and `rounding`.
 
-(Also cf. the other examples in [the top-level readme](https://github.com/ilastik/clearscale#end-to-end-examples))
+(Also cf. the other examples on the [examples page](examples.md).)
 
 #### Deriving a new Multiscale from an existing one
 `derive` is for creating new Multiscales from one of an existing Multiscale's entries.
@@ -355,7 +355,7 @@ for scale_key in new_multiscale.keys():
 ```
 
 If you did not scale the data, you would of course only have one scale, and you would know its key (the array path within the group).
-If you did scale the data, it might be simpler to write the data according to the scaling blueprint you used as shown in the [`README`](https://github.com/ilastik/clearscale#zero-dependencies) examples.
+If you did scale the data, it might be simpler to write the data according to the scaling blueprint you used as shown in the [examples](examples.md).
 
 Generating the new zarr attrs then simply becomes:
 
@@ -428,7 +428,7 @@ Special cases for further path discovery that you may want to handle for full su
 #### Special treatment for advanced OME-Zarr kinds
 
 If a group is `GroupKind.SCENE` (single scene) or `GroupKind.COLLECTION`, the group may contain one or more `.scenes`.
-These are `clearscale.Scene` instances and handle the scene as defined in OME-Zarr version 0.6.
+These are `clearscale.Scene` instances and handle the scene as defined in OME-Zarr version 0.6 (see [Scenes](scene.md)).
 The specifics of the `Scene` class in clearscale are still in development, so expect changes to methods and parameters in the future.
 
 If you want to specially handle HCS plates, you would currently need to implement custom parsing.

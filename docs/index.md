@@ -7,16 +7,16 @@ clearscale helps you handle the metadata, and takes over serialization and deser
 
 ## Features
 
-* Zero dependencies, pure Python
-* Compatible with Python 3.10+
 * Read all OME-Zarr versions (0.1 to 0.6) using one code path - no specific handling per version (unless you want to)
 * Write OME-Zarr versions 0.4, 0.5 and 0.6
+* Zero dependencies, pure Python
+* Compatible with Python 3.10+
 
 ### Highlights
 
-* Ensure accurate multiscale metadata by [characterizing](characterization.md) your scaling method
 * Read and write multiscale transformations into alternate [coordinate systems](space.md) (OME-Zarr 0.6)
 * Read and write transformations between multiscales using [scenes](scene.md) (OME-Zarr 0.6)
+* Ensure accurate multiscale metadata by [characterizing](characterization.md) your scaling method
 
 ## Install
 

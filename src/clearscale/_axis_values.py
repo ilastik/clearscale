@@ -250,7 +250,7 @@ def _require_axes_present(
         )
 
 
-def error_on_round(v: float):
+def error_on_round(v: float) -> int:
     if not v.is_integer():
         raise ValueError(f"The declared rounding method requires integer values. Received {v!r}")
     return int(v)
@@ -359,7 +359,7 @@ class Factor(_AxisFloats[AxisKeyT]):
         """Create a new Factor with `axes` and all values being `factor`."""
         return Factor(zip(axes, [factor] * len(axes)))
 
-    def magnitude(self):
+    def magnitude(self) -> float:
         return math.prod(self.values())
 
     def is_identity(self) -> bool:
@@ -776,7 +776,7 @@ class Shape(_AxisValues[AxisKeyT, int]):
         """Reset the values for `axes` to 1."""
         return super().with_default(axes)
 
-    def without_singletons(self):
+    def without_singletons(self) -> "Shape[AxisKeyT]":
         """Drop all axes where the shape is 1."""
         return self.without_default_values()
 
@@ -811,7 +811,8 @@ class Shape(_AxisValues[AxisKeyT, int]):
 
         Args:
             rounding: Specify how the scaling implementation used to scale the image data treats uneven cases.
-                Allowed: "ceil", "floor", or a function that takes a float and returns an int.
+                Allowed: "ceil", "floor", "round", "round_half_up", "error_on_round",
+                or a function that takes a float and returns an int.
                 Example: When scaling 11 pixels by factor 2, does your method produce 5 or 6 pixels?
                 Common examples:
 
@@ -826,7 +827,7 @@ class Shape(_AxisValues[AxisKeyT, int]):
         def _rescale_size(s: int, f: float) -> int:
             """Rescale a single dimension of a shape.
 
-            Floor-round to match behavior of OpResize, and ensure minimum size is 1.
+            Round with the given rounding method, and ensure minimum size is 1.
             """
             return max(rounding(s / f), self._default())
 
