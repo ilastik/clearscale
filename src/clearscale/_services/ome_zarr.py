@@ -1058,7 +1058,8 @@ def require_valid_scale_keys(scale_keys: Iterable[str]) -> None:
         if not _is_valid_relative_path(str(scale_key)):
             raise ValueError(
                 f"Scale key '{scale_key}' is not a valid relative path. Scale keys are the paths of the data arrays "
-                "inside the zarr group: One or more segments of letters, digits, '.', '_' or '-', separated by '/'."
+                "inside the zarr group: One or more segments of letters, digits, '.', '_' or '-', separated by '/' "
+                "(and no traversal segments like './' or '../')."
             )
 
 

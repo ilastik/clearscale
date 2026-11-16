@@ -314,6 +314,37 @@ class TestScaleKeysMustBeUnique:
             make()
 
 
+class TestBlueprintAxesConsistency:
+    def test_accepts_identical_axes_in_identical_order(self):
+        result = BlueprintShapes({"s0": {"x": 4, "y": 4}, "s1": {"x": 2, "y": 2}})
+
+        assert [list(shape.keys()) for shape in result.values()] == [["x", "y"], ["x", "y"]]
+
+    @pytest.mark.parametrize(
+        "blueprint_cls, first, second",
+        [
+            (BlueprintShapes, {"x": 4, "y": 4}, {"y": 2, "x": 2}),
+            (BlueprintShapes, Shape(x=4, y=4), Shape(y=2, x=2)),
+            (BlueprintFactors, {"x": 1.0, "y": 1.0}, {"y": 2.0, "x": 2.0}),
+            (BlueprintFactors, Factor(x=1.0, y=1.0), Factor(y=2.0, x=2.0)),
+        ],
+    )
+    def test_rejects_differing_axis_order_like_multiscale(self, blueprint_cls, first, second):
+        with pytest.raises(ValueError, match="same axes in the same order"):
+            blueprint_cls({"s0": first, "s1": second})
+
+    @pytest.mark.parametrize(
+        "blueprint_cls, first, second",
+        [
+            (BlueprintShapes, {"x": 4, "y": 4}, {"x": 2, "z": 2}),
+            (BlueprintFactors, {"x": 1.0, "y": 1.0}, {"x": 2.0, "z": 2.0}),
+        ],
+    )
+    def test_rejects_differing_axes(self, blueprint_cls, first, second):
+        with pytest.raises(ValueError, match="same axes in the same order"):
+            blueprint_cls({"s0": first, "s1": second})
+
+
 class TestBlueprintOrderValidation:
     def test_shapes_must_not_increase(self):
         with pytest.raises(ValueError, match="Blueprints must be ordered from largest to smallest"):
@@ -1710,3 +1741,28 @@ class TestScaleMappingWithKeysFunction:
     def test_generated_keys_are_validated(self, shapes):
         with pytest.raises(ValueError, match="not a valid relative path"):
             shapes.with_keys(lambda i, key, shape: f"../bad{i}")
+
+
+class TestBlueprintShapesApplyToScaleAxes:
+    @pytest.fixture
+    def blueprint(self):
+        return BlueprintShapes({"s0": Shape(y=8, x=8), "s1": Shape(y=4, x=4)})
+
+    def test_axes_must_match_the_base_scale_exactly(self, blueprint):
+        with pytest.raises(ValueError, match="Axes must match exactly"):
+            blueprint.apply_to_scale(
+                Scale(Shape(z=2, y=8, x=8)), pixel_sizing="shape_ratio", translating="half_pixel_space_preservation"
+            )
+
+    def test_error_hint_points_to_factors_because_shape_blueprints_would_shrink_the_new_axis(self, blueprint):
+        base = Scale(Shape(z=2, y=8, x=8))
+        kwargs = dict(pixel_sizing="shape_ratio", translating="half_pixel_space_preservation")
+
+        with pytest.raises(ValueError, match=r"to_factors\(\)\.with_axes"):
+            blueprint.apply_to_scale(base, **kwargs)
+
+        # What the hint recommends keeps the base scale's size along the added axis...
+        via_factors = blueprint.to_factors().with_axes("zyx").apply_to_scale(base, rounding="floor", **kwargs)
+        assert via_factors["s1"].shape == Shape(z=2, y=4, x=4)
+        # ...whereas inserting an axis into the shapes means "size 1".
+        assert blueprint.with_axes("zyx")["s0"] == Shape(z=1, y=8, x=8)
