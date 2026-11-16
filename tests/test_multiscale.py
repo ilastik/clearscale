@@ -1,4 +1,5 @@
 import copy
+from collections import OrderedDict
 import re
 from typing import List, Callable
 from unittest import mock
@@ -109,8 +110,11 @@ class TestConstructionAxisRequirements:
         assert [axis.name for axis in ms.ome_zarr_axes.values()] == ["y", "x", "1", "2"]
 
 
-def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
-    return CoordinateSystem(OmeZarrAxes.fromkeys(axes).with_types_inferred())._as_ref(name)
+def test_scale_has_physical_metadata():
+    assert Scale(Shape(y=4, x=4), pixel_size=PixelSize(y=2.0, x=2.0)).has_physical_metadata()
+    assert Scale(Shape(y=4, x=4), unit=Unit(y="nm", x="nm")).has_physical_metadata()
+    assert not Scale(Shape(y=4, x=4)).has_physical_metadata()
+    assert not Scale(Shape(y=4, x=4), translation=Translation(y=1.0, x=1.0)).has_physical_metadata()
 
 
 class TestScaleToDisplayString:
@@ -149,6 +153,10 @@ class TestRequireValidCoordinateSystemName:
 
 
 class TestEqAndHash:
+    @staticmethod
+    def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
+        return CoordinateSystem(OmeZarrAxes.fromkeys(axes).with_types_inferred())._as_ref(name)
+
     def test_blueprint_hash_matches_value_equality(self):
         left = BlueprintShapes({"s0": Shape(y=2, x=3)})
         right = BlueprintShapes({"s0": Shape(y=2, x=3)})
@@ -207,15 +215,15 @@ class TestEqAndHash:
         assert hash(left) != hash(right)
 
     def test_multiscale_equality_and_hash_are_value_based(self):
-        left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
-        right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+        left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=self._ref("yx", "physical"))
+        right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=self._ref("yx", "physical"))
 
         assert left == right
         assert {left, right} == {left}, "Value hash should lead to collapse in sets"
 
     def test_multiscale_refs_are_hashable(self):
-        left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
-        right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=_ref("yx", "physical"))
+        left = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=self._ref("yx", "physical"))
+        right = Multiscale({"s0": Scale(Shape(y=2, x=3))}, _intrinsic_ref=self._ref("yx", "physical"))
 
         assert len({left._as_ref("physical"), right._as_ref("physical")}) == 2
 
@@ -1765,6 +1773,250 @@ class TestScaleMappingWithKeysFunction:
     def test_generated_keys_are_validated(self, shapes):
         with pytest.raises(ValueError, match="not a valid relative path"):
             shapes.with_keys(lambda i, key, shape: f"../bad{i}")
+
+
+class TestBlueprintShapesAxes:
+    def test_are_the_axes_of_the_shapes_in_order(self):
+        blueprint = BlueprintShapes({"s0": Shape(z=4, y=8, x=8), "s1": Shape(z=2, y=4, x=4)})
+
+        assert blueprint.axes == ("z", "y", "x")
+
+
+class TestBlueprintFactorsAxes:
+    def test_are_the_axes_of_the_factors_in_order(self):
+        blueprint = BlueprintFactors({"s0": Factor(z=1.0, y=1.0, x=1.0), "s1": Factor(z=1.0, y=2.0, x=2.0)})
+
+        assert blueprint.axes == ("z", "y", "x")
+
+
+class TestBlueprintFactorsScaledAxes:
+    def test_are_the_axes_where_any_factor_differs_from_one_in_axes_order(self):
+        blueprint = BlueprintFactors(
+            {
+                "s0": Factor(z=1.0, y=1.0, x=1.0),
+                "s1": Factor(z=1.0, y=2.0, x=2.0),
+                "s2": Factor(z=1.0, y=4.0, x=2.0),
+            }
+        )
+
+        assert blueprint.scaled_axes == ("y", "x")
+
+    def test_factors_below_one_count_as_scaled(self):
+        blueprint = BlueprintFactors({"s0": Factor(z=0.5, y=1.0), "s1": Factor(z=0.5, y=1.0)})
+
+        assert blueprint.scaled_axes == ("z",)
+
+    def test_single_scale_has_no_scaled_axes_even_if_not_identity(self):
+        assert BlueprintFactors({"s0": Factor(y=2.0, x=2.0)}).scaled_axes == ()
+
+    def test_all_identity_has_no_scaled_axes(self):
+        assert BlueprintFactors({"s0": Factor(y=1.0), "s1": Factor(y=1.0)}).scaled_axes == ()
+
+
+class TestBlueprintFactorsWithIdentity:
+    @pytest.fixture
+    def blueprint(self):
+        return BlueprintFactors({"s0": Factor(z=1.0, y=1.0, x=1.0), "s1": Factor(z=2.0, y=4.0, x=4.0)})
+
+    def test_resets_given_axes_in_every_scale(self, blueprint):
+        result = blueprint.with_identity("z")
+
+        assert result == BlueprintFactors({"s0": Factor(z=1.0, y=1.0, x=1.0), "s1": Factor(z=1.0, y=4.0, x=4.0)})
+
+    def test_with_identity_except_resets_all_other_axes(self, blueprint):
+        result = blueprint.with_identity_except("z")
+
+        assert result == BlueprintFactors({"s0": Factor(z=1.0, y=1.0, x=1.0), "s1": Factor(z=2.0, y=1.0, x=1.0)})
+
+    def test_keeps_the_scale_keys(self, blueprint):
+        assert list(blueprint.with_identity("z").keys()) == ["s0", "s1"]
+
+
+class TestBlueprintShapesToFactors:
+    @pytest.fixture
+    def shapes(self):
+        return BlueprintShapes({"s0": Shape(y=8, x=8), "s1": Shape(y=4, x=2)})
+
+    def test_reference_defaults_to_the_first_shape(self, shapes):
+        assert shapes.to_factors() == BlueprintFactors({"s0": Factor(y=1.0, x=1.0), "s1": Factor(y=2.0, x=4.0)})
+
+    def test_explicit_reference_is_used(self, shapes):
+        assert shapes.to_factors(Shape(y=16, x=16)) == BlueprintFactors(
+            {"s0": Factor(y=2.0, x=2.0), "s1": Factor(y=4.0, x=8.0)}
+        )
+
+    def test_from_shapes_is_the_same_with_a_required_reference(self, shapes):
+        assert BlueprintFactors.from_shapes(shapes, Shape(y=8, x=8)) == shapes.to_factors(Shape(y=8, x=8))
+
+    def test_from_shapes_accepts_plain_mappings(self):
+        result = BlueprintFactors.from_shapes({"s0": {"x": 8}, "s1": {"x": 2}}, Shape(x=8))
+
+        assert result == BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=4.0)})
+
+
+class TestMultiscaleFromFactors:
+    @pytest.fixture
+    def base(self):
+        return Scale(Shape(y=8, x=8), pixel_size=PixelSize(y=0.5, x=0.5), unit=Unit(y="micrometer", x="micrometer"))
+
+    @pytest.fixture
+    def blueprint(self):
+        return BlueprintFactors({"s0": Factor(y=1.0, x=1.0), "s1": Factor(y=2.0, x=2.0)})
+
+    def test_applies_the_scaling_method_to_the_base_scale(self, base, blueprint):
+        ms = Multiscale.from_factors(
+            blueprint, base, rounding="floor", pixel_sizing="exact_factor", translating="half_pixel_space_preservation"
+        )
+
+        assert list(ms.keys()) == ["s0", "s1"]
+        assert ms["s0"] == base
+        assert ms["s1"].shape == Shape(y=4, x=4)
+        assert ms["s1"].pixel_size == PixelSize(y=1.0, x=1.0)
+        assert ms["s1"].translation == Translation(y=0.25, x=0.25)
+        assert ms["s1"].unit == base.unit
+
+    def test_is_the_same_as_applying_the_blueprint(self, base, blueprint):
+        assert Multiscale.from_factors(
+            blueprint, base, rounding="floor", pixel_sizing="exact_factor", translating=half_pixel_space_preservation
+        ) == blueprint.apply_to_scale(
+            base, rounding="floor", pixel_sizing="exact_factor", translating=half_pixel_space_preservation
+        )
+
+
+class TestMultiscaleStr:
+    def test_lists_each_scale_with_key_shape_and_physical_size(self):
+        ms = Multiscale(
+            {
+                "s0": Scale(
+                    Shape(y=8, x=8), pixel_size=PixelSize(y=0.5, x=0.5), unit=Unit(y="micrometer", x="micrometer")
+                ),
+                "s1": Scale(
+                    Shape(y=4, x=4), pixel_size=PixelSize(y=1.0, x=1.0), unit=Unit(y="micrometer", x="micrometer")
+                ),
+            }
+        )
+
+        assert str(ms) == (
+            "Multiscale(\n"
+            '  "s0" (y: 8, x: 8) at pixel size: y: 0.5 µm, x: 0.5 µm\n'
+            '  "s1" (y: 4, x: 4) at pixel size: y: 1 µm, x: 1 µm\n'
+            ")"
+        )
+
+    def test_names_the_coordinate_systems_after_the_scales(self):
+        ms = Multiscale({"s0": Scale(Shape(y=4, x=4))}).with_coordinate_system("physical")
+
+        assert str(ms) == 'Multiscale(\n  "s0" (y: 4, x: 4)\n) -> physical'
+
+
+class TestMultiscaleReprOptionalParts:
+    def test_plain_multiscale_shows_only_the_scales(self):
+        text = repr(Multiscale({"s0": Scale(Shape(y=4, x=4))}))
+
+        assert text.startswith("Multiscale(\n  {\n    's0': Scale(")
+        assert "ome=" not in text
+        assert "graph:" not in text
+        assert "has_shapes" not in text
+
+    def test_shows_ome_properties_if_set(self):
+        ms = Multiscale({"s0": Scale(Shape(y=4, x=4))})
+        ms.ome.name = "demo"
+
+        assert "ome=MultiscaleProperties(" in repr(ms)
+        assert "name='demo'" in repr(ms)
+
+    def test_shows_the_coordinate_system_graph(self):
+        text = repr(Multiscale({"s0": Scale(Shape(y=4, x=4))}).with_coordinate_system("physical"))
+
+        assert "graph:" in text
+        assert "(<self> -> 'physical'('y', 'x'))=Transform({'type': 'identity'})," in text
+
+
+class TestMultiscaleToOmeZarrName:
+    def test_ome_name_is_written(self):
+        ms = Multiscale({"s0": Scale(Shape(y=4, x=4))})
+        ms.ome.name = "given"
+        assert ms.to_ome_zarr(version="0.5")["name"] == "given"
+
+    def test_no_name_is_written_by_default(self):
+        assert "name" not in Multiscale({"s0": Scale(Shape(y=4, x=4))}).to_ome_zarr(version="0.5")
+
+    def test_updated_ome_name_is_written(self):
+        ms = Multiscale({"s0": Scale(Shape(y=4, x=4))})
+        ms.ome.name = "from-ome"
+        assert ms.to_ome_zarr(version="0.5")["name"] == "from-ome"
+        ms.ome.name = "given"
+        assert ms.to_ome_zarr(version="0.5")["name"] == "given"
+
+
+class TestMultiscaleEqualityWithOtherTypes:
+    @pytest.fixture
+    def scales(self):
+        return {"s0": Scale(Shape(y=4, x=4)), "s1": Scale(Shape(y=2, x=2))}
+
+    def test_equals_a_plain_mapping_of_the_same_scales(self, scales):
+        assert Multiscale(scales) == scales
+
+    def test_does_not_equal_a_mapping_with_different_scales(self, scales):
+        assert Multiscale(scales) != {"s0": Scale(Shape(y=4, x=4))}
+
+    def test_does_not_equal_a_mapping_if_it_has_coordinate_systems(self, scales):
+        assert Multiscale(scales).with_coordinate_system("physical") != scales
+
+    def test_does_not_equal_unrelated_types(self, scales):
+        assert Multiscale(scales) != 5
+        assert Multiscale(scales) != list(scales.items())
+
+
+class TestMultiscaleMakeUniqueName:
+    def test_keeps_a_name_that_is_not_excluded(self):
+        assert Multiscale._make_unique_name("a", ["b"]) == "a"
+
+    def test_appends_the_lowest_free_number_if_excluded(self):
+        assert Multiscale._make_unique_name("a", ["a"]) == "a-1"
+        assert Multiscale._make_unique_name("a", ["a", "a-1", "a-2"]) == "a-3"
+        assert Multiscale._make_unique_name("a", ["a", "a-2"]) == "a-1"
+
+
+class TestScaleMappingRepr:
+    def test_shows_class_name_and_items_in_order(self):
+        blueprint = BlueprintShapes({"s0": Shape(y=8, x=8), "s1": Shape(y=4, x=4)})
+
+        assert repr(blueprint) == "BlueprintShapes({'s0': Shape({'y': 8, 'x': 8}), 's1': Shape({'y': 4, 'x': 4})})"
+
+
+class TestScaleMappingCopy:
+    @pytest.mark.parametrize(
+        "blueprint",
+        [
+            BlueprintShapes({"s0": Shape(y=8, x=8), "s1": Shape(y=4, x=4)}),
+            BlueprintFactors({"s0": Factor(y=1.0, x=1.0), "s1": Factor(y=2.0, x=2.0)}),
+        ],
+        ids=["shapes", "factors"],
+    )
+    def test_is_an_equal_new_object_of_the_same_kind(self, blueprint):
+        copied = blueprint.copy()
+
+        assert copied == blueprint
+        assert copied is not blueprint
+        assert type(copied) is type(blueprint)
+
+
+class TestScaledAxisValuesToDict:
+    def test_is_a_nested_ordered_dict_of_plain_values(self):
+        result = BlueprintShapes({"s0": Shape(y=8, x=8), "s1": Shape(y=4, x=4)}).to_dict()
+
+        assert result == {"s0": {"y": 8, "x": 8}, "s1": {"y": 4, "x": 4}}
+        assert type(result) is OrderedDict
+        assert all(type(inner) is OrderedDict for inner in result.values())
+        assert list(result["s0"]) == ["y", "x"]
+
+    def test_is_a_copy_that_does_not_write_through(self):
+        blueprint = BlueprintShapes({"s0": Shape(y=8, x=8)})
+
+        blueprint.to_dict()["s0"]["y"] = 99
+
+        assert blueprint["s0"] == Shape(y=8, x=8)
 
 
 class TestBlueprintShapesApplyToScaleAxes:
