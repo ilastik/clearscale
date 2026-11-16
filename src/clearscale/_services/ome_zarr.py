@@ -20,6 +20,7 @@ from typing import (
 )
 
 from clearscale._axis_values import Translation, PixelSize, AxisKey, Factor
+from clearscale._services.display import truncated
 from clearscale._services.matrices import is_identity_scale
 from clearscale._transforms import (
     TransformSequence,
@@ -103,7 +104,7 @@ MIN_SPACE_AXES = 2
 MAX_SPACE_AXES = 3
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class InvalidObject:
     """Metadata of a multiscale or scene that clearscale could not accept, and why."""
 
@@ -112,6 +113,13 @@ class InvalidObject:
     """The metadata exactly as found in the group's attributes."""
     error: str
     """Explains why the metadata is invalid or unsupported by clearscale."""
+
+    def __repr__(self):
+        """Truncated, since the metadata can be arbitrarily large and invalid objects are not worth the screen space."""
+        return (
+            f"{type(self).__name__}({self.kind!r}, error={truncated(self.error, 100)!r}, "
+            f"metadata={truncated(repr(self.metadata), 60)})"
+        )
 
 
 @dataclass(slots=True)

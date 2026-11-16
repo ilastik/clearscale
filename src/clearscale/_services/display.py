@@ -17,3 +17,8 @@ def list_truncated(items: Sequence[_T], fmt: Callable[[_T], str], noun: str, *, 
     if len(items) > MAX_LISTED:
         lines.append(f"{indent}... {len(items) - MAX_LISTED} more {noun}")
     return lines
+
+
+def truncated(text: str, max_length: int) -> str:
+    """Cut `text` to at most `max_length` characters, ending in '...' if anything was cut."""
+    return text if len(text) <= max_length else text[: max_length - 3] + "..."

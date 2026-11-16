@@ -6,6 +6,8 @@ import pytest
 from clearscale import Multiscale, Scale, Scene, Shape
 from clearscale._transforms import CoordinateSystem, TranslationTransform
 from clearscale._collections import OmeZarrGroup, GroupKind, ChildRef
+from clearscale._services.display import MAX_LISTED
+from clearscale._services.ome_zarr import InvalidObject
 
 
 @pytest.mark.parametrize(
@@ -712,3 +714,100 @@ class TestFromSingleSceneChildren:
 def test_child_ref_rejects_empty_or_non_string_path(path):
     with pytest.raises(ValueError, match="non-empty string"):
         ChildRef("multiscale", path)
+
+
+class TestInvalidObjectRepr:
+    def test_truncates_error_and_metadata(self):
+        obj = InvalidObject("multiscale", {"datasets": [{"path": str(i)} for i in range(1000)]}, "bad " * 100)
+
+        text = repr(obj)
+
+        assert text.startswith("InvalidObject('multiscale', error='bad bad bad ")
+        assert "..." in text.split("metadata=")[0]
+        assert "metadata={'datasets': [{'path': '0'}, {'path': '1'}" in text
+        assert text.endswith("...)")
+        assert len(text) < 250
+
+    def test_small_objects_are_complete(self):
+        assert (
+            repr(InvalidObject("scene", {"a": 1}, "missing 'b'"))
+            == "InvalidObject('scene', error=\"missing 'b'\", metadata={'a': 1})"
+        )
+
+
+class TestOmeZarrGroupRepr:
+    def test_empty_group(self):
+        assert repr(OmeZarrGroup()) == "OmeZarrGroup()"
+
+    def test_summarizes_each_part_on_one_line(self):
+        group = OmeZarrGroup.from_attrs(
+            {
+                "ome": {
+                    "version": "0.6",
+                    "multiscales": [
+                        {"axes": ["y", "x"], "datasets": [{"path": "s0"}]},
+                        {"bogus": 1},
+                    ],
+                    "labels": ["a"],
+                }
+            },
+            shape_source="singletons",
+        )
+
+        assert repr(group).splitlines() == [
+            "OmeZarrGroup(",
+            "  kind=GroupKind.COLLECTION,",
+            "  version='0.6',",
+            "  multiscales=(",
+            "    Multiscale(axes=('y', 'x'), len(items)=1),",
+            "  ),",
+            "  children=(",
+            "    ChildRef(child_type='label_multiscale', path='a'),",
+            "  ),",
+            "  invalid_objects=(",
+            "    InvalidObject('multiscale', error=\"Invalid OME-Zarr metadata: no datasets in: {'bogus': 1}\", "
+            "metadata={'bogus': 1}),",
+            "  ),",
+            "  maybe_subgroups=(",
+            "    'labels',",
+            "  ),",
+            ")",
+        ]
+
+    def test_summarizes_scenes(self):
+        scene = Scene.from_ome_zarr(
+            {
+                "coordinateSystems": [{"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}],
+                "coordinateTransformations": [
+                    {
+                        "type": "identity",
+                        "input": {"path": "tile", "name": "physical"},
+                        "output": {"name": "world"},
+                    }
+                ],
+            }
+        )
+
+        assert "    Scene(1 transform, 0 multiscales, 1 unresolved path)," in repr(OmeZarrGroup.from_single(scene))
+
+    def test_cuts_off_long_listings(self):
+        n = MAX_LISTED + 4
+        group = OmeZarrGroup(
+            multiscales=tuple(Multiscale.from_single(Scale(Shape(y=i + 1, x=1))) for i in range(n)),
+            children=tuple(ChildRef("label_multiscale", f"label_{i}") for i in range(n)),
+            invalid_objects=tuple(InvalidObject("scene", {}, f"error {i}") for i in range(n)),
+        )
+
+        lines = repr(group).splitlines()
+
+        for noun in ("multiscales", "children", "invalid objects"):
+            assert f"    ... 4 more {noun}" in lines
+        assert len([line for line in lines if line.startswith("    Multiscale(")]) == MAX_LISTED
+        assert len([line for line in lines if line.startswith("    ChildRef(")]) == MAX_LISTED
+        assert len([line for line in lines if line.startswith("    InvalidObject(")]) == MAX_LISTED
+        assert f"label_{MAX_LISTED}" not in repr(group)
+
+    def test_str_is_the_repr(self):
+        group = OmeZarrGroup(multiscales=(Multiscale.from_single(Scale(Shape(y=2, x=2))),))
+
+        assert str(group) == repr(group)

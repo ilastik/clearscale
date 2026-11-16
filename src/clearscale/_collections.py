@@ -8,6 +8,7 @@ import logging
 
 from clearscale._multiscale import Multiscale
 from clearscale._scene import Scene
+from clearscale._services.display import list_truncated
 from clearscale._services.ome_zarr import (
     SUPPORTED_VERSIONS_WRITE,
     ImageLabel,
@@ -115,7 +116,7 @@ def _children_from_attrs(attrs: Mapping[str, Any]) -> Tuple[Tuple[ChildRef, ...]
     return tuple(children), version
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, repr=False)
 class OmeZarrGroup:
     kind: Optional[GroupKind] = None
     """Indicator of this group's *valid* contents. None means empty: The group holds no OME-Zarr metadata at all.
@@ -168,6 +169,29 @@ class OmeZarrGroup:
             raise ValueError(f"Group kind {self.kind!r} does not match its contents; expected {detected_kind!r}.")
 
         object.__setattr__(self, "kind", detected_kind)
+
+    def __repr__(self):
+        parts = []
+        if self.kind is not None:
+            parts.append(f"  kind={type(self.kind).__name__}.{self.kind.name},")
+        if self.version:
+            parts.append(f"  version={self.version!r},")
+        # Valid objects are summarized on one line each; see Multiscale and Scene for their full reprs.
+        sections = (
+            ("multiscales", self.multiscales, lambda ms: ms._summary()),
+            ("scenes", self.scenes, lambda scene: scene._summary()),
+            ("children", self.children, repr),
+            ("invalid_objects", self.invalid_objects, repr),
+            ("maybe_subgroups", self.maybe_subgroups, repr),
+        )
+        for name, items, fmt in sections:
+            if items:
+                parts.append(f"  {name}=(")
+                parts.extend(list_truncated(items, lambda item: f"{fmt(item)},", name.replace("_", " "), indent="    "))
+                parts.append("  ),")
+        if not parts:
+            return f"{type(self).__name__}()"
+        return f"{type(self).__name__}(\n" + "\n".join(parts) + "\n)"
 
     @classmethod
     def from_single(cls, obj: Union[Multiscale, Scene]) -> "OmeZarrGroup":
