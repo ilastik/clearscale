@@ -1081,7 +1081,7 @@ class TestSceneDisplay:
 
         text = repr(scene)
 
-        assert "  unresolved_multiscale_paths=['tile_0', 'tile_1']," in text
+        assert "  unresolved_multiscale_paths=(\n    'tile_0',\n    'tile_1',\n  ),\n" in text + "\n"
         assert "    ('tile_0#physical' -> 'world'('y', 'x'))=Transform(" in text
         assert "\n  multiscale_paths={" not in text
 
@@ -1091,8 +1091,9 @@ class TestSceneDisplay:
 
         lines = repr(scene).splitlines()
 
-        assert "  unresolved_multiscale_paths=['tile_0', " in lines[1]
-        assert lines[1].endswith("... 5 more paths],")
+        section = lines[lines.index("  unresolved_multiscale_paths=(") :]
+        assert section[1] == "    'tile_0',"
+        assert section[MAX_LISTED + 1 : MAX_LISTED + 3] == ["    ... 5 more paths", "  ),"]
         assert f"tile_{MAX_LISTED}" not in repr(scene)
         assert lines[-2] == "    ... 5 more transforms"
         assert len([line for line in lines if "-> 'world'" in line]) == MAX_LISTED

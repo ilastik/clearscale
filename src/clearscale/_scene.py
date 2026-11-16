@@ -134,9 +134,11 @@ class Scene:
             )
             parts.append("  },")
         if self.unresolved_multiscale_paths:
-            parts.append(
-                f"  unresolved_multiscale_paths=[{', '.join(list_truncated(self.unresolved_multiscale_paths, repr, 'paths'))}],"
+            parts.append("  unresolved_multiscale_paths=(")
+            parts.extend(
+                list_truncated(self.unresolved_multiscale_paths, lambda path: f"{path!r},", "paths", indent="    ")
             )
+            parts.append("  ),")
         parts.extend(self._internal_graph._repr_lines(self._path_label))
         if not parts:
             return f"{type(self).__name__}()"
@@ -172,7 +174,7 @@ class Scene:
         return MappingProxyType(self._multiscale_paths)
 
     @functools.cached_property
-    def unresolved_multiscale_paths(self) -> List[RelativePath]:
+    def unresolved_multiscale_paths(self) -> Tuple[RelativePath, ...]:
         """The paths of Multiscales that this Scene refers to, but that are not resolved yet, in order of appearance.
         Provide them using [with_resolved][clearscale.Scene.with_resolved].
         """
@@ -186,7 +188,7 @@ class Scene:
                     continue
                 paths.append(endpoint.path)
                 seen_paths.add(endpoint.path)
-        return paths
+        return tuple(paths)
 
     @functools.cached_property
     def multiscales(self) -> Tuple[Multiscale, ...]:
