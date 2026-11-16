@@ -85,7 +85,7 @@ def test_ome_zarr_group_with_no_metadata():
     "obj, expected_kind",
     [
         (Mock(spec=Multiscale), GroupKind.MULTISCALE),
-        (Mock(spec=Scene, multiscale_paths={}, unresolved_paths=[]), GroupKind.SCENE),
+        (Mock(spec=Scene, multiscale_paths={}, unresolved_multiscale_paths=[]), GroupKind.SCENE),
     ],
 )
 def test_ome_zarr_group_single(obj, expected_kind):
@@ -205,7 +205,7 @@ def test_ome_zarr_group_ignores_legacy_keys_when_ome_present(monkeypatch):
 def test_ome_zarr_group_loads_scene(monkeypatch):
     scene_json = {"name": "test-scene"}
     group = MockZarrGroup(attrs={"ome": {"scene": scene_json}})
-    scene = mock.Mock(unresolved_paths=["path1", "path2"])
+    scene = mock.Mock(unresolved_multiscale_paths=["path1", "path2"])
     with mock.patch("clearscale.Scene.from_ome_zarr", return_value=scene) as scene_construct:
         result = OmeZarrGroup.from_group(group)
 

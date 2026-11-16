@@ -218,7 +218,7 @@ def test_ome_zarr_group_parses_scene_stitching_example():
 
     assert ome_group.kind is GroupKind.SCENE
     assert len(ome_group.scenes) == 1
-    assert ome_group.scenes[0].unresolved_paths == expected_paths
+    assert ome_group.scenes[0].unresolved_multiscale_paths == expected_paths
     assert [child.path for child in ome_group.children] == expected_paths
     assert ome_group.version == "0.6"
 

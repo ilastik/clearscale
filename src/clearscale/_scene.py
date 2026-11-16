@@ -138,7 +138,10 @@ class Scene:
         return MappingProxyType(self._multiscale_paths)
 
     @functools.cached_property
-    def unresolved_paths(self) -> List[RelativePath]:
+    def unresolved_multiscale_paths(self) -> List[RelativePath]:
+        """The paths of Multiscales that this Scene refers to, but that are not resolved yet, in order of appearance.
+        Provide them using [with_resolved][clearscale.Scene.with_resolved].
+        """
         paths = []  # Order might matter to the consumer
         seen_paths = set()
         for t in self._internal_graph.unresolved_transforms:
@@ -154,7 +157,7 @@ class Scene:
     @functools.cached_property
     def multiscales(self) -> Tuple[Multiscale, ...]:
         """The Multiscales this Scene knows, in order of appearance.
-        Paths to additional Multiscales whose metadata has not been loaded yet may be found in `Scene.unresolved_paths`.
+        Paths to additional Multiscales whose metadata has not been loaded yet may be found in `Scene.unresolved_multiscale_paths`.
         """
         multiscales: Dict[int, Multiscale] = {}  # by identity
         for t in self._internal_graph.transforms:

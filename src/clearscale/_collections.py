@@ -178,7 +178,7 @@ class OmeZarrGroup:
             return cls(multiscales=(obj,))
         if isinstance(obj, Scene):
             # Like when reading, children are all the paths the scene points to (resolved or not), deduplicated
-            paths = dict.fromkeys([*obj.multiscale_paths, *obj.unresolved_paths])
+            paths = dict.fromkeys([*obj.multiscale_paths, *obj.unresolved_multiscale_paths])
             return cls(scenes=(obj,), children=tuple(ChildRef("multiscale", path) for path in paths))
         raise TypeError(f"Must be called with a Multiscale or Scene, not {obj!r}")
 
@@ -223,7 +223,7 @@ class OmeZarrGroup:
             try:
                 scene = Scene.from_ome_zarr(scene_json)
                 scenes.append(scene)
-                scene_children.extend(ChildRef("multiscale", path) for path in scene.unresolved_paths)
+                scene_children.extend(ChildRef("multiscale", path) for path in scene.unresolved_multiscale_paths)
             except ValueError as e:
                 invalid.append(InvalidObject("scene", scene_json, str(e)))
             if not version and isinstance(scene_json.get("version"), str) and scene_json.get("version"):
