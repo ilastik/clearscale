@@ -64,7 +64,8 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
 
     @classmethod
     def fromkeys(cls, keys: OrderedAxes) -> "Linear":
-        return cls(zip(keys, [Coefficient.zeros(keys)] * len(keys)))
+        """Create a Linear with the default (identity) row for each of `keys`, like `identity`."""
+        return cls.identity(keys)
 
     @classmethod
     def identity(cls, axes: OrderedAxes) -> "Linear":
