@@ -64,39 +64,19 @@ class TestOmeZarrAxes:
         def __str__(self):
             return self._name
 
-    def test_fromkeys_produces_matching_names(self):
-        axes = ome_zarr.Axes.fromkeys("zyx")
-        assert list(axes.keys()) == ["z", "y", "x"]
-        assert all(axes[a].name == a for a in axes)
+    @pytest.mark.parametrize("mapping_type", [ome_zarr.Axes, CoordinateSystem])
+    @pytest.mark.parametrize("keys", ["zyx", (AxKey("y"), AxKey("x")), (1, 2)])
+    def test_fromkeys_produces_matching_names(self, mapping_type, keys):
+        axes = mapping_type.fromkeys(keys)
+        assert tuple(axes) == tuple(keys)
+        assert [axis.name for axis in axes.values()] == [str(key) for key in keys]
 
-    def test_fromkeys_handles_axis_key_object(self):
-        key = self.AxKey()
-        axes = ome_zarr.Axes.fromkeys([key])
+    @pytest.mark.parametrize("key", ["x", AxKey("x"), 1])
+    @pytest.mark.parametrize("mapping_type", [ome_zarr.Axes, CoordinateSystem])
+    def test_name_autofills_from_key(self, mapping_type, key):
+        axes = mapping_type({key: ome_zarr.Axis(type="space")})
+        assert tuple(axes) == (key,)
         assert axes[key].name == str(key)
-
-    def test_name_autofills_from_key(self):
-        axes = ome_zarr.Axes({"x": ome_zarr.Axis(type="space")})
-        assert axes["x"].name == "x"
-
-    def test_name_autofills_from_axis_key_object(self):
-        key = self.AxKey()
-        axes = ome_zarr.Axes({key: ome_zarr.Axis(type="space")})
-        assert axes[key].name == str(key)
-
-    def test_coordinate_system_fromkeys_handles_axis_key_object(self):
-        key = self.AxKey("x")
-        system = CoordinateSystem.fromkeys([key])
-        assert system[key].name == "x"
-
-    def test_multiscale_with_axis_key_objects_exports_their_str_as_axis_names(self):
-        y, x = self.AxKey("y"), self.AxKey("x")
-        ms = Multiscale(
-            {"s0": Scale(Shape({y: 10, x: 10})), "s1": Scale(Shape({y: 5, x: 5}))},
-        )
-
-        assert [ms.ome_zarr_axes[a].name for a in (y, x)] == ["y", "x"]
-        roundtrip = Multiscale.from_ome_zarr(ms.to_ome_zarr(version="0.6"), shape_source="singletons")
-        assert list(roundtrip.axes) == ["y", "x"]
 
     def test_name_mismatch_raises(self):
         with pytest.raises(ValueError, match="does not match its axis key"):
@@ -386,12 +366,26 @@ class TestMultiscale:
         assert ms.ome_zarr_axes["x"].unit == "micrometer"
         assert ms["s0"].ome_zarr_axes is ms["s1"].ome_zarr_axes, "scales should share same instance for ome axes"
 
-    def test_to_ome_zarr_output_matches_unit_property(self):
-        ms = Multiscale({"s0": Scale(shape=Shape(y=100, x=100), unit=Unit(x="micrometer"))})
-        serialized: Dict[str, Any] = ms.to_ome_zarr(version="0.5")
-        serialized_unit = serialized["axes"][1]["unit"]
-        assert ms.unit["x"] == "micrometer", "sanity check"
-        assert serialized_unit == ms.unit["x"]
+    @pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+    @pytest.mark.parametrize("axis_key", [str, TestOmeZarrAxes.AxKey])
+    def test_to_ome_zarr_output_matches_axis_properties(self, version, axis_key):
+        y, x = axis_key("y"), axis_key("x")
+        ms = Multiscale(
+            {
+                "s0": Scale(shape=Shape({y: 100, x: 100}), unit=Unit({x: "micrometer"})),
+                "s1": Scale(shape=Shape({y: 50, x: 50})),
+            }
+        )
+        serialized: Dict[str, Any] = ms.to_ome_zarr(version=version)
+        assert ms.axes == (y, x)
+        assert [axis.name for axis in ms.ome_zarr_axes.values()] == ["y", "x"]
+        serialized_axes = serialized["coordinateSystems"][0]["axes"] if version == "0.6" else serialized["axes"]
+        assert [axis["name"] for axis in serialized_axes] == ["y", "x"]
+        assert ms.unit[x] == "micrometer", "sanity check"
+        assert serialized_axes[1]["unit"] == ms.unit[x]
+        roundtrip = Multiscale.from_ome_zarr(serialized, shape_source="singletons")
+        assert roundtrip.axes == ("y", "x")
+        assert roundtrip.unit["x"] == ms.unit[x]
 
     def test_complementary_axis_info_merges_without_conflict(self):
         s0 = Scale(shape=Shape(x=100, y=100), unit=Unit(x="micrometer"))

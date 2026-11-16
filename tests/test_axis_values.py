@@ -255,3 +255,10 @@ def test_implemented_dunders_return_not_implemented_for_unsupported_operands():
 def test_unsupported_arithmetic_raises_type_error(operation):
     with pytest.raises(TypeError, match="unsupported operand type"):
         operation()
+
+
+def test_axis_values_allow_keys_with_the_same_str():
+    """Not necessarily desirable or intended behaviour; this test just documents an existing edge case.
+    Multiscale does enforce unique str, but on the primitives it's not per se a problem."""
+    shape = Shape({1: 4, "1": 5})
+    assert tuple(shape.items()) == ((1, 4), ("1", 5))

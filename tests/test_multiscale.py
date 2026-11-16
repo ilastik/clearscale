@@ -96,6 +96,18 @@ class TestConstructionAxisRequirements:
         with pytest.raises(ValueError, match=f"has {n_space}"):
             Multiscale.from_single(Scale.from_lists("abcde", ome_zarr_axes=ome_axes))
 
+    @pytest.mark.parametrize("keys", [("y", "x", 1, "1"), ("y", "x", "1", 1)])
+    def test_rejects_axis_keys_with_the_same_str(self, keys):
+        scale = Scale(Shape(dict.fromkeys(keys, 4)))
+        with pytest.raises(ValueError, match="Axis names must be unique.*same str"):
+            Multiscale.from_single(scale)
+
+    def test_accepts_distinct_non_string_axis_names(self):
+        keys = ("y", "x", 1, 2)
+        ms = Multiscale.from_single(Scale(Shape(dict.fromkeys(keys, 4))))
+        assert ms.axes == keys
+        assert [axis.name for axis in ms.ome_zarr_axes.values()] == ["y", "x", "1", "2"]
+
 
 def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
     return CoordinateSystem(OmeZarrAxes.fromkeys(axes).with_types_inferred())._as_ref(name)
