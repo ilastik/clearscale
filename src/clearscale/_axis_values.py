@@ -830,7 +830,7 @@ class Shape(_AxisValues[AxisKeyT, int]):
         scaled_shape = self.__class__([(a, _rescale_size(size, factor[a])) for a, size in self.items()])
         return scaled_shape
 
-    def scaling_to(self, resized: "Shape[AxisKeyT]") -> "Factor[AxisKeyT]":
+    def factor_to(self, resized: "Shape[AxisKeyT]") -> "Factor[AxisKeyT]":
         """Return the Factor that this Shape is divided by to obtain `resized`: `self / factor = resized`.
 
         The result is exact. Rounding is not considered, so scaling this Shape by the Factor may need to round to reach
@@ -844,4 +844,4 @@ class Shape(_AxisValues[AxisKeyT, int]):
     def __truediv__(self, other: object) -> Union["Factor[AxisKeyT]", NotImplementedType]:
         if not isinstance(other, Shape):
             return NotImplemented
-        return self.scaling_to(other)
+        return self.factor_to(other)

@@ -1323,9 +1323,9 @@ class TestPropertyCarryover:
     """
 
     modifying_functions = [
-        lambda ms: ms.filter_items(lambda key, scale: key != "s1"),
+        lambda ms: ms.with_items_filtered(lambda key, scale: key != "s1"),
         lambda ms: ms.with_keys("level{}"),
-        lambda ms: ms.drop_before("s1"),
+        lambda ms: ms.with_items_dropped_before("s1"),
         lambda ms: ms.with_coordinate_system("physical"),
         # `reached_by` to avoid early-return, skipping the carryover (although the stated affine is semantically wrong)
         lambda ms: ms.as_derived_from(_multiscale("yx", 64), reached_by=Affine.from_factor({"y": 0.5, "x": 0.5})),
@@ -1337,7 +1337,13 @@ class TestPropertyCarryover:
         ["s0", "s1", "s2"],
         ["s0", "s1", "s2"],
     ]
-    function_ids = ["filter_items", "with_keys", "drop_before", "with_coordinate_system", "as_derived_from"]
+    function_ids = [
+        "with_items_filtered",
+        "with_keys",
+        "with_items_dropped_before",
+        "with_coordinate_system",
+        "as_derived_from",
+    ]
 
     @staticmethod
     def _ms_from_ome_zarr(shape_source="real") -> Multiscale:

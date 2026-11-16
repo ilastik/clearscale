@@ -264,7 +264,7 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
 class Affine(SpatialRelation):
     """A full affine transformation consists of a linear matrix and a translation.
 
-    The perspective row required for homogenous coordinates is not represented.
+    The perspective row required for homogeneous coordinates is not represented.
 
     As a spatial relation, Affine maps *physical* coordinates from source to target:
     `x_target = linear @ x_source + translation`.
@@ -301,7 +301,7 @@ class Affine(SpatialRelation):
     ) -> "Affine":
         """Construct an Affine from an array shaped either N x (N+1):
         `[ matrix | offset ]`
-        or homogenous form (N+1) x (N+1):
+        or homogeneous form (N+1) x (N+1):
 
         ```
         [ matrix  | offset ]
@@ -331,14 +331,14 @@ class Affine(SpatialRelation):
                     "Homogeneous affine matrices must end with the perspective row "
                     f"{expected_perspective_row!r}. Received {list(array[-1])!r}."
                 )
-            non_homogenous = array[:-1]
+            non_homogeneous = array[:-1]
         else:
-            non_homogenous = array
-        for i, row in enumerate(non_homogenous):
+            non_homogeneous = array
+        for i, row in enumerate(non_homogeneous):
             if len(row) != expected_cols:
                 raise ValueError(f"Expected {expected_cols} columns for row {i}, received {len(row)}.")
-        linear = Linear.from_array([row[:ndim] for row in non_homogenous], axes)
-        translation = Translation(zip(axes, (row[ndim] for row in non_homogenous)))
+        linear = Linear.from_array([row[:ndim] for row in non_homogeneous], axes)
+        translation = Translation(zip(axes, (row[ndim] for row in non_homogeneous)))
         return cls._from_index_space_if_grids(cls(linear=linear, translation=translation), source, target)
 
     @classmethod
@@ -577,13 +577,13 @@ class Affine(SpatialRelation):
     def to_tuples(self) -> Tuple[Tuple[float, ...], ...]:
         return tuple(row.values_tuple() + (self.translation[axis],) for axis, row in self.linear.items())
 
-    def to_tuples_homogenous(self) -> Tuple[Tuple[float, ...], ...]:
+    def to_tuples_homogeneous(self) -> Tuple[Tuple[float, ...], ...]:
         return self.to_tuples() + ((*(0.0 for _ in self.linear), 1.0),)
 
     def to_lists(self) -> List[List[float]]:
         return [row.values_list() + [self.translation[axis]] for axis, row in self.linear.items()]
 
-    def to_lists_homogenous(self) -> List[List[float]]:
+    def to_lists_homogeneous(self) -> List[List[float]]:
         return self.to_lists() + [[*(0.0 for _ in self.linear), 1.0]]
 
     def to_matrix_and_offset(

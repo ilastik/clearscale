@@ -844,7 +844,7 @@ def testOpExportSlot_test_ome_zarr_roundtrip_multiscale():
                 source_key=input_key,
                 scaled_axes=SPATIAL_AXES,
                 rounding="floor",
-            ).filter_items(two_spatials_or_is_input)
+            ).with_items_filtered(two_spatials_or_is_input)
 
         return shapes.with_axes("tczyx").with_sizes(export_shape, only_axes="tc")
 
@@ -854,7 +854,7 @@ def testOpExportSlot_test_ome_zarr_roundtrip_multiscale():
         """We assume people don't generally want to upscale lower-resolution segmentations to raw scale."""
         # Since input_scales is ordered largest-to-smallest, simply drop matching scales before input_key.
         all_matching_scales = _match_target_scales_to_input(export_shape, input_scales, input_key)
-        return all_matching_scales.drop_before(input_key)
+        return all_matching_scales.with_items_dropped_before(input_key)
 
     input_meta = Multiscale.from_ome_zarr(
         {

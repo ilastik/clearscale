@@ -448,7 +448,7 @@ def test_path_backed_affine_round_trips_and_no_ndim():
     ],
 )
 def test_affine_instantiates_with_any_rectangular(matrix):
-    """The bottom row (0,...0, 1) of the homogenous form should not be included"""
+    """The bottom row (0,...0, 1) of the homogeneous form should not be included"""
     _ = AffineTransform(affine=matrix)
 
 

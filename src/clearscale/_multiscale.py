@@ -359,7 +359,7 @@ class Scale:
             translation=self.translation.scaled_by(factors),
         )
 
-    def has_physical_meta(self):
+    def has_physical_metadata(self):
         return not self.unit.is_default() or not self.pixel_size.is_default()
 
     def to_display_string(self, name=""):
@@ -367,7 +367,7 @@ class Scale:
         shape = ", ".join(f"{axis}: {size}" for axis, size in self.shape.items())
         name_and_shape = f'"{name}" ({shape})' if name else f"{shape}"
         pixel_size = ""
-        if self.has_physical_meta():
+        if self.has_physical_metadata():
             axis_strings = []
             for axis in self.shape.keys():
                 if axis == "c":
@@ -486,7 +486,9 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
     def copy(self: _ScaleMappingSelf) -> _ScaleMappingSelf:
         return self.__class__(self._mapping)
 
-    def filter_items(self: _ScaleMappingSelf, keep_func: Callable[[ScaleKey, ValueType], bool]) -> _ScaleMappingSelf:
+    def with_items_filtered(
+        self: _ScaleMappingSelf, keep_func: Callable[[ScaleKey, ValueType], bool]
+    ) -> _ScaleMappingSelf:
         items = [(k, v) for k, v in self.items() if keep_func(k, v)]
         return self._with_items(items)
 
@@ -526,7 +528,7 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
                 raise ValueError(f"All new scale keys must be unique. Received: {new_keys}")
             return self._with_items(zip(new_keys, self.values()))
 
-    def drop_before(self: _ScaleMappingSelf, key: ScaleKey, inclusive=False) -> _ScaleMappingSelf:
+    def with_items_dropped_before(self: _ScaleMappingSelf, key: ScaleKey, inclusive=False) -> _ScaleMappingSelf:
         keys = list(self.keys())
         if key not in keys:
             raise KeyError(f"No such scale: '{key}' (available: {keys})")
@@ -1055,7 +1057,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
     def to_factors(self, reference: Optional[Shape] = None) -> "BlueprintFactors":
         if reference is None:
             reference = self.first_value
-        factors = [Shape(reference).scaling_to(scale_shape) for scale_shape in self.values()]
+        factors = [Shape(reference).factor_to(scale_shape) for scale_shape in self.values()]
         return BlueprintFactors(zip(self.keys(), factors))
 
     def apply_to_scale(
@@ -1097,7 +1099,7 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
                 "pixel_sizing='exact_factor' indicates that only BlueprintFactors.apply_to_scale can compute the correct output pixel size"
             )
         if pixel_sizing == "shape_ratio":
-            factor = base.shape.scaling_to(target_shape)
+            factor = base.shape.factor_to(target_shape)
         elif pixel_sizing == "corner_ratio":
             factor = Factor(
                 {
@@ -1400,7 +1402,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
 
     def apply_to_scale(
         self,
-        scale: Scale,
+        base: Scale,
         *,
         rounding: RoundingMethod,
         pixel_sizing: PixelSizingMethod,
@@ -1415,27 +1417,27 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
 
         shift_function = resolve_translating(translating)
         # KEEP_ALL: The blueprint is authoritative on the scales it wants to generate.
-        shapes = self.to_shapes(scale.shape, rounding=rounding, on_duplicate=DuplicatePolicy.KEEP_ALL)
+        shapes = self.to_shapes(base.shape, rounding=rounding, on_duplicate=DuplicatePolicy.KEEP_ALL)
 
         if pixel_sizing != "exact_factor":
             # For shape_ratio/corner_ratio, the correct meta depends only on the shapes -> forward
-            return shapes.apply_to_scale(scale, translating=shift_function, pixel_sizing=pixel_sizing)
+            return shapes.apply_to_scale(base, translating=shift_function, pixel_sizing=pixel_sizing)
 
         # exact_factor needs this blueprint's own nominal Factors
         scales = []
         for scale_key, target_shape in shapes.items():
-            new_pixel_size = scale.pixel_size.scaled_by(self[scale_key])
+            new_pixel_size = base.pixel_size.scaled_by(self[scale_key])
             scales.append(
                 (
                     scale_key,
                     Scale(
                         shape=target_shape,
                         pixel_size=new_pixel_size,
-                        unit=scale.unit,
+                        unit=base.unit,
                         translation=BlueprintShapes._compute_translation(
-                            scale, target_shape, new_pixel_size, shift_function
+                            base, target_shape, new_pixel_size, shift_function
                         ),
-                        ome_zarr_axes=scale.ome_zarr_axes,
+                        ome_zarr_axes=base.ome_zarr_axes,
                     ),
                 )
             )
@@ -1467,7 +1469,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     Ref instance identity mostly works semantically "correctly" in "manipulator" methods:
 
-    - filter_items, with_keys, drop_before, with_coordinate_system and copy return "the same space, viewed differently".
+    - with_items_filtered, with_keys, with_items_dropped_before, with_coordinate_system and copy return "the same space, viewed differently".
       They preserve `self._intrinsic_ref` and other NodeRefs inside the graph, maintaining identity.
     - .from_* (and hence .derive) return "a new space". New _intrinsic_ref (the result is not the same space).
       as_derived_from reconnects the new space back to its origin, via an explicit SpatialRelation.
@@ -1729,7 +1731,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             scale_shape = Shape(zip(axis_keys, get_shape(scale_key)))
             if base_shape is None:
                 base_shape = scale_shape
-            relative_scale_factor = base_shape.scaling_to(scale_shape)
+            relative_scale_factor = base_shape.factor_to(scale_shape)
             relative_scale_pixel_size = PixelSize.identity(axis_keys).scaled_by(relative_scale_factor)
             dataset_transforms = dataset.get("coordinateTransformations")
             scale_pixel_size, scale_translation, zero_scale_axes = ome_zarr.scale_meta_from_dataset_transforms(
