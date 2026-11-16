@@ -46,9 +46,13 @@ from clearscale._spatial_relations import (
     SpatialRelationSequence,
 )
 from clearscale._transforms._base import _is_owner_coordinate_system
-from clearscale._services.display import MAX_LISTED
 
-from .ome_zarr.multiscale_examples import minimal_multiscale_examples_params, maximal_multiscale_examples_params
+from clearscale._services.display import MAX_LISTED
+from .ome_zarr.multiscale_examples import (
+    OME_ZARR_MAX_MS_0_6,
+    minimal_multiscale_examples_params,
+    maximal_multiscale_examples_params,
+)
 
 
 def test_scale_enforces_or_adapts_axis_order_by_shape():
@@ -1485,7 +1489,7 @@ class TestMultiscaleRepr:
     @staticmethod
     def _graph_section(ms: Multiscale) -> list[str]:
         lines = repr(ms).splitlines()
-        return lines[lines.index("  graph=(") :] if "  graph=(" in lines else []
+        return lines[lines.index("  graph:") :] if "  graph:" in lines else []
 
     def test_has_no_graph_section_without_further_coordinate_systems(self):
         assert self._graph_section(Multiscale({"s0": Scale(Shape(y=10, x=10))})) == []
@@ -1496,9 +1500,8 @@ class TestMultiscaleRepr:
         )
 
         assert self._graph_section(ms) == [
-            "  graph=(",
+            "  graph:",
             "    (<self> -> 'deskewed'('y', 'x'))=Transform({'type': 'translation', 'translation': [1.0, 2.0]}),",
-            "  )",
             ")",
         ]
 
@@ -1510,12 +1513,20 @@ class TestMultiscaleRepr:
         )
 
         assert self._graph_section(ms) == [
-            "  graph=(",
+            "  graph:",
             "    (<self> -> 'a'('y', 'x'))=Transform({'type': 'translation', 'translation': [1.0, 2.0]}),",
             "    (<self> -> 'b'('y', 'x'))=Transform({'type': 'translation', 'translation': [3.0, 4.0]}),",
-            "  )",
             ")",
         ]
+
+    def test_lists_declared_systems_and_names_unresolved_endpoints(self):
+        ms = Multiscale.from_ome_zarr(OME_ZARR_MAX_MS_0_6, shape_source="singletons")
+
+        section = self._graph_section(ms)
+
+        assert any(line.startswith("    'renamed'=CoordinateSystem(") for line in section)
+        assert "    (<self> -> 'renamed'('t', 'c', 'z', 'i', 'j'))=Transform({'type': 'identity'})," in section
+        assert any(line.startswith("    (<self> -> 'external')=Transform(") for line in section)
 
     def test_cuts_off_long_graphs(self):
         ms = Multiscale({"s0": Scale(Shape(y=10, x=10))})

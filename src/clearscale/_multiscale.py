@@ -78,7 +78,6 @@ from clearscale._services.axis_properties_across_relations import (
     merge_ome_zarr_axes,
     require_consistent_axis_properties,
 )
-from clearscale._services.display import limited
 from clearscale._services.units import unit_conversion_factor
 from clearscale._services.translating import resolve_translating
 from clearscale.types import (
@@ -1571,29 +1570,11 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             parts.append(f"  ome={self.ome!r},")
         if not self.has_shapes:
             parts.append("  has_shapes=False,")
-        if self._transform_graph.transforms or len(self._transform_graph.system_refs) > 1:
-
-            def label(ref):
-                return "<self>" if ref == self._intrinsic_ref else f"{ref.name!r}{ref.owner.axes}"
-
-            parts.append("  graph=(")
-            parts.extend(
-                limited(
-                    [ref for ref in self._transform_graph.system_refs if ref != self._intrinsic_ref],
-                    lambda ref: f"{ref.name!r}={ref.owner!r},",
-                    "coordinate systems",
-                    indent="    ",
-                )
+        parts.extend(
+            self._transform_graph._repr_lines(
+                lambda ref: "<self>" if ref == self._intrinsic_ref else None, hide=[self._intrinsic_ref]
             )
-            parts.extend(
-                limited(
-                    self._transform_graph.transforms,
-                    lambda t: f"({label(t.source)} -> {label(t.target)})=Transform({t.unbound().to_ome_zarr('0.6')}),",
-                    "transforms",
-                    indent="    ",
-                )
-            )
-            parts.append("  )")
+        )
         return f"{type(self).__name__}(\n" + "\n".join(parts) + "\n)"
 
     def __str__(self):
