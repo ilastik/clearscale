@@ -274,6 +274,46 @@ class TestBlueprintWithSizes:
         assert result == BlueprintFactors({"s0": Factor(x=1.0, y=2.0), "s1": Factor(x=10.0, y=4.0)})
 
 
+class TestScaleKeysMustBeStrings:
+    @pytest.mark.parametrize(
+        "make",
+        [
+            lambda: BlueprintShapes({1: Shape(x=4)}),
+            lambda: BlueprintFactors({1: Factor(x=1.0)}),
+            lambda: Multiscale({1: Scale(Shape(y=4, x=4))}),
+            lambda: BlueprintShapes({"s0": Shape(x=4), "s1": Shape(x=2)}).with_keys([1, 2]),  # type: ignore[reportArgumentType]
+            lambda: BlueprintShapes({"s0": Shape(x=4), "s1": Shape(x=2)}).with_keys(lambda i, key, shape: i),  # type: ignore[reportArgumentType]
+        ],
+        ids=["shapes", "factors", "multiscale", "with_keys sequence", "with_keys function"],
+    )
+    def test_non_string_keys_are_rejected_even_if_their_str_is_a_valid_path(self, make):
+        with pytest.raises(TypeError, match="Scale keys must be strings"):
+            make()
+
+
+class TestScaleKeysMustBeUnique:
+    def test_accepts_one_shot_iterables_of_pairs(self):
+        pairs = iter([("s0", Shape(x=4)), ("s1", Shape(x=2))])
+
+        assert list(BlueprintShapes(pairs).keys()) == ["s0", "s1"]
+
+    def test_accepts_mapping_and_kwargs(self):
+        assert list(BlueprintShapes({"s0": Shape(x=4)}, s1=Shape(x=2)).keys()) == ["s0", "s1"]
+
+    @pytest.mark.parametrize(
+        "make",
+        [
+            lambda: BlueprintShapes([("s0", Shape(x=4)), ("s0", Shape(x=2))]),
+            lambda: BlueprintFactors([("s0", Factor(x=1.0)), ("s0", Factor(x=2.0))]),
+            lambda: Multiscale([("s0", Scale(Shape(x=4))), ("s0", Scale(Shape(x=2)))]),
+        ],
+        ids=["shapes", "factors", "multiscale"],
+    )
+    def test_rejects_duplicate_keys_instead_of_collapsing_them(self, make):
+        with pytest.raises(ValueError, match=r"Scale keys must be unique. Received: \['s0', 's0'\]"):
+            make()
+
+
 class TestBlueprintOrderValidation:
     def test_shapes_must_not_increase(self):
         with pytest.raises(ValueError, match="Blueprints must be ordered from largest to smallest"):
@@ -797,6 +837,26 @@ def _with_extra_system(ms: Multiscale, name: str) -> Multiscale:
 def test_multiscale_coordinate_systems_does_not_contain_own_intrinsic():
     ms = _with_extra_system(_multiscale(), "world")
     assert ms.coordinate_system_names == ("world",)
+
+
+class TestKeysByShape:
+    def test_groups_keys_with_equal_shapes_in_order(self):
+        ms = Multiscale(
+            {
+                "s0": Scale(Shape(y=8, x=8)),
+                "s1": Scale(Shape(y=4, x=4)),
+                "s2": Scale(Shape(y=4, x=4)),
+            }
+        )
+
+        assert dict(ms.keys_by_shape) == {Shape(y=8, x=8): ("s0",), Shape(y=4, x=4): ("s1", "s2")}
+
+    def test_result_is_read_only_so_the_cache_cannot_be_corrupted(self):
+        ms = Multiscale({"s0": Scale(Shape(y=8, x=8))})
+
+        with pytest.raises(TypeError):
+            ms.keys_by_shape[Shape(y=1, x=1)] = ("bogus",)  # type: ignore[index]
+        assert dict(ms.keys_by_shape) == {Shape(y=8, x=8): ("s0",)}
 
 
 class TestMultiscaleAsDerivedFrom:
@@ -1587,3 +1647,66 @@ class TestMultiscaleRepr:
     def test_summary_names_axes_and_number_of_items(self):
         ms = Multiscale({"s0": Scale(Shape(y=10, x=10)), "s1": Scale(Shape(y=5, x=5))})
         assert ms._summary() == "Multiscale(axes=('y', 'x'), len(items)=2)"
+
+
+class TestScaleMappingWithKeys:
+    @pytest.fixture
+    def shapes(self):
+        return BlueprintShapes({"s0": Shape(x=8), "s1": Shape(x=4), "s2": Shape(x=2)})
+
+    def test_pattern_gets_the_scale_index(self, shapes):
+        assert list(shapes.with_keys("level{:02d}").keys()) == ["level00", "level01", "level02"]
+
+    def test_returns_the_same_kind_and_leaves_the_original_alone(self, shapes):
+        result = shapes.with_keys("n{}")
+
+        assert type(result) is BlueprintShapes
+        assert list(shapes.keys()) == ["s0", "s1", "s2"]
+
+    @pytest.mark.parametrize("pattern", ["s", "{}{}", "s{i}", "s{0}"])
+    def test_pattern_needs_exactly_one_anonymous_placeholder(self, shapes, pattern):
+        with pytest.raises(ValueError, match="exactly one anonymous placeholder"):
+            shapes.with_keys(pattern)
+
+    @pytest.mark.parametrize("new_keys", [["a", "b", "c"], ("a", "b", "c")])
+    def test_sequence_assigns_keys_in_order(self, shapes, new_keys):
+        result = shapes.with_keys(new_keys)
+
+        assert list(result.keys()) == ["a", "b", "c"]
+        assert list(result.values()) == list(shapes.values())
+
+    def test_sequence_needs_one_key_per_scale(self, shapes):
+        with pytest.raises(ValueError, match="Must provide a new key for every current key"):
+            shapes.with_keys(["a", "b"])
+
+    def test_sequence_must_be_unique(self, shapes):
+        with pytest.raises(ValueError, match="All new scale keys must be unique"):
+            shapes.with_keys(["a", "a", "c"])
+
+
+class TestScaleMappingWithKeysFunction:
+    @pytest.fixture
+    def shapes(self):
+        return BlueprintShapes({"s0": Shape(x=8), "s1": Shape(x=4), "s2": Shape(x=2)})
+
+    def test_function_gets_index_old_key_and_value(self, shapes):
+        result = shapes.with_keys(lambda i, key, shape: f"{i}-{key}-{shape['x']}")
+
+        assert list(result.keys()) == ["0-s0-8", "1-s1-4", "2-s2-2"]
+        assert list(result.values()) == list(shapes.values())
+
+    def test_generated_keys_must_be_unique(self, shapes):
+        with pytest.raises(ValueError, match="All new scale keys must be unique. Generated"):
+            shapes.with_keys(lambda i, key, shape: "same")
+
+    def test_function_with_wrong_arity_explains_the_expected_signature(self, shapes):
+        with pytest.raises(TypeError, match="must accept scale's integer index, the old scale key"):
+            shapes.with_keys(lambda i: "x")
+
+    def test_other_type_errors_of_the_function_are_not_masked(self, shapes):
+        with pytest.raises(TypeError, match="unsupported operand"):
+            shapes.with_keys(lambda i, key, shape: None + 1)  # type: ignore[operator]
+
+    def test_generated_keys_are_validated(self, shapes):
+        with pytest.raises(ValueError, match="not a valid relative path"):
+            shapes.with_keys(lambda i, key, shape: f"../bad{i}")
