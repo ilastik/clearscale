@@ -113,6 +113,30 @@ def _ref(axes: str, name: str) -> NodeRef[CoordinateSystem]:
     return CoordinateSystem(OmeZarrAxes.fromkeys(axes).with_types_inferred())._as_ref(name)
 
 
+class TestScaleToDisplayString:
+    def test_shape_only(self):
+        assert Scale(Shape(y=4, x=4)).to_display_string() == "y: 4, x: 4"
+
+    def test_name_is_quoted_before_the_shape(self):
+        assert Scale(Shape(y=4, x=4)).to_display_string("s0") == '"s0" (y: 4, x: 4)'
+
+    def test_pixel_size_with_abbreviated_units_skips_channels(self):
+        scale = Scale(
+            Shape(t=2, c=3, y=4, x=4),
+            pixel_size=PixelSize(t=1.0, c=1.0, y=0.5, x=0.5),
+            unit=Unit(t="second", c="", y="micrometer", x="micrometer"),
+        )
+
+        assert (
+            scale.to_display_string("s1") == '"s1" (t: 2, c: 3, y: 4, x: 4) at pixel size: t: 1 s, y: 0.5 µm, x: 0.5 µm'
+        )
+
+    def test_axes_without_unit_show_px_except_time(self):
+        scale = Scale(Shape(y=4, x=4), pixel_size=PixelSize(y=2.0, x=2.0))
+
+        assert scale.to_display_string() == "y: 4, x: 4 at pixel size: y: 2 px, x: 2 px"
+
+
 class TestRequireValidCoordinateSystemName:
     @pytest.mark.parametrize("name", ["a", "physical", "with space", "0", " ", "ü/-_."])
     def test_accepts_non_empty_strings(self, name):

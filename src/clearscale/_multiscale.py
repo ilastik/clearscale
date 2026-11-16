@@ -367,21 +367,20 @@ class Scale:
         abbreviated_unit = self.unit.abbreviated()
         shape = ", ".join(f"{axis}: {size}" for axis, size in self.shape.items())
         name_and_shape = f'"{name}" ({shape})' if name else f"{shape}"
-        pixel_size = ""
+        pixel_size_text = ""
         if self.has_physical_metadata():
             axis_strings = []
-            for axis in self.shape.keys():
+            for axis, size in self.pixel_size.items():
                 if axis == "c":
                     continue
-                pixel_size = self.pixel_size[axis]
                 unit = ""
                 if abbreviated_unit[axis]:
                     unit = f" {abbreviated_unit[axis]}"
                 elif axis != "t":
                     unit = " px"
-                axis_strings.append(f"{axis}: {pixel_size:g}{unit}")
-            pixel_size = " at pixel size: " + ", ".join(axis_strings)
-        return f"{name_and_shape}{pixel_size}"
+                axis_strings.append(f"{axis}: {size:g}{unit}")
+            pixel_size_text = " at pixel size: " + ", ".join(axis_strings)
+        return f"{name_and_shape}{pixel_size_text}"
 
     @staticmethod
     def _require_matching_length(values: Optional[Sequence[Any]], reference: Sequence[Any], param_name: str) -> None:
