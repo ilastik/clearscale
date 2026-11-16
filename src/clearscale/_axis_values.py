@@ -45,6 +45,13 @@ def _axis_in(axis: AxisKey, axes: Axes) -> bool:
     return axis in axes
 
 
+def _validated_axes(axes: OrderedAxesT) -> Tuple[AxisKey, ...]:
+    ordered_axes = tuple(axes)
+    if len(set(ordered_axes)) != len(ordered_axes):
+        raise ValueError(f"Duplicate axes are not allowed: {ordered_axes!r}")
+    return ordered_axes
+
+
 class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, AxisMappedHashable]):
     """Base class for "tagged dictionaries" that map axis keys to values (like shape, pixel size, unit).
 
@@ -145,7 +152,8 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
 
     @classmethod
     def fromkeys(cls: type[_AxisValuesSelf], keys: OrderedAxesT) -> _AxisValuesSelf:
-        return cls(zip(keys, [cls._default()] * len(keys)))
+        keys = _validated_axes(keys)
+        return cls((axis, cls._default()) for axis in keys)
 
     def is_default(self) -> bool:
         """Check if all values in this metadata are the default value."""
@@ -155,6 +163,7 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
         """Order like axes. Drop axes, or insert new axes with default value if necessary."""
         if not axes:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to: {axes!r}")
+        axes = _validated_axes(axes)
         reordered_items = [(a, self[a] if a in self else self._default()) for a in axes]
         return self.__class__(reordered_items)
 
@@ -342,7 +351,8 @@ class Factor(_AxisFloats[AxisKeyT]):
     @classmethod
     def uniform(cls, axes: OrderedAxesT, factor: Scalar) -> "Factor[AxisKeyT]":
         """Create a new Factor with `axes` and all values being `factor`."""
-        return Factor(zip(axes, [factor] * len(axes)))
+        axes = _validated_axes(axes)
+        return Factor((axis, factor) for axis in axes)
 
     def magnitude(self) -> float:
         return math.prod(self.values())

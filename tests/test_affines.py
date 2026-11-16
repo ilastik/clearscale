@@ -1146,3 +1146,29 @@ def test_scipy_pull_conversion_requires_explicit_inversion_and_reversed_grids():
     matrix, offset = push.inverted().to_matrix_and_offset(source=output_grid, target=input_grid)
     assert _flat(matrix) == pytest.approx([0, 1, 1, 0])
     assert offset == pytest.approx([2, 3])
+
+
+@pytest.mark.parametrize("axes", ["xx", (1, 1)])
+@pytest.mark.parametrize(
+    "factory",
+    [
+        Coefficient.zeros,
+        Linear.fromkeys,
+        Linear.identity,
+        Affine.identity,
+        lambda axes: Linear.from_array([[1, 0], [0, 1]], axes),
+        lambda axes: Affine.from_array([[1, 0, 0], [0, 1, 0]], axes),
+        lambda axes: Affine.from_matrix_and_offset([[1, 0], [0, 1]], [0, 0], axes),
+        lambda axes: Linear.identity("xy").with_axes(axes),
+        lambda axes: Affine.identity("xy").with_axes(axes),
+    ],
+)
+def test_axis_factories_reject_duplicate_axes(factory, axes):
+    with pytest.raises(ValueError, match="Duplicate axes"):
+        factory(axes)
+
+
+def test_linear_factories_preserve_distinct_keys_with_equal_strings():
+    linear = Linear.identity((1, "1"))
+    assert linear.axes == (1, "1")
+    assert linear.with_axes(("1", 1)).axes == ("1", 1)

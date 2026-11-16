@@ -16,6 +16,7 @@ from clearscale._axis_values import (
     Scalar,
     Translation,
     _require_identical_axes,
+    _validated_axes,
     Unit,
 )
 from clearscale._services.units import unit_conversion_factor
@@ -69,12 +70,12 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
 
     @classmethod
     def identity(cls, axes: OrderedAxes) -> "Linear":
-        axes = tuple(axes)
+        axes = _validated_axes(axes)
         return cls({axis: cls._default(axes, axis) for axis in axes})
 
     @classmethod
     def from_array(cls, array: Sequence[Sequence[Scalar]], axes: OrderedAxes) -> "Linear":
-        axes = tuple(axes)
+        axes = _validated_axes(axes)
         if len(array) != len(axes):
             raise ValueError(f"Expected {len(axes)} rows for axes {axes!r}, received {len(array)}.")
 
@@ -132,6 +133,7 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
         """Order like axes. Drop axes, or insert new identity axes if necessary."""
         if not axes:
             raise ValueError(f"Cannot create empty Linear. Attempted reorder to: {axes!r}")
+        axes = _validated_axes(axes)
         identity_rows = Linear.identity(axes)
         reordered_items = [(a, self[a].with_axes(axes) if _axis_in(a, self) else identity_rows[a]) for a in axes]
         return self.__class__(reordered_items)
@@ -278,7 +280,7 @@ class Affine(SpatialRelation):
 
     @classmethod
     def identity(cls, axes: OrderedAxes) -> "Affine":
-        axes = tuple(axes)
+        axes = _validated_axes(axes)
         return cls(linear=Linear.identity(axes), translation=Translation.identity(axes))
 
     @classmethod
@@ -308,7 +310,7 @@ class Affine(SpatialRelation):
         source/target grids are used to convert to physical coordinates.
         See [from_matrix_and_offset][clearscale.Affine.from_matrix_and_offset] for more detail.
         """
-        axes = tuple(axes)
+        axes = _validated_axes(axes)
         ndim = len(axes)
         expected_cols = ndim + 1  # Each row is Linear + translation
         if len(array) not in (ndim, expected_cols):
@@ -365,7 +367,7 @@ class Affine(SpatialRelation):
         This gives the physical push mapping from input to output. Without grids, construct from physical
         pull values and call `.inverted()`.
         """
-        axes = tuple(axes)
+        axes = _validated_axes(axes)
         if len(offset) != len(axes):
             raise ValueError(f"Expected offset of length {len(axes)} for axes {axes!r}, received {len(offset)}.")
         affine = cls(linear=Linear.from_array(matrix, axes), translation=Translation(zip(axes, offset)))
@@ -483,6 +485,7 @@ class Affine(SpatialRelation):
 
     def with_axes(self, axes: OrderedAxes) -> "Affine":
         """Order like axes. Drop axes, or insert new identity axes if necessary."""
+        axes = _validated_axes(axes)
         return self.__class__(
             linear=self.linear.with_axes(axes),
             translation=self.translation.with_axes(axes),
