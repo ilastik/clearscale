@@ -272,7 +272,7 @@ class Scale:
             ome_zarr_axes=self.ome_zarr_axes.with_axes(axes, infer_inserted_types=infer_inserted_types),
         )
 
-    def with_axis_types_inferred(self):
+    def with_axis_types_inferred(self) -> "Scale":
         return Scale(
             shape=self.shape,
             pixel_size=self.pixel_size,
@@ -361,9 +361,10 @@ class Scale:
         )
 
     def has_physical_metadata(self):
+        """True if this Scale has any unit or any pixel size other than the default."""
         return not self.unit.is_default() or not self.pixel_size.is_default()
 
-    def to_display_string(self, name=""):
+    def to_display_string(self, name: str = "") -> str:
         abbreviated_unit = self.unit.abbreviated()
         shape = ", ".join(f"{axis}: {size}" for axis, size in self.shape.items())
         name_and_shape = f'"{name}" ({shape})' if name else f"{shape}"
@@ -634,7 +635,7 @@ class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
         return self._with_values([value.with_axes(axes) for value in self.values()])
 
     @staticmethod
-    def _require_positive_resampling_step(step: Union[int, float]):
+    def _require_positive_resampling_step(step: Union[int, float]) -> None:
         if step <= 0:
             raise ValueError(f"Cannot resample by a negative step size (received: {step})")
 
@@ -857,9 +858,9 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         limit_all: Optional[ShapeLike] = None,
         limit_any: Optional[ShapeLike] = None,
         scaled_axes: Optional[Axes] = None,
-        max_levels=42,
-        name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+        max_levels: int = 42,
+        name_pattern: str = DEFAULT_NAME_PATTERN,
+        on_duplicate: DuplicatePolicy = DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintShapes":
         """Generate a blueprint where each scale is a `step` downsampling of the previous scale.
         Applies scaling uniformly to all axes until they become singleton.
@@ -921,8 +922,8 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         limit_all: Optional[ShapeLike] = None,
         limit_any: Optional[ShapeLike] = None,
         max_levels: int = 42,
-        name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+        name_pattern: str = DEFAULT_NAME_PATTERN,
+        on_duplicate: DuplicatePolicy = DuplicatePolicy.KEEP_FIRST,
     ):
         """Generate a blueprint where each scale is a 2x downsampling of the previous scale.
         Apply scaling uniformly to axes "z", "y" and "x".
@@ -954,9 +955,9 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         limit_all: Optional[ShapeLike] = None,
         limit_any: Optional[ShapeLike] = None,
         scaled_axes: Optional[Axes] = None,
-        max_levels=42,
-        name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+        max_levels: int = 42,
+        name_pattern: str = DEFAULT_NAME_PATTERN,
+        on_duplicate: DuplicatePolicy = DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintShapes":
         """Generate a blueprint that first converges scaled axes toward isotropic physical pixel
         size, then steps all of them together by `step`, like `uniform_steps`.
@@ -1005,8 +1006,8 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
         limit_all: Optional[ShapeLike] = None,
         limit_any: Optional[ShapeLike] = None,
         max_levels: int = 42,
-        name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+        name_pattern: str = DEFAULT_NAME_PATTERN,
+        on_duplicate: DuplicatePolicy = DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintShapes":
         """Generate a blueprint where each scale is a 2x downsampling of the previous scale.
         Apply scaling to axes "z", "y" and "x", first converging toward isotropic physical pixel size,
@@ -1184,9 +1185,9 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         limit_all: Optional[ShapeLike] = None,
         limit_any: Optional[ShapeLike] = None,
         scaled_axes: Optional[Axes] = None,
-        max_levels=42,
-        name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+        max_levels: int = 42,
+        name_pattern: str = DEFAULT_NAME_PATTERN,
+        on_duplicate: DuplicatePolicy = DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintFactors":
         """Generate a blueprint where each scale's factor is an exact power of `step`
         (`step**0`, `step**1`, ...).
@@ -1246,8 +1247,8 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         limit_all: Optional[ShapeLike] = None,
         limit_any: Optional[ShapeLike] = None,
         max_levels: int = 42,
-        name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+        name_pattern: str = DEFAULT_NAME_PATTERN,
+        on_duplicate: DuplicatePolicy = DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintFactors":
         """Generate a blueprint where each scale factor is successive powers of 2 (1, 2, 4, 8...) along "x", "y" and "z".
         Error if base_shape has none of these axes.
@@ -1279,9 +1280,9 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         limit_all: Optional[ShapeLike] = None,
         limit_any: Optional[ShapeLike] = None,
         scaled_axes: Optional[Axes] = None,
-        max_levels=42,
-        name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+        max_levels: int = 42,
+        name_pattern: str = DEFAULT_NAME_PATTERN,
+        on_duplicate: DuplicatePolicy = DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintFactors":
         """Like [BlueprintShapes.adaptive_steps][clearscale.BlueprintShapes.adaptive_steps], generate factors as powers of
         `step` along `scaled_axes`, first converging `pixel_size` to isotropy and then continuing as uniform steps.
@@ -1334,8 +1335,8 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
         limit_all: Optional[ShapeLike] = None,
         limit_any: Optional[ShapeLike] = None,
         max_levels: int = 42,
-        name_pattern=DEFAULT_NAME_PATTERN,
-        on_duplicate=DuplicatePolicy.KEEP_FIRST,
+        name_pattern: str = DEFAULT_NAME_PATTERN,
+        on_duplicate: DuplicatePolicy = DuplicatePolicy.KEEP_FIRST,
     ) -> "BlueprintFactors":
         """Like [BlueprintShapes.adaptive_powers_of_2_xyz][clearscale.BlueprintShapes.adaptive_powers_of_2_xyz]: Generate
         shape-halving factors (1, 2, 4, 8...) along "x", "y" and "z", first converging `pixel_size` to isotropy and then
@@ -1499,7 +1500,10 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     has_shapes: bool
     """If False, this indicates the Multiscale was generated with fake (all-singleton) shapes."""
     ome: ome_zarr.MultiscaleProperties
-    """Additional props specific to OME-Zarr, customizable by user (mutable!)."""
+    """Additional props specific to OME-Zarr, customizable by user (mutable!).
+
+    The contents do not matter for equality: Multiscales that differ only in `ome` compare equal.
+    """
 
     def __init__(
         self,
@@ -1643,7 +1647,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         pixel_sizing: Optional[PixelSizingMethod] = None,
         translating: Optional[TranslatingMethod] = None,
         rounding: Optional[RoundingMethod] = None,
-    ):
+    ) -> "Multiscale":
         """Expand the provided Scale into a new Multiscale.
 
         If nothing else is provided, this is equivalent to `Multiscale({"s0": scale})`
@@ -1693,7 +1697,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         base: Optional[Scale] = None,
         pixel_sizing: PixelSizingMethod,
         translating: TranslatingMethod,
-    ):
+    ) -> "Multiscale":
         bp = BlueprintShapes(blueprint)
         base = base or Scale(shape=bp.first_value)
         return bp.apply_to_scale(base, pixel_sizing=pixel_sizing, translating=translating)
@@ -1706,7 +1710,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         rounding: RoundingMethod,
         pixel_sizing: PixelSizingMethod,
         translating: TranslatingMethod,
-    ):
+    ) -> "Multiscale":
         return blueprint.apply_to_scale(base, rounding=rounding, pixel_sizing=pixel_sizing, translating=translating)
 
     @classmethod
@@ -1715,7 +1719,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         multiscale_dict: ome_zarr.OME_ZARR_MULTISCALE,
         *,
         shape_source: ShapeSource,
-    ):
+    ) -> "Multiscale":
         """Read a Multiscale, rejecting global transforms that require external payload data.
 
         Raises ValueError for unsupported external transform data, even if other metadata could be recovered.
@@ -1778,7 +1782,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         )
 
     @classmethod
-    def from_precomputed(cls, info_dict: precomputed.INFO_DICT):
+    def from_precomputed(cls, info_dict: precomputed.INFO_DICT) -> "Multiscale":
         precomputed.validate_info_dict(info_dict)
         scales_list = info_dict["scales"]
         num_channels = info_dict.get("num_channels", 1)

@@ -139,10 +139,10 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
     def with_axes_order(self, axes: OrderedAxes) -> "Linear":
         """Order like given axes (but no new insertions or drops)."""
         if not axes:
-            raise ValueError(f"Cannot create empty GeneralLinear. Attempted reorder to {axes!r}.")
+            raise ValueError(f"Cannot create empty Linear. Attempted reorder to {axes!r}.")
         would_drop = tuple(a for a in self if a not in axes)
         if would_drop:
-            raise ValueError(f"Cannot reorder GeneralLinear to axes {axes!r}. This would drop: {would_drop!r}.")
+            raise ValueError(f"Cannot reorder Linear to axes {axes!r}. This would drop: {would_drop!r}.")
         reordered_items = [(a, self[a].with_axes_order(axes)) for a in axes if a in self]
         return self.__class__(reordered_items)
 
@@ -398,7 +398,7 @@ class Affine(SpatialRelation):
     @classmethod
     def from_unit_conversion(
         cls, source_unit: Union[Unit, Mapping[AxisKeyT, str]], target_unit: Union[Unit, Mapping[AxisKeyT, str]]
-    ):
+    ) -> "Affine":
         """Return the Affine that converts from `source_unit` to `target_unit`.
 
         The returned Affine can be used as-is to relate a source to a target with different units:

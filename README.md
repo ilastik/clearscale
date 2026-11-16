@@ -20,8 +20,6 @@ Your application keeps control of array storage, image processing, and the user 
 - **Spatial relationships:** Describe alternate coordinate systems, affine transformations, and relations between images, including OME-Zarr 0.6 scenes.
 - **A small integration footprint:** Pure Python, no runtime dependencies, and typed APIs designed to work with ordinary Python mappings and your choice of array and storage libraries.
 
-Basic reading support for Neuroglancer Precomputed metadata is also included (proof-of-concept for abstraction over different multiscale metadata formats).
-
 ## Installation
 
 Requires Python 3.10 or newer.
