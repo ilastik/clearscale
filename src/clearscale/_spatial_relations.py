@@ -7,7 +7,12 @@ from clearscale.types import AxisKey, OrderedAxes
 
 
 class SpatialRelation(ABC):
-    """A mapping of coordinates from a source space to a target space."""
+    """A mapping of coordinates from a source space to a target space.
+
+    Use this base class for type annotations and `isinstance` checks.
+    Construct relations with clearscale's concrete relation classes, such as `Translation`, `Affine`, or `SameSpace`.
+    Custom subclasses are not a supported extension point.
+    """
 
     @abstractmethod
     def target_axes(self, source_axes: OrderedAxes) -> Tuple[AxisKey, ...]:
