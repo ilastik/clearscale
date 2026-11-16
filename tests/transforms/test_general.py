@@ -37,6 +37,7 @@ def test_transform_name_round_trips():
         }
     )
 
+    assert transform._summary() == "scale [2.0]"
     assert transform._ome_zarr_name == "pixel-size"
     assert transform.to_ome_zarr("0.6") == {
         "type": "scale",
@@ -103,66 +104,95 @@ def test_composed_with_inverse_preserves_type_and_simplifies_to_identity(transfo
 
 
 @pytest.mark.parametrize(
-    ("ome_dict", "expected_type", "expected_roundtrip"),
+    ("ome_dict", "expected_type", "expected_roundtrip", "expected_summary"),
     [
         pytest.param(
             {"type": "identity"},
             IdentityTransform,
             {"type": "identity"},
+            "identity",
             id="identity",
         ),
         pytest.param(
             {"type": "scale", "scale": [1, 0]},
             ScaleTransform,
             {"type": "scale", "scale": [1.0, 0.0]},  # include a pathological zero-scale
+            "scale [1.0, 0.0]",
             id="scale",
         ),
         pytest.param(
             {"type": "translation", "translation": [1, 0]},
             TranslationTransform,
             {"type": "translation", "translation": [1.0, 0.0]},
+            "translation [1.0, 0.0]",
             id="translation",
         ),
         pytest.param(
             {"type": "affine", "affine": [[1, 0, 2], [0, 1, 3]]},
             AffineTransform,
             {"type": "affine", "affine": [[1.0, 0.0, 2.0], [0.0, 1.0, 3.0]]},
+            "affine [[1.0, 0.0, 2.0], [0.0, 1.0, 3.0]]",
             id="affine",
         ),
         pytest.param(
             {"type": "rotation", "rotation": [[0, -1], [1, 0]]},
             RotationTransform,
             {"type": "rotation", "rotation": [[0.0, -1.0], [1.0, 0.0]]},
+            "rotation [[0.0, -1.0], [1.0, 0.0]]",
             id="rotation",
         ),
         pytest.param(
             {"type": "coordinates", "path": "coordinateTransformations/coords", "interpolation": "linear"},
             CoordinatesTransform,
             {"type": "coordinates", "path": "coordinateTransformations/coords", "interpolation": "linear"},
+            "coordinates coordinateTransformations/coords linear",
             id="coordinates",
         ),
         pytest.param(
             {"type": "displacements", "path": "coordinateTransformations/displacements"},
             DisplacementsTransform,
             {"type": "displacements", "path": "coordinateTransformations/displacements"},
+            "displacements coordinateTransformations/displacements",
             id="displacements",
         ),
         pytest.param(
             {"type": "sequence", "transformations": [{"type": "identity"}]},
             TransformSequence,
             {"type": "sequence", "transformations": [{"type": "identity"}]},
+            "identity",
             id="sequence",
+        ),
+        pytest.param(
+            {
+                "type": "sequence",
+                "transformations": [
+                    {"type": "translation", "translation": [1, 2]},
+                    {"type": "sequence", "transformations": [{"type": "scale", "scale": [2, 3]}]},
+                ],
+            },
+            TransformSequence,
+            {
+                "type": "sequence",
+                "transformations": [
+                    {"type": "translation", "translation": [1.0, 2.0]},
+                    {"type": "sequence", "transformations": [{"type": "scale", "scale": [2.0, 3.0]}]},
+                ],
+            },
+            "translation [1.0, 2.0] -> scale [2.0, 3.0]",
+            id="nested-sequence",
         ),
         pytest.param(
             {"type": "mapAxis", "mapAxis": [1, 0]},
             MapAxisTransform,
             {"type": "mapAxis", "mapAxis": [1, 0]},
+            "mapAxis [1, 0]",
             id="mapAxis",
         ),
         pytest.param(
             {"type": "projectAxis", "droppedInputs": [0], "createdOutputs": [0]},
             ProjectAxisTransform,
             {"type": "projectAxis", "droppedInputs": [0], "createdOutputs": [0]},
+            "projectAxis [0] [0]",
             id="projectAxis",
         ),
         pytest.param(
@@ -181,6 +211,7 @@ def test_composed_with_inverse_preserves_type_and_simplifies_to_identity(transfo
                 "forward": {"type": "scale", "path": "coordinateTransformations/forward"},
                 "inverse": {"type": "scale", "path": "coordinateTransformations/inverse"},
             },
+            "bijection",
             id="bijection",
         ),
         pytest.param(
@@ -207,17 +238,21 @@ def test_composed_with_inverse_preserves_type_and_simplifies_to_identity(transfo
                     },
                 ],
             },
+            "byDimension",
             id="byDimension",
         ),
     ],
 )
-def test_transform_from_ome_zarr_parses_all_transform_types(ome_dict, expected_type, expected_roundtrip):
+def test_transform_from_ome_zarr_parses_all_transform_types(
+    ome_dict, expected_type, expected_roundtrip, expected_summary
+):
     """Note that without `input` and `output`, all of these examples are actually invalid.
     Outside a TransformGraph, we can read and round-trip them anyway."""
     transform = Transform.from_ome_zarr(ome_dict)
 
     assert isinstance(transform, expected_type)
     assert transform.to_ome_zarr("0.6") == expected_roundtrip
+    assert transform._summary() == expected_summary
 
 
 def test_transform_graph_rejects_unbound_transforms():
@@ -366,3 +401,23 @@ class TestUnresolvedRef:
         node_ref = ms._as_ref_to_intrinsic()
         with pytest.raises(ValueError, match=r"Unsupported OME-Zarr version .*can only be written to '0.6'"):
             node_ref.to_ome_zarr(version=version)
+
+
+@pytest.mark.parametrize(
+    "ref, expected_compact, expected_verbose",
+    [
+        pytest.param(
+            CoordinateSystem.fromkeys("yx")._as_ref("sys"), "'sys'(y, x)", "'sys'('y', 'x')", id="string-keys"
+        ),
+        pytest.param(CoordinateSystem.fromkeys((1, 2))._as_ref("sys"), "'sys'(1, 2)", "'sys'(1, 2)", id="integer-keys"),
+        pytest.param(
+            TestRefAxesVsOwnerAxes._zyx_multiscale_with_yx_preview_system()._as_ref("preview"),
+            "'preview'(y, x)",
+            "'preview'('y', 'x')",
+            id="multiscale-system",
+        ),
+    ],
+)
+def test_graph_endpoint_labels_use_ref_axes(ref, expected_compact, expected_verbose):
+    assert TransformGraph._repr_label(ref, lambda _: None, compact=True) == expected_compact
+    assert TransformGraph._repr_label(ref, lambda _: None) == expected_verbose

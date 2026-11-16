@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, Iterable, Mapping, NamedTuple, Union, Tuple, Literal
 from typing import Optional, List
 
+from clearscale._services.display import list_truncated
 from clearscale._errors import CannotConvertToSpatialRelationError, MismatchingMultiscaleError
 from clearscale._axis_values import Unit
 from clearscale._multiscale import Multiscale, _require_valid_coordinate_system_name
@@ -50,7 +51,7 @@ Node = Union[Multiscale, NodeRef]
 logger = logging.getLogger(__name__)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class Scene:
     """Describes how the coordinate systems of several Multiscales relate to each other, and where each Multiscale is
     stored (OME-Zarr 0.6).
@@ -117,6 +118,39 @@ class Scene:
 
     def __hash__(self):
         return hash(self._structural_signature())
+
+    def __repr__(self):
+        parts = []
+        if self._multiscale_paths:
+            entries = list(self._multiscale_paths.items())
+            parts.append("  multiscale_paths={")
+            parts.extend(
+                list_truncated(
+                    entries,
+                    lambda e: f"{e[0]!r}: Multiscale(axes={e[1].axes}, len(items)={len(e[1])}),",
+                    "multiscales",
+                    indent="    ",
+                )
+            )
+            parts.append("  },")
+        if self.unresolved_multiscale_paths:
+            parts.append(
+                f"  unresolved_multiscale_paths=[{', '.join(list_truncated(self.unresolved_multiscale_paths, repr, 'paths'))}],"
+            )
+        parts.extend(self._internal_graph._repr_lines(self._path_label))
+        if not parts:
+            return f"{type(self).__name__}()"
+        return f"{type(self).__name__}(\n" + "\n".join(parts) + "\n)"
+
+    def __str__(self):
+        lines = self._internal_graph._str_lines(self._path_label)
+        if self.unresolved_multiscale_paths:
+            lines.append(
+                "  unresolved paths: " + ", ".join(list_truncated(self.unresolved_multiscale_paths, repr, "paths"))
+            )
+        if not lines:
+            return f"{type(self).__name__}()"
+        return f"{type(self).__name__}(\n" + "\n".join(lines) + "\n)"
 
     def _structural_signature(self):
         path_by_instance = {id(ms): path for path, ms in self._multiscale_paths.items()}
@@ -484,6 +518,19 @@ class Scene:
         except CannotConvertToSpatialRelationError as e:
             logger.debug(f"No relation from {source!r} to {to!r}: {e}")
             return None
+
+    @functools.cached_property
+    def _path_by_id(self) -> Dict[int, RelativePath]:
+        return {id(ms): path for path, ms in self._multiscale_paths.items()}
+
+    def _path_label(self, ref: AnyRef) -> Optional[str]:
+        """Name a Multiscale-owned graph endpoint by storage path (`path#name` for non-intrinsic systems)."""
+        if not isinstance(ref, NodeRef) or not isinstance(ref.owner, Multiscale):
+            return None
+        path = self._path_by_id.get(id(ref.owner))
+        if path is None:
+            return None
+        return repr(path if ref.name == ref.owner._intrinsic_ref.name else f"{path}#{ref.name}")
 
     def _transforms_between(
         self, source: _AnyCoordinateSystemKey, target: _AnyCoordinateSystemKey, include_children=False
