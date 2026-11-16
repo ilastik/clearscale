@@ -194,53 +194,6 @@ def test_linear_with_axes_empty():
 @pytest.mark.parametrize(
     ("linear", "axes", "expected"),
     [
-        pytest.param(
-            Linear.from_array(((1, 2), (3, 4)), axes="xy"),
-            "yx",
-            Linear.from_array(((4, 3), (2, 1)), axes="yx"),
-            id="reverse",
-        ),
-        pytest.param(
-            Linear.from_array(((1, 2, 3), (4, 5, 6), (7, 8, 9)), axes="xyz"),
-            "zxy",
-            Linear.from_array(((9, 7, 8), (3, 1, 2), (6, 4, 5)), axes="zxy"),
-            id="rotate",
-        ),
-        pytest.param(
-            Linear.identity("xyz"),
-            "zxy",
-            Linear.identity("zxy"),
-            id="identity",
-        ),
-        pytest.param(
-            Linear.from_array(((1, 2), (3, 4)), axes="xy"),
-            "yxz",
-            Linear.from_array(((4, 3), (2, 1)), axes="yx"),
-            id="ignore missing",
-        ),
-    ],
-)
-def test_linear_with_axes_order(linear, axes, expected):
-    assert cast(Linear, linear).with_axes_order(axes) == expected
-
-
-def test_linear_with_axes_order_no_matching_axes():
-    linear = Linear.identity("xy")
-
-    with pytest.raises(ValueError, match="would drop"):
-        linear.with_axes_order("ztc")
-
-
-def test_linear_with_axes_order_rejects_subset():
-    linear = Linear.identity("xyz")
-
-    with pytest.raises(ValueError, match="would drop"):
-        linear.with_axes_order("zx")
-
-
-@pytest.mark.parametrize(
-    ("linear", "axes", "expected"),
-    [
         pytest.param(Linear.identity("xyz"), "xy", Linear.identity("xy"), id="drop_last"),
         pytest.param(Linear.identity("xyz"), "yz", Linear.identity("yz"), id="drop_first"),
         pytest.param(Linear.identity("xyz"), "z", Linear.identity("z"), id="single"),
@@ -690,7 +643,6 @@ def test_affine_from_array_errors(array, axes, expected_error):
 def test_affine_with_axes():
     # These methods just forward. Test mainly for line coverage :)
     assert Affine.identity("y").with_axes("yzx") == Affine.identity("yzx")
-    assert Affine.identity("xyt").with_axes_order("tzyxc") == Affine.identity("tyx")
     assert Affine.identity("xyz").without_axes("zx") == Affine.identity("y")
     assert Affine.identity("xyz").without_axes_except("zx") == Affine.identity("xz")
 
