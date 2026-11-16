@@ -127,3 +127,27 @@ class TestKeysAccessors:
         shape.keys_list().append("z")
 
         assert shape.keys_list() == ["y", "x"]
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [
+        Shape.all_singletons,
+        Factor.identity,
+        PixelSize.identity,
+        Translation.identity,
+        Unit.empty,
+        lambda axes: Factor.uniform(axes, 2),
+    ],
+)
+def test_default_factories_reject_duplicate_axes(factory):
+    with pytest.raises(ValueError, match="Duplicate axes"):
+        factory("xyx")
+
+
+def test_duplicate_selectors_remain_set_like():
+    shape = Shape(y=2, x=3)
+    assert shape.without_axes("xx") == Shape(y=2)
+    assert shape.without_axes_except("xx") == Shape(x=3)
+    assert shape.with_default("xx") == Shape(y=2, x=1)
+    assert shape.with_default_except("xx") == Shape(y=1, x=3)

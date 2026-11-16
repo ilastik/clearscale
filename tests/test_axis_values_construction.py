@@ -170,3 +170,23 @@ def test_with_axes_reordering_preserves_values_and_ordered_equality(cls):
     assert reordered.with_axes("yx") == original
     assert hash(reordered.with_axes("yx")) == hash(original)
     assert tuple(original.items()) == (("y", y), ("x", x))
+
+
+@pytest.mark.parametrize("cls", ALL_CLASSES)
+@pytest.mark.parametrize("axes", ["xx", (1, 1), ("x", "y", "x")])
+def test_explicit_axis_specifications_reject_duplicates(cls, axes):
+    with pytest.raises(ValueError, match="Duplicate axes"):
+        cls.fromkeys(axes)
+    with pytest.raises(ValueError, match="Duplicate axes"):
+        cls.fromkeys("yx").with_axes(axes)
+
+
+@pytest.mark.parametrize("cls", ALL_CLASSES)
+def test_raw_construction_retains_duplicate_pair_overwriting(cls):
+    y, x = VALID_EXAMPLE[cls]
+    assert cls([("x", y), ("x", x)]) == cls(x=x)
+
+
+@pytest.mark.parametrize("cls", ALL_CLASSES)
+def test_explicit_axis_specifications_preserve_distinct_keys_with_equal_strings(cls):
+    assert cls.fromkeys((1, "1", "x")).keys_tuple() == (1, "1", "x")
