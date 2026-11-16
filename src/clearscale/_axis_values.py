@@ -41,7 +41,7 @@ def _axis_in(axis: AxisKey, axes: Axes) -> bool:
     """Required whenever `axes` should tolerate strings like "xyz",
     because `axis` can be any Hashable, and `hashable_obj in 'tczyx'` raises TypeError"""
     if isinstance(axes, str):
-        return isinstance(axis, str) and axis in axes
+        return isinstance(axis, str) and len(axis) == 1 and axis in axes
     return axis in axes
 
 
@@ -563,7 +563,7 @@ class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
         """Check if this Translation is 0.0 for `axes`."""
         if not axes:
             return True
-        return self.with_axes(axes).is_identity()
+        return self.with_default_except(axes).is_identity()
 
     def __add__(self, other: object) -> Union["Translation[AxisKeyT]", NotImplementedType]:
         if not isinstance(other, Translation):

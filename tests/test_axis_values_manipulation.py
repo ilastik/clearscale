@@ -151,3 +151,55 @@ def test_duplicate_selectors_remain_set_like():
     assert shape.without_axes_except("xx") == Shape(x=3)
     assert shape.with_default("xx") == Shape(y=2, x=1)
     assert shape.with_default_except("xx") == Shape(y=1, x=3)
+
+
+@pytest.mark.parametrize("channel_present", [False, True])
+def test_selectors_allow_optional_channel_axis(channel_present):
+    shape = Shape(y=2, x=3)
+    if channel_present:
+        shape = shape.with_axes("cyx").with_values({"c": 4})
+    assert shape.without_axes("ct") == Shape(y=2, x=3)
+    assert shape.without_axes_except("tzyx") == Shape(y=2, x=3)
+    assert shape.with_default("ct")["x"] == 3
+    assert shape.with_default_except("tzyx").get("c", 1) == 1
+    assert shape.with_values({"x": 5}, only="tcx")["x"] == 5
+
+
+@pytest.mark.parametrize("selector", ["cxy", ("c", "x", "y")])
+def test_string_selectors_match_individual_keys(selector):
+    shape = Shape({"xy": 2, "x": 3, "y": 4, 1: 5, "": 6})
+    assert shape.without_axes(selector) == Shape({"xy": 2, 1: 5, "": 6})
+    assert shape.without_axes_except(selector) == Shape(x=3, y=4)
+    assert shape.with_default(selector) == Shape({"xy": 2, "x": 1, "y": 1, 1: 5, "": 6})
+    assert shape.with_default_except(selector) == Shape({"xy": 1, "x": 3, "y": 4, 1: 1, "": 1})
+    assert shape.with_values({"xy": 9, "x": 9, 1: 9, "": 9}, only=selector) == Shape(
+        {"xy": 2, "x": 9, "y": 4, 1: 5, "": 6}
+    )
+    assert shape.non_singleton_axes(selector) == ("x", "y")
+    assert shape.without_axes_except(("xy", 1)) == Shape({"xy": 2, 1: 5})
+
+
+@pytest.mark.parametrize("cls", [Factor, PixelSize, Translation])
+def test_identity_aliases_use_individual_keys_and_allow_supersets(cls):
+    value = cls({"xy": 2, "x": 3, 1: 4})
+    assert value.with_identity("cxx")["xy"] == 2
+    assert value.with_identity("cxx")["x"] == cls.fromkeys("x")["x"]
+    assert value.with_identity_except("cxx")["x"] == 3
+    assert value.with_identity_except("cxx")["xy"] == cls.fromkeys(("xy",))["xy"]
+
+
+def test_translation_identity_query_uses_set_like_selectors():
+    translation = Translation({"xy": 2, "x": 0, 1: 3})
+    assert translation.is_identity_along("cxxy")
+    assert translation.is_identity_along(())
+    assert not translation.is_identity_along(("xy",))
+    assert not translation.is_identity_along((1,))
+
+
+def test_empty_selectors_keep_existing_filtering_contract():
+    shape = Shape(y=2, x=3)
+    assert shape.without_axes(()) == shape
+    assert shape.with_default(()) == shape
+    assert shape.with_default_except(()) == Shape(y=1, x=1)
+    with pytest.raises(ValueError, match="None of the specified axes"):
+        shape.without_axes_except(())
