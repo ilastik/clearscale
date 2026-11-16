@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale._services.display import MAX_LISTED, counted, list_truncated
+from clearscale._services.display import MAX_LISTED, counted, list_truncated, truncated
 
 
 @pytest.mark.parametrize("count", [0, 1, MAX_LISTED - 1, MAX_LISTED])
@@ -16,5 +16,21 @@ def test_list_truncated_summarizes_the_rest_with_the_noun_and_indent(extra, inde
     assert lines == [f"{indent}{i}" for i in range(MAX_LISTED)] + [f"{indent}... {extra} more numbers"]
 
 
-def test_counted_pluralizes_the_noun():
-    assert [counted(n, "path") for n in (0, 1, 2)] == ["0 paths", "1 path", "2 paths"]
+@pytest.mark.parametrize(
+    "text, max_length, expected",
+    [
+        ("", 5, ""),
+        ("abcd", 5, "abcd"),
+        ("abcde", 5, "abcde"),
+        ("abcdef", 5, "ab..."),
+        ("abcdefgh", 6, "abc..."),
+        ("abcd", 3, "..."),
+    ],
+)
+def test_truncated(text, max_length, expected):
+    assert truncated(text, max_length) == expected
+
+
+@pytest.mark.parametrize("count, expected", [(0, "0 paths"), (1, "1 path"), (2, "2 paths")])
+def test_counted_pluralizes_the_noun(count, expected):
+    assert counted(count, "path") == expected
