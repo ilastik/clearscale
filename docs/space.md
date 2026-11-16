@@ -340,6 +340,7 @@ The two spaces are both physical, so they are the same space, and the correct sc
 Use it for relations the Scales cannot express, such as a rotation or a flip.
 
 Affines with a scaling component are correct only in two main cases:
+
 * When the target system uses a different coordinate scale, such as the original dimensions of an expanded sample.
 * When converting units: `Affine.from_factor({"x": 0.001})` can represent e.g. going from `Unit(x="micrometer")` to `Unit(x="millimeter")`. `Affine.from_unit_conversion(source_unit, target_unit)` helps to get the direction right.
 
