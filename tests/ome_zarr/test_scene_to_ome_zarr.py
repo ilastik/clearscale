@@ -109,7 +109,7 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
 
         read = OmeZarrGroup.from_attrs(attrs, shape_source="singletons").scenes[0]
 
-        assert read.unresolved_multiscale_paths == ["tile_0", "tile_1"]
+        assert read.unresolved_multiscale_paths == ("tile_0", "tile_1")
         assert read.with_resolved({"tile_0": tile_0, "tile_1": tile_1}).multiscale_paths == {
             "tile_0": tile_0,
             "tile_1": tile_1,
