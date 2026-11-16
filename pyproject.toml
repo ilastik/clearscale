@@ -38,7 +38,7 @@ Source = "https://github.com/ilastik/clearscale"
 
 [project.optional-dependencies]
 dev = ["pre-commit", "pytest", "pytest-cov", "pyright"]
-docs = ["zensical==0.0.74", "mkdocstrings-python==2.0.10"]
+docs = ["zensical==0.0.74", "mkdocstrings-python==2.0.10", "black"]
 
 [tool.hatch.version]
 source = "vcs"

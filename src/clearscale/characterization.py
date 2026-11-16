@@ -73,7 +73,7 @@ class ScalingMethodCharacterization:
 
         Raises:
             ValueError: If the characterization has warnings (is questionable), or if `pixel_sizing` is "exact_factor"
-            (only `BlueprintFactors` can compute that; use `to_factor_kwargs` instead).
+                (only `BlueprintFactors` can compute that; use `to_factor_kwargs` instead).
         """
         if self.pixel_sizing == "exact_factor":
             if self.rounding == "indeterminate":
@@ -92,7 +92,7 @@ class ScalingMethodCharacterization:
 
         Raises:
             ValueError: If the characterization describes a shape-scaling method (use `to_shape_kwargs`), could not
-            determine the `rounding` behavior, or has `warnings` (is questionable).
+                determine the `rounding` behavior, or has `warnings` (is questionable).
         """
         if self.rounding == "indeterminate":
             if self.pixel_sizing == "exact_factor":
