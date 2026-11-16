@@ -1172,3 +1172,21 @@ def test_linear_factories_preserve_distinct_keys_with_equal_strings():
     linear = Linear.identity((1, "1"))
     assert linear.axes == (1, "1")
     assert linear.with_axes(("1", 1)).axes == ("1", 1)
+
+
+def test_affine_selectors_match_individual_keys_and_allow_supersets():
+    axes = ("xy", "x", "y", 1)
+    linear = Linear({a: {b: 2 if a == b else 0 for b in axes} for a in axes})
+    affine = Affine(linear=linear, translation=Translation(dict.fromkeys(axes, 3)))
+    assert affine.without_axes("cxxy").axes == ("xy", 1)
+    assert affine.without_axes_except("cxy").axes == ("x", "y")
+    reset = affine.with_identity("cxxy")
+    assert reset.linear.at("xy", "xy") == 2
+    assert reset.linear.at("x", "x") == 1
+    assert reset.translation == Translation({"xy": 3, "x": 0, "y": 0, 1: 3})
+    kept = affine.with_identity_except("cxy")
+    assert kept.linear.at("xy", "xy") == 1
+    assert kept.linear.at("x", "x") == 2
+    assert kept.translation == Translation({"xy": 0, "x": 3, "y": 3, 1: 0})
+    assert linear.with_values({"xy": {"xy": 9}, "x": {"xy": 9, "x": 9}}, only="cxy").at("xy", "xy") == 2
+    assert linear.with_values({"xy": {"xy": 9}, "x": {"xy": 9, "x": 9}}, only="cxy").at("x", "xy") == 0
