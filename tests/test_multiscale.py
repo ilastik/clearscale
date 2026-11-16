@@ -46,6 +46,7 @@ from clearscale._spatial_relations import (
     SpatialRelationSequence,
 )
 from clearscale._transforms._base import _is_owner_coordinate_system
+from clearscale._services.display import MAX_LISTED
 
 from .ome_zarr.multiscale_examples import minimal_multiscale_examples_params, maximal_multiscale_examples_params
 
@@ -1478,3 +1479,51 @@ class TestMultiscaleAsDerivedFromUnitValidation:
             source_label="this Multiscale",
             target_label=target_label,
         )
+
+
+class TestMultiscaleRepr:
+    @staticmethod
+    def _graph_section(ms: Multiscale) -> list[str]:
+        lines = repr(ms).splitlines()
+        return lines[lines.index("  graph=(") :] if "  graph=(" in lines else []
+
+    def test_has_no_graph_section_without_further_coordinate_systems(self):
+        assert self._graph_section(Multiscale({"s0": Scale(Shape(y=10, x=10))})) == []
+
+    def test_lists_transforms_from_itself_to_other_systems(self):
+        ms = Multiscale({"s0": Scale(Shape(y=10, x=10))}).with_coordinate_system(
+            "deskewed", reached_by=Translation(y=1, x=2)
+        )
+
+        assert self._graph_section(ms) == [
+            "  graph=(",
+            "    (<self> -> 'deskewed'('y', 'x'))=Transform({'type': 'translation', 'translation': [1.0, 2.0]}),",
+            "  )",
+            ")",
+        ]
+
+    def test_lists_one_transform_per_added_system_in_order(self):
+        ms = (
+            Multiscale({"s0": Scale(Shape(y=10, x=10))})
+            .with_coordinate_system("a", reached_by=Translation(y=1, x=2))
+            .with_coordinate_system("b", reached_by=Translation(y=3, x=4))
+        )
+
+        assert self._graph_section(ms) == [
+            "  graph=(",
+            "    (<self> -> 'a'('y', 'x'))=Transform({'type': 'translation', 'translation': [1.0, 2.0]}),",
+            "    (<self> -> 'b'('y', 'x'))=Transform({'type': 'translation', 'translation': [3.0, 4.0]}),",
+            "  )",
+            ")",
+        ]
+
+    def test_cuts_off_long_graphs(self):
+        ms = Multiscale({"s0": Scale(Shape(y=10, x=10))})
+        for i in range(MAX_LISTED + 3):
+            ms = ms.with_coordinate_system(f"system_{i}", reached_by=Translation(y=i, x=0))
+
+        section = self._graph_section(ms)
+
+        assert len([line for line in section if line.startswith("    (<self> -> ")]) == MAX_LISTED
+        assert "    ... 3 more transforms" in section
+        assert f"system_{MAX_LISTED}" not in "\n".join(section)
