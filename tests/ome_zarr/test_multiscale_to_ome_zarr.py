@@ -8,7 +8,7 @@ from clearscale._affines import Linear
 from clearscale._axis_values import PixelSize, Shape, Unit, Translation
 from clearscale._multiscale import BlueprintShapes, Multiscale, Scale
 from clearscale._services.ome_zarr import SUPPORTED_VERSIONS_WRITE
-from clearscale._spatial_relations import AxisRearrangementTo
+from clearscale._spatial_relations import AxisRearrangementTo, SpatialRelationSequence
 from clearscale._transforms import (
     ProjectAxisTransform,
     TransformGraph,
@@ -305,4 +305,56 @@ class TestCoordinateSystems06:
                 "input": {"name": ms._intrinsic_ref.name},
                 "output": {"name": "rotated"},
             }
+        ]
+
+
+class TestLegacyScaleAndTranslationWithAxisChanges:
+    """Scale + translation combined with dropping/inserting/reordering axes is written as legacy transformations.
+
+    The graph holds [ProjectAxis, Scale, Translation]; scale-only and translation-only variants always worked.
+    """
+
+    @staticmethod
+    def _affine():
+        return Affine.from_factor({"y": 2.0, "x": 2.0}).with_translation(Translation(y=3.0, x=4.0))
+
+    @pytest.mark.parametrize("version", ["0.4", "0.5"])
+    def test_dropped_axis_is_widened_with_identity_values(self, version):
+        ms = Multiscale({"s0": Scale(Shape(z=4, y=8, x=8))}).with_coordinate_system(
+            "w", reached_by=SpatialRelationSequence((AxisRearrangementTo("yx"), self._affine()))
+        )
+
+        assert ms.to_ome_zarr(version=version)["coordinateTransformations"] == [
+            {"type": "scale", "scale": [1.0, 2.0, 2.0]},
+            {"type": "translation", "translation": [0.0, 3.0, 4.0]},
+        ]
+
+    @pytest.mark.parametrize("target_axes", ["zyx", "xy"])
+    def test_inserted_or_reordered_axes_keep_the_values_in_the_multiscales_axes(self, target_axes):
+        ms = Multiscale({"s0": Scale(Shape(y=8, x=8))}).with_coordinate_system(
+            "w", reached_by=SpatialRelationSequence((self._affine(), AxisRearrangementTo(target_axes)))
+        )
+
+        assert ms.to_ome_zarr(version="0.4")["coordinateTransformations"] == [
+            {"type": "scale", "scale": [2.0, 2.0]},
+            {"type": "translation", "translation": [3.0, 4.0]},
+        ]
+
+    def test_scale_only_and_translation_only_still_work_with_axis_changes(self):
+        base = Multiscale({"s0": Scale(Shape(y=8, x=8))})
+
+        scale_only = base.with_coordinate_system(
+            "w",
+            reached_by=SpatialRelationSequence((Affine.from_factor({"y": 2.0, "x": 2.0}), AxisRearrangementTo("zyx"))),
+        )
+        translation_only = base.with_coordinate_system(
+            "w", reached_by=SpatialRelationSequence((Translation(y=1.0, x=2.0), AxisRearrangementTo("zyx")))
+        )
+
+        assert scale_only.to_ome_zarr(version="0.4")["coordinateTransformations"] == [
+            {"type": "scale", "scale": [2.0, 2.0]}
+        ]
+        assert translation_only.to_ome_zarr(version="0.4")["coordinateTransformations"] == [
+            {"type": "scale", "scale": [1.0, 1.0]},
+            {"type": "translation", "translation": [1.0, 2.0]},
         ]
