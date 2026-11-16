@@ -2218,12 +2218,8 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         self,
         *,
         version: Literal["0.4", "0.5", "0.6"],
-        name: Optional[str] = None,
     ) -> Dict[str, Json]:
         """Return this Multiscale as the contents of an OME-Zarr "multiscales" entry, for the given OME-Zarr `version`.
-
-        Args:
-            name: Optionally, the "name" to write into the metadata.
 
         Raises:
             ValueError: For unrecognized `version`, or if `self.ome` contains invalid metadata.
@@ -2234,9 +2230,6 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         result: Dict[str, Json] = {"version": version, "datasets": datasets}
         if self.ome:
             result.update(self.ome.to_ome_zarr())
-
-        if name:
-            result["name"] = name
 
         # Modern: Multiscale is graph + datasets
         if version not in PRE_TRANSFORMS_VERSIONS:
