@@ -273,6 +273,35 @@ def _normalize_rounding(rounding: RoundingMethod) -> RoundingFunction:
     return rounding
 
 
+def _require_no_extra_factor_axes(base: Mapping[Any, Any], factor: Mapping[Any, Any], base_name: str) -> None:
+    invalid_axes = set(factor.keys()) - set(base.keys())
+    if invalid_axes:
+        raise ValueError(
+            f"Attempted to scale axes with no base {base_name}: "
+            f"{sorted(invalid_axes, key=str)} not present in {sorted(base.keys(), key=str)}"
+        )
+
+
+def _scaled_items(
+    base: "_AxisValues[AxisKeyT, float]",
+    factor: Union["Factor[AxisKeyT]", Mapping[AxisKeyT, float], Scalar],
+    base_name: str,
+) -> List[Tuple[AxisKeyT, float]]:
+    """Multiply the values of `base` by `factor`. Shared by PixelSize and Translation.
+
+    Missing axes in `factor` default to 1.0, a scalar applies to all axes, extra axes are rejected.
+    """
+    if isinstance(factor, Factor):
+        pass
+    elif isinstance(factor, numbers.Real):
+        factor = Factor.uniform(base, float(factor))
+    else:
+        factor = Factor(factor)
+    _require_no_extra_factor_axes(base, factor, base_name)
+    aligned = factor.with_axes(base)
+    return [(a, aligned[a] * base[a]) for a in base]
+
+
 class _AxisFloats(_AxisValues[AxisKeyT, float], ABC):
     """Base for Factor, PixelSize and Translation. Ensures values are floats."""
 
@@ -479,23 +508,7 @@ class PixelSize(_AxisFloats[AxisKeyT]):
         Note:
             If passing a scalar, factor 2.0 means double pixel size = half resolution.
         """
-        if isinstance(factor, Factor):
-            pass
-        elif isinstance(factor, numbers.Real):
-            factor = Factor.uniform(self, float(factor))
-        else:
-            factor = Factor(factor)
-        base_axes = set(self.keys())
-        factor_axes = set(factor.keys())
-        invalid_axes = factor_axes - base_axes
-        if invalid_axes:
-            raise ValueError(
-                f"Attempted to scale axes with no base pixel size: "
-                f"{sorted(invalid_axes, key=str)} not present in {sorted(base_axes, key=str)}"
-            )
-        reordered = factor.with_axes(self)
-        scaled_items = [(a, reordered[a] * self[a]) for a in self]
-        return PixelSize(scaled_items)
+        return PixelSize(_scaled_items(self, factor, "pixel size"))
 
     def __mul__(self, other: object) -> Union["PixelSize[AxisKeyT]", "Translation[AxisKeyT]", NotImplementedType]:
         if isinstance(other, Factor):
@@ -604,24 +617,7 @@ class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
         Note:
             Values are multiplied by `factor`: `Translation(x=2.0).scaled_by(2.0)` is `Translation(x=4.0)`.
         """
-        # Identical to PixelSize.scaled_by. Maybe extract.
-        if isinstance(factor, Factor):
-            pass
-        elif isinstance(factor, numbers.Real):
-            factor = Factor.uniform(self, float(factor))
-        else:
-            factor = Factor(factor)
-        base_axes = set(self.keys())
-        factor_axes = set(factor.keys())
-        invalid_axes = factor_axes - base_axes
-        if invalid_axes:
-            raise ValueError(
-                f"Attempted to scale axes with no base translation: "
-                f"{sorted(invalid_axes, key=str)} not present in {sorted(base_axes, key=str)}"
-            )
-        reordered = factor.with_axes(self)
-        scaled_items = [(a, reordered[a] * self[a]) for a in self]
-        return Translation(scaled_items)
+        return Translation(_scaled_items(self, factor, "translation"))
 
     def to_pixel_offset(
         self,
@@ -824,12 +820,7 @@ class Shape(_AxisValues[AxisKeyT, int]):
         """
         rounding = _normalize_rounding(rounding)
         factor = Factor(factor)
-        invalid_axes = set(factor.keys()) - set(self.keys())
-        if invalid_axes:
-            raise ValueError(
-                f"Attempted to scale axes with no base shape: "
-                f"{sorted(invalid_axes, key=str)} not present in {sorted(self.keys(), key=str)}"
-            )
+        _require_no_extra_factor_axes(self, factor, "shape")
         factor = factor.with_axes(self)
 
         def _rescale_size(s: int, f: float) -> int:
