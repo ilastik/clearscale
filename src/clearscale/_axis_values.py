@@ -277,11 +277,11 @@ class _AxisFloats(_AxisValues[AxisKeyT, float], ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
-            if isinstance(value, numbers.Integral) or isinstance(value, numbers.Real):
-                self._mapping[axis] = float(value)
-                continue
-            if not isinstance(value, float):
+            if isinstance(value, bool) or not isinstance(value, numbers.Real):
                 raise TypeError(f"All values must be float. Got {type(value).__name__} for axis '{axis}'.")
+            if not math.isfinite(value):
+                raise ValueError(f"All values must be finite. Got {value} for axis '{axis}'.")
+            self._mapping[axis] = float(value)
 
 
 class Factor(_AxisFloats[AxisKeyT]):
@@ -702,7 +702,7 @@ class PixelOffset(_AxisValues[AxisKeyT, int]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
-            if not isinstance(value, numbers.Integral):
+            if isinstance(value, bool) or not isinstance(value, numbers.Integral):
                 raise TypeError(f"All values must be integer. Got {type(value).__name__} for axis '{axis}'.")
             self._mapping[axis] = int(value)
 
@@ -752,7 +752,7 @@ class Shape(_AxisValues[AxisKeyT, int]):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for axis, value in self._mapping.items():
-            if not isinstance(value, numbers.Integral):
+            if isinstance(value, bool) or not isinstance(value, numbers.Integral):
                 raise TypeError(f"All values must be integer. Got {type(value).__name__} for axis '{axis}'.")
             if value < 1:
                 raise ValueError(f"Shape cannot be lower than 1 (got {value} for axis '{axis}').")
