@@ -1012,10 +1012,18 @@ def pixel_size_to_scale_with_reintroduced_zeros(
 
 
 def require_valid_axes(axes: OmeZarrAxes, *, system_name: Optional[str] = None) -> None:
-    """Raise if `axes` can't be the axes of a coordinate system in OME-Zarr multiscale metadata: Between 2 and 5 axes
-    of which 2 or 3 are of type "space". `system_name` is None for the Multiscale's own (intrinsic) system."""
+    """Raise if `axes` can't be the axes of a coordinate system in OME-Zarr multiscale metadata: Distinct names,
+    between 2 and 5 axes of which 2 or 3 are of type "space". `system_name` is None for the Multiscale's own
+    (intrinsic) system."""
     where = "this Multiscale" if system_name is None else f"coordinate system {system_name!r}"
     keys = list(axes.keys())
+    keys_by_name: Dict[str, List[AxisKey]] = {}
+    for key in keys:
+        keys_by_name.setdefault(str(key), []).append(key)
+    clashes = {name: same for name, same in keys_by_name.items() if len(same) > 1}
+    if clashes:  # Possible with non-str axis keys, whose str() is what gets written as the axis name
+        details = "; ".join(f"{name!r} for {same!r}" for name, same in clashes.items())
+        raise ValueError(f"Axis names must be unique, but {where} has axis keys with the same str(): {details}.")
     if not MIN_NDIM <= len(keys) <= MAX_NDIM:
         problem = f"Multiscales require {MIN_NDIM} to {MAX_NDIM} axes, but {where} has {len(keys)}: {keys}."
         if system_name is None:
