@@ -136,7 +136,7 @@ def test_pixel_size_mul_offset_multiplication_requires_offset_axes():
         _ = pixel_size * offset
 
 
-def test_shape_divides_shape_to_factor_using_scaling_to_semantics():
+def test_shape_divides_shape_to_factor_using_factor_to_semantics():
     original_shape = Shape([("y", 100), ("x", 50)])
     resized_shape = Shape([("y", 25), ("x", 100)])
 

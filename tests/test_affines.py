@@ -852,9 +852,9 @@ def test_affine_to_tuples_lists():
         translation=Translation((("x", 5), ("y", 6))),
     )
     assert affine.to_tuples() == ((1.0, 2.0, 5.0), (3.0, 4.0, 6.0))
-    assert affine.to_tuples_homogenous() == ((1.0, 2.0, 5.0), (3.0, 4.0, 6.0), (0.0, 0.0, 1.0))
+    assert affine.to_tuples_homogeneous() == ((1.0, 2.0, 5.0), (3.0, 4.0, 6.0), (0.0, 0.0, 1.0))
     assert affine.to_lists() == [[1.0, 2.0, 5.0], [3.0, 4.0, 6.0]]
-    assert affine.to_lists_homogenous() == [[1.0, 2.0, 5.0], [3.0, 4.0, 6.0], [0.0, 0.0, 1.0]]
+    assert affine.to_lists_homogeneous() == [[1.0, 2.0, 5.0], [3.0, 4.0, 6.0], [0.0, 0.0, 1.0]]
 
 
 @pytest.mark.parametrize(

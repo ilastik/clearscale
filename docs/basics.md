@@ -199,7 +199,7 @@ shape = cs.Shape(z=40, y=125, x=125)
 downsampled_shape = cs.Shape(z=20, y=25, x=25)
 
 assert shape / downsampled_shape           == cs.Factor(z=2.0, y=5.0, x=5.0)  # Can be hard to remember which way to divide :)
-assert shape.scaling_to(downsampled_shape) == cs.Factor(z=2.0, y=5.0, x=5.0)  # Explicit phrasing might be more intuitive
+assert shape.factor_to(downsampled_shape) == cs.Factor(z=2.0, y=5.0, x=5.0)  # Explicit phrasing might be more intuitive
 
 # Translations can be added or subtracted, but only with identical axes
 crop1_transl = cs.Translation(y=8.0, x=12.0)
