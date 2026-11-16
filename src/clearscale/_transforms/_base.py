@@ -5,6 +5,7 @@ from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, field, replace, fields
 from itertools import chain
 from typing import (
+    Callable,
     Optional,
     Tuple,
     Dict,
@@ -28,6 +29,7 @@ from clearscale._axis_values import (
     Unit,
 )
 from clearscale._errors import NoSuchCoordinateSystemError, MismatchingMultiscaleError
+from clearscale._services.display import list_truncated
 from clearscale._services.matrices import AxisIndices
 from clearscale._services.units import is_same_unit
 from clearscale._services.axis_links import AxisLink, AxisLinks
@@ -1450,6 +1452,49 @@ class TransformGraph:
         if transform_dicts:
             d["coordinateTransformations"] = transform_dicts
         return d
+
+    def _repr_lines(
+        self, names: Callable[[AnyRef], Optional[str]] = lambda ref: None, *, hide: Iterable[AnyRef] = ()
+    ) -> List[str]:
+        """The `graph:` block for the repr of an object containing this graph (empty if there is nothing to show).
+        It is introduced by a colon rather than `=` because it is a rendering of this graph, not an attribute.
+
+        Args:
+            names: Gives refs the container knows better names for (e.g. "<self>"). Returning None falls back to
+                the default of name and axes.
+            hide: Declared coordinate systems the container shows in some other way.
+        """
+        hidden = tuple(hide)
+        lines = list_truncated(
+            [ref for ref in self.system_refs if ref not in hidden],
+            lambda ref: f"{ref.name!r}={ref.owner!r},",
+            "coordinate systems",
+            indent="    ",
+        )
+        lines.extend(
+            list_truncated(
+                self.transforms,
+                lambda t: (
+                    f"({self._repr_label(t.source, names)} -> {self._repr_label(t.target, names)})="
+                    f"Transform({t.unbound().to_ome_zarr('0.6')}),"
+                ),
+                "transforms",
+                indent="    ",
+            )
+        )
+        return ["  graph:", *lines] if lines else []
+
+    @staticmethod
+    def _repr_label(ref: Optional[AnyRef], names: Callable[[AnyRef], Optional[str]]) -> str:
+        """Name a graph endpoint for display."""
+        if ref is None:  # Graphs only hold bound transforms, but repr must never raise
+            return "<unbound>"
+        name = names(ref)
+        if name is not None:
+            return name
+        if isinstance(ref, _UnresolvedRef):
+            return repr(f"{ref.path}#{ref.name}" if ref.path and ref.name else ref.path or ref.name)
+        return f"{ref.name!r}{ref.axes}"
 
     def path_between(
         self,
