@@ -314,3 +314,212 @@ class TestShapeScaledBy:
 
     def test_empty_only_restricts_to_nothing_like_with_values(self):
         assert Shape(y=2, x=3).matches(Shape(y=5, x=4), only=())
+
+
+class TestFactorMagnitude:
+    def test_is_the_product_over_all_axes(self):
+        assert Factor(y=2.0, x=3.0).magnitude() == 6.0
+
+    def test_identity_has_magnitude_one(self):
+        assert Factor.identity("zyx").magnitude() == 1.0
+
+    def test_upscaling_axes_reduce_it(self):
+        assert Factor(y=0.5, x=4.0).magnitude() == 2.0
+
+
+class TestFactorIsIdentity:
+    def test_true_if_all_axes_are_one(self):
+        assert Factor(y=1.0, x=1.0).is_identity()
+
+    def test_false_if_any_axis_differs(self):
+        assert not Factor(y=1.0, x=2.0).is_identity()
+
+    def test_false_for_up_and_down_scaling_that_cancels_in_magnitude(self):
+        assert not Factor(y=2.0, x=0.5).is_identity()
+
+
+class TestFactorIsDownscaling:
+    def test_true_if_product_above_one(self):
+        assert Factor(y=1.0, x=2.0).is_downscaling()
+
+    def test_false_for_identity_and_upscaling(self):
+        assert not Factor(y=1.0, x=1.0).is_downscaling()
+        assert not Factor(y=1.0, x=0.5).is_downscaling()
+
+    def test_judges_by_product_over_axes_so_mixed_factors_can_be_neither(self):
+        mixed = Factor(y=2.0, x=0.5)
+
+        assert not mixed.is_downscaling()
+        assert not mixed.is_upscaling()
+
+
+class TestFactorIsUpscaling:
+    def test_true_if_product_below_one(self):
+        assert Factor(y=1.0, x=0.5).is_upscaling()
+
+    def test_false_for_identity_and_downscaling(self):
+        assert not Factor(y=1.0, x=1.0).is_upscaling()
+        assert not Factor(y=1.0, x=2.0).is_upscaling()
+
+
+class TestFactorWithIdentity:
+    def test_resets_given_axes_to_one_and_returns_a_factor(self):
+        result = Factor(z=4.0, y=2.0, x=2.0).with_identity("zy")
+
+        assert type(result) is Factor
+        assert result == Factor(z=1.0, y=1.0, x=2.0)
+
+    def test_with_identity_except_resets_all_other_axes(self):
+        assert Factor(z=4.0, y=2.0, x=2.0).with_identity_except("x") == Factor(z=1.0, y=1.0, x=2.0)
+
+
+class TestFactorToPhysical:
+    def test_multiplies_the_base_pixel_size(self):
+        result = Factor(y=2.0, x=4.0).to_physical(PixelSize(y=0.5, x=0.25))
+
+        assert type(result) is PixelSize
+        assert result == PixelSize(y=1.0, x=1.0)
+
+    def test_axes_missing_from_the_factor_keep_the_base_pixel_size(self):
+        result = Factor(y=2.0, x=2.0).to_physical(PixelSize(z=3.0, y=0.5, x=0.25))
+
+        assert result == PixelSize(z=3.0, y=1.0, x=0.5)
+
+    def test_rejects_factor_axes_missing_from_the_base(self):
+        with pytest.raises(ValueError, match="no base pixel size"):
+            Factor(y=2.0, z=2.0).to_physical(PixelSize(y=1.0, x=1.0))
+
+
+class TestPixelSizeIsIdentity:
+    def test_true_if_all_axes_are_one(self):
+        assert PixelSize(y=1.0, x=1.0).is_identity()
+
+    def test_false_if_any_axis_differs(self):
+        assert not PixelSize(y=1.0, x=0.5).is_identity()
+
+
+class TestPixelSizeWithIdentityExcept:
+    def test_resets_all_other_axes_to_one(self):
+        result = PixelSize(z=4.0, y=2.0, x=0.5).with_identity_except("x")
+
+        assert type(result) is PixelSize
+        assert result == PixelSize(z=1.0, y=1.0, x=0.5)
+
+    def test_with_identity_resets_given_axes(self):
+        assert PixelSize(z=4.0, y=2.0, x=0.5).with_identity("zy") == PixelSize(z=1.0, y=1.0, x=0.5)
+
+
+class TestPixelSizeScaledBy:
+    def test_factor_multiplies_per_axis(self):
+        assert PixelSize(y=0.5, x=0.25).scaled_by(Factor(y=2.0, x=4.0)) == PixelSize(y=1.0, x=1.0)
+
+    def test_mapping_is_accepted_like_a_factor(self):
+        assert PixelSize(y=0.5, x=0.25).scaled_by({"x": 4.0}) == PixelSize(y=0.5, x=1.0)
+
+    def test_scalar_applies_to_all_axes(self):
+        assert PixelSize(y=0.5, x=0.25).scaled_by(2) == PixelSize(y=1.0, x=0.5)
+        assert PixelSize(y=0.5, x=0.25).scaled_by(2.0) == PixelSize(y=1.0, x=0.5)
+
+    def test_rejects_extra_factor_axes(self):
+        with pytest.raises(ValueError, match="no base pixel size"):
+            PixelSize(x=1.0).scaled_by(Factor(x=2.0, z=2.0))
+
+
+class TestTranslationScaledBy:
+    def test_factor_multiplies_per_axis(self):
+        assert Translation(y=1.0, x=-2.0).scaled_by(Factor(y=2.0, x=4.0)) == Translation(y=2.0, x=-8.0)
+
+    def test_scalar_applies_to_all_axes(self):
+        assert Translation(y=1.0, x=-2.0).scaled_by(3) == Translation(y=3.0, x=-6.0)
+
+    def test_missing_factor_axes_keep_the_value(self):
+        assert Translation(y=1.0, x=-2.0).scaled_by({"x": 0.5}) == Translation(y=1.0, x=-1.0)
+
+    def test_rejects_extra_factor_axes(self):
+        with pytest.raises(ValueError, match="no base translation"):
+            Translation(x=1.0).scaled_by(Factor(x=2.0, z=2.0))
+
+
+class TestTranslationTrueDivision:
+    def test_divides_by_the_factor(self):
+        assert Translation(y=4.0, x=-3.0) / Factor(y=2.0, x=0.5) == Translation(y=2.0, x=-6.0)
+
+    def test_is_the_inverse_of_multiplying(self):
+        translation, factor = Translation(y=4.0, x=-3.0), Factor(y=2.0, x=4.0)
+
+        assert translation * factor / factor == translation
+
+    def test_other_operand_types_are_not_supported(self):
+        with pytest.raises(TypeError):
+            Translation(x=1.0) / 2.0  # type: ignore[operator]
+
+
+class FakeAxisInfo:
+    def __init__(self, key, resolution=0.0):
+        self.key = key
+        self.resolution = resolution
+
+
+class FakeAxisTags:
+    """Duck-types the parts of vigra.AxisTags that PixelSize uses."""
+
+    def __init__(self, *infos):
+        self._infos = list(infos)
+
+    def __iter__(self):
+        return iter(self._infos)
+
+    def __len__(self):
+        return len(self._infos)
+
+    def setResolution(self, key, resolution):
+        next(info for info in self._infos if info.key == key).resolution = resolution
+
+
+class TestPixelSizeFromVigra:
+    def test_takes_axis_keys_and_resolutions_in_order(self):
+        tags = FakeAxisTags(FakeAxisInfo("y", 0.5), FakeAxisInfo("x", 0.25))
+
+        assert list(PixelSize.from_vigra(tags).items()) == [("y", 0.5), ("x", 0.25)]
+
+    def test_vigra_default_resolution_zero_becomes_one(self):
+        tags = FakeAxisTags(FakeAxisInfo("y"), FakeAxisInfo("x", 0.25))
+
+        assert PixelSize.from_vigra(tags) == PixelSize(y=1.0, x=0.25)
+
+
+class TestPixelSizeToVigra:
+    @pytest.fixture
+    def fake_vigra(self, monkeypatch):
+        import sys
+        import types
+
+        module = types.ModuleType("vigra")
+        module.defaultAxistags = lambda keys: FakeAxisTags(*(FakeAxisInfo(k) for k in keys))  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "vigra", module)
+
+    def test_creates_axistags_with_the_resolutions(self, fake_vigra):
+        tags = PixelSize(y=0.5, x=0.25).to_vigra(None)
+
+        assert [(t.key, t.resolution) for t in tags] == [("y", 0.5), ("x", 0.25)]
+
+    def test_modifies_given_axistags_only_for_shared_axes(self, fake_vigra):
+        existing = FakeAxisTags(FakeAxisInfo("c", 7.0), FakeAxisInfo("x", 1.0))
+
+        result = PixelSize(y=0.5, x=0.25).to_vigra(existing)
+
+        assert result is existing
+        assert [(t.key, t.resolution) for t in result] == [("c", 7.0), ("x", 0.25)]
+
+    def test_roundtrips_through_from_vigra(self, fake_vigra):
+        original = PixelSize(y=0.5, x=0.25)
+
+        assert PixelSize.from_vigra(original.to_vigra(None)) == original
+
+    def test_explains_how_to_install_missing_vigra(self, monkeypatch):
+        import sys
+
+        monkeypatch.setitem(sys.modules, "vigra", None)
+
+        with pytest.raises(ImportError, match='requires the package "vigra"'):
+            PixelSize(x=1.0).to_vigra(None)
