@@ -5,6 +5,7 @@ import logging
 from abc import ABC
 from collections import OrderedDict, defaultdict
 from collections.abc import Mapping as ABCMapping
+from types import MappingProxyType
 from dataclasses import dataclass, replace
 from enum import Enum
 from functools import cached_property
@@ -435,11 +436,22 @@ class _ScaleMapping(ABC, ABCMapping[ScaleKey, ValueType], Generic[ValueType]):
     """Common base class for Multiscale, BlueprintShapes and BlueprintFactors."""
 
     def __init__(self, *args, **kwargs):
+        if len(args) == 1 and not hasattr(args[0], "keys"):
+            # Iterable of pairs. Materialize it (it may be one-shot) to detect duplicate keys,
+            # which the dict below would silently collapse.
+            args = (list(args[0]),)
         self._mapping = OrderedDict(*args, **kwargs)
+        if len(args) == 1 and not hasattr(args[0], "keys"):
+            keys = [key for key, _ in args[0]]
+            if len(keys) != len(set(keys)):
+                raise ValueError(f"Scale keys must be unique. Received: {keys}")
         if not self._mapping:
             raise ValueError(f"Cannot instantiate empty {self.__class__.__name__}")
         if any(v is None for v in self._mapping.values()):
             raise ValueError(f"None values not allowed. Received: {list(self._mapping.values())}")
+        non_string_keys = [key for key in self._mapping if not isinstance(key, str)]
+        if non_string_keys:
+            raise TypeError(f"Scale keys must be strings. Received: {non_string_keys!r}")
         ome_zarr.require_valid_scale_keys(self._mapping.keys())
 
     def __repr__(self):
@@ -585,12 +597,6 @@ class _ScaledAxisValues(_ScaleMapping[AxisValuesType], Generic[AxisValuesType]):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not self._mapping:
-            return
-
-        if len(set(self._mapping.keys())) != len(self._mapping.keys()):
-            raise ValueError(f"Scale keys must be unique. Received: {list(self._mapping.keys())}")
-
         axes = next(iter(self._mapping.values())).keys()
         for k, v in self._mapping.items():
             if v.keys() != axes:
@@ -1862,10 +1868,14 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
     @cached_property
     def keys_by_shape(self) -> Mapping[Shape, Tuple[ScaleKey, ...]]:
+        """The scale keys of this Multiscale, grouped by the (possibly shared) shape of their scales.
+
+        The result is read-only, as it is cached on the instance.
+        """
         grouped = defaultdict(list)
         for key, scale in self.items():
             grouped[scale.shape].append(key)
-        return {shape: tuple(keys) for shape, keys in grouped.items()}
+        return MappingProxyType({shape: tuple(keys) for shape, keys in grouped.items()})
 
     @cached_property
     def lowest_lossless_ome_zarr_version(self) -> Literal["0.6", "0.4"]:
