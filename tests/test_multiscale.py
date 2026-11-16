@@ -299,6 +299,33 @@ class TestBlueprintOrderValidation:
             BlueprintShapes({"s0": Shape(x=10)}).with_keys(["../bad"])
 
 
+class TestWithItemsDroppedBefore:
+    @pytest.fixture
+    def shapes(self):
+        return BlueprintShapes({"s0": Shape(x=8), "s1": Shape(x=4), "s2": Shape(x=2)})
+
+    def test_keeps_given_key_by_default(self, shapes):
+        assert list(shapes.with_items_dropped_before("s1").keys()) == ["s1", "s2"]
+
+    def test_inclusive_drops_given_key_too(self, shapes):
+        assert list(shapes.with_items_dropped_before("s1", inclusive=True).keys()) == ["s2"]
+
+    def test_first_key_keeps_everything(self, shapes):
+        assert shapes.with_items_dropped_before("s0") == shapes
+
+    def test_inclusive_on_last_key_would_leave_nothing(self, shapes):
+        with pytest.raises(ValueError, match="empty"):
+            shapes.with_items_dropped_before("s2", inclusive=True)
+
+    def test_rejects_unknown_key(self, shapes):
+        with pytest.raises(KeyError, match="No such scale"):
+            shapes.with_items_dropped_before("nope")
+
+    def test_inclusive_is_keyword_only(self, shapes):
+        with pytest.raises(TypeError):
+            shapes.with_items_dropped_before("s1", True)
+
+
 class TestBlueprintApply:
     def test_shapes_derives_scale_metadata_from_base(self):
         base = Scale(
