@@ -31,14 +31,15 @@ def test_linear_identity():
     }
 
 
-def test_linear_fromkeys():
+def test_linear_fromkeys_fills_with_the_default_rows_like_other_axis_mappings():
     linear = Linear.fromkeys(("z", "y", "x"))
 
-    assert linear == {
-        "z": {"z": 0.0, "y": 0.0, "x": 0.0},
-        "y": {"z": 0.0, "y": 0.0, "x": 0.0},
-        "x": {"z": 0.0, "y": 0.0, "x": 0.0},
-    }
+    assert linear == Linear.identity(("z", "y", "x"))
+    assert Linear.fromkeys(("z", "y", "x")) == Linear.identity(("z", "y", "x"))
+
+
+def test_linear_fromkeys_accepts_one_shot_iterables():
+    assert Linear.fromkeys(iter("yx")) == Linear.identity("yx")  # type: ignore[reportArgumentType]
 
 
 def test_linear_getitem_row():
