@@ -1,11 +1,14 @@
 import math
-from typing import Dict, Tuple, TYPE_CHECKING
+from typing import Callable, Dict, Tuple, TYPE_CHECKING
 
 from clearscale._axis_values import Translation
-from clearscale.types import TranslatingMethod, TranslationShiftFunction
+from clearscale.types import TranslatingMethod
 
 if TYPE_CHECKING:
     from clearscale._multiscale import Scale
+
+
+_TranslationShiftFunction = Callable[["Scale", "Scale"], Translation]
 
 
 def half_pixel_space_preservation(base: "Scale", target: "Scale") -> "Translation":
@@ -98,32 +101,31 @@ def first_value_decimation(base: "Scale", target: "Scale") -> "Translation":
     return Translation.identity(base.shape.keys())
 
 
-known_shift_functions: Tuple[TranslationShiftFunction, ...] = (
+known_shift_functions: Tuple[_TranslationShiftFunction, ...] = (
     half_pixel_space_preservation,
     discrete_bin_center,
     first_value_decimation,
 )
 
 
-SHIFT_FUNCTIONS_BY_NAME: Dict[str, TranslationShiftFunction] = {f.__name__: f for f in known_shift_functions}
-"""The string aliases accepted wherever a `translating` function is expected: the functions' own names."""
+SHIFT_FUNCTIONS_BY_NAME: Dict[TranslatingMethod, _TranslationShiftFunction] = {
+    "half_pixel_space_preservation": half_pixel_space_preservation,
+    "discrete_bin_center": discrete_bin_center,
+    "first_value_decimation": first_value_decimation,
+}
+"""The built-in translation rules, indexed by the names accepted by `translating`."""
 
 
-def resolve_translating(translating: TranslatingMethod) -> TranslationShiftFunction:
-    """Turn a `translating` argument into a callable: names resolve to the built-in function of that name,
-    callables pass through unchanged."""
-    if callable(translating):
-        return translating
+def resolve_translating(translating: TranslatingMethod) -> _TranslationShiftFunction:
+    """Resolve a built-in translation rule by name."""
     if isinstance(translating, str):
         try:
             return SHIFT_FUNCTIONS_BY_NAME[translating]
         except KeyError:
             raise ValueError(
-                f"Unknown translating method {translating!r}. "
-                f"Use one of {list(SHIFT_FUNCTIONS_BY_NAME)} or pass your own function."
+                f"Unknown translating method {translating!r}. " f"Use one of {list(SHIFT_FUNCTIONS_BY_NAME)}."
             ) from None
     hint = " Use translating='first_value_decimation' for no shift." if translating is None else ""
     raise TypeError(
-        f"translating must be a function or one of {list(SHIFT_FUNCTIONS_BY_NAME)}, got {type(translating).__name__}."
-        + hint
+        f"translating must be one of {list(SHIFT_FUNCTIONS_BY_NAME)}, got {type(translating).__name__}." + hint
     )

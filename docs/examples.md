@@ -214,7 +214,6 @@ Source and output describe the same physical space, so for every axis, the sourc
 ```python
 import numpy as np
 import clearscale as cs
-from clearscale.characterization import half_pixel_space_preservation
 
 base = cs.Scale(
     shape=cs.Shape(y=1001, x=1536),
@@ -233,7 +232,7 @@ multiscale = cs.Multiscale.from_single(
     base,
     blueprint=blueprint,
     pixel_sizing="shape_ratio",
-    translating=half_pixel_space_preservation,
+    translating="half_pixel_space_preservation",
 )
 
 print(multiscale)
@@ -260,7 +259,7 @@ for scale_key, target in multiscale.items():
 
 Note the `2.002`: The base shape of 1001 does not halve evenly, so the output has 500 rows and the matrix is the exact ratio `1001 / 500`, not `2`.
 Matrix and offset follow from the Scales, so data and metadata cannot drift apart.
-Choose another `translating` function (or `pixel_sizing`) and the arguments change accordingly.
+Choose another `translating` rule (or `pixel_sizing`) and the arguments change accordingly.
 
 `affine_transform` interpolates between neighboring input samples, but it does not low-pass filter first, so strong downscaling will alias.
 You would most likely want to smooth the data before you scale it, e.g. using `ndimage.gaussian_filter`.

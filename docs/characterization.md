@@ -36,10 +36,7 @@ If your scaling method requires a numpy array, convert the received sequence ins
 from clearscale.characterization import (
     characterize_shape_scaling_method,
     characterize_shape_factor_scaling_method,
-    characterize_step_factor_scaling_method,
-    half_pixel_space_preservation,
-    discrete_bin_center,
-    first_value_decimation,
+    characterize_step_factor_scaling_method
 )
 import numpy as np
 
@@ -58,7 +55,7 @@ characterization = characterize_shape_scaling_method(
 assert characterization.rounding is None, "shape-based scaling methods don't round"
 assert characterization.pixel_sizing == "shape_ratio"
 assert characterization.pixel_sizing_error < 1e-13
-assert characterization.translating is half_pixel_space_preservation
+assert characterization.translating == "half_pixel_space_preservation"
 assert characterization.translating_error < 1e-13
 
 
@@ -76,7 +73,7 @@ characterization = characterize_shape_factor_scaling_method(
 assert characterization.rounding == "round"
 assert characterization.pixel_sizing == "corner_ratio"
 assert characterization.pixel_sizing_error < 1e-13
-assert characterization.translating is first_value_decimation
+assert characterization.translating == "first_value_decimation"
 assert characterization.translating_error < 1e-13
 
 
@@ -92,7 +89,7 @@ characterization = characterize_step_factor_scaling_method(
 assert characterization.rounding == "ceil"
 assert characterization.pixel_sizing == "exact_factor"
 assert characterization.pixel_sizing_error < 1e-13
-assert characterization.translating is discrete_bin_center
+assert characterization.translating == "discrete_bin_center"
 assert characterization.translating_error < 1e-13
 ```
 
@@ -133,7 +130,7 @@ Passing `offset=0` is `first_value_decimation` translating behavior, which may o
 import math
 import numpy as np
 from scipy import ndimage
-from clearscale.characterization import characterize_step_factor_scaling_method, half_pixel_space_preservation
+from clearscale.characterization import characterize_step_factor_scaling_method
 
 characterization = characterize_step_factor_scaling_method(
     lambda x, factor: ndimage.affine_transform(
@@ -147,7 +144,7 @@ characterization = characterize_step_factor_scaling_method(
 )
 
 assert characterization.pixel_sizing == "exact_factor"
-assert characterization.translating is half_pixel_space_preservation
+assert characterization.translating == "half_pixel_space_preservation"
 assert characterization.rounding == "ceil"
 ```
 
@@ -198,16 +195,16 @@ print(len(local_mean_arr))  # 3
 
 The `rounding` parameter that various `clearscale` functions ask for should accurately reflect how your scaling method rounds output shapes when `input_shape * shape_factor` (or `input_shape / step_factor`) does not produce an exact integer number.
 
-You can pass `rounding=` either:
+Choose a built-in rule for `rounding=`:
 
 * one of the keywords for common rounding methods: `"floor", "ceil", "round"` or `"round_half_up"` (`round_half_up` means `.5` rounds to the next *larger* integer; `round` means to the next *even* integer, i.e. Python's own `round()`)
-* a function (`Callable[[float], int]`) that accepts the theoretical fractional output array length along one axis (`float`) and rounds it as your own scaling method would, returning the rounded length (`int`)
+* `"error_on_round"` to require an integer result and raise if rounding would be needed.
 
 If your method does not round consistently, its characterization reports `rounding="indeterminate"`, and `to_factor_kwargs()` raises, because a `BlueprintFactors` would predict wrong output shapes.
 What to do instead depends on the `pixel_sizing` that was determined:
 
 * `shape_ratio` or `corner_ratio`: Record the shapes that your scaling actually produced, build a `BlueprintShapes` from them, and use `characterization.to_shape_kwargs()`.
-* `exact_factor`: Shapes cannot express this, because they do not contain the factor (`to_shape_kwargs()` raises too). If you can write your method's rounding as a function, pass it as `rounding` to a `BlueprintFactors`, as described above.
+* `exact_factor`: Shapes cannot express this, because they do not contain the factor (`to_shape_kwargs()` raises too). Construct the correct Scales manually from the actual output shapes and pixel sizes.
 
 Otherwise, you may have to construct the correct Scales manually (convolutional striding could be an example).
 Please open an issue on GitHub if you run into this, so that we can figure out how to support such scaling methods.
@@ -230,26 +227,21 @@ For factor-based scaling methods (using `BlueprintFactors`), there is one additi
 
 `Scale.translation` is the physical coordinate of the first pixel center.
 
-Use a `translating` function when your scaling operation changes where the first scaled pixel belongs in physical space.
-Most common scaling methods apply one of the provided shift functions explained below:
+Use a `translating` rule when your scaling operation changes where the first scaled pixel belongs in physical space.
+Most common scaling methods apply one of the built-in shift rules explained below:
 
 * `half_pixel_space_preservation`
 * `discrete_bin_center`
 * `first_value_decimation`
 
-Pass the function itself or just its name as a string to `blueprint.apply_to_scale()`:
+Pass the rule's name as a string to `blueprint.apply_to_scale()`:
 
 ```python
-# Both ok
 multiscale = blueprint.apply_to_scale(base, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation")
-
-from clearscale.characterization import half_pixel_space_preservation
-multiscale = blueprint.apply_to_scale(base, pixel_sizing="shape_ratio", translating=half_pixel_space_preservation)
 ```
 
-If your scaling method applies a different shift, you need to implement your own function as a `Callable[[Scale, Scale], Translation]`.
-The `translating` function receives both the base `Scale` including its existing `.translation`, and the target `Scale` with a zero-translation.
-It should use the two Scale's properties (primarily `.shape` and `.pixel_size`) to determine and return the predicted `Scale`'s `.translation`.
+If your scaling method applies a different shift, construct Scales with the correct translations manually.
+Please open an issue on GitHub so that we can consider how to support that convention.
 
 ### `half_pixel_space_preservation`: extent-preserving resize
 
@@ -267,7 +259,6 @@ from clearscale import (
     Translation,
     Unit,
 )
-from clearscale.characterization import half_pixel_space_preservation
 
 base = Scale(
     shape=Shape(y=1024, x=1536),
@@ -298,7 +289,7 @@ blueprint = BlueprintShapes.uniform_steps(
 multiscale = blueprint.apply_to_scale(
     base,
     pixel_sizing="shape_ratio",
-    translating=half_pixel_space_preservation,
+    translating="half_pixel_space_preservation",
 )
 
 assert multiscale["s1"].shape == Shape(y=512, x=768)
@@ -334,7 +325,6 @@ from clearscale import (
     Translation,
     Unit,
 )
-from clearscale.characterization import discrete_bin_center
 
 base = Scale(
     shape=Shape(y=2048, x=2048),
@@ -368,7 +358,7 @@ multiscale = block_factors.apply_to_scale(
     base,
     rounding="ceil",
     pixel_sizing="exact_factor",
-    translating=discrete_bin_center,
+    translating="discrete_bin_center",
 )
 
 assert multiscale["s2"].shape == Shape(y=512, x=512)
@@ -385,7 +375,7 @@ These represent the space from `-0.125` to `0.875 micrometer` placing the pooled
 Use `first_value_decimation` when the scaled array keeps the first source value exactly, and evenly spaces the rest.
 For example, `data[::4, ::4]`.
 
-`translating=first_value_decimation` is how you express "no shift".
+`translating="first_value_decimation"` is how you express "no shift".
 
 ```python
 from clearscale import (
@@ -397,7 +387,6 @@ from clearscale import (
     Translation,
     Unit,
 )
-from clearscale.characterization import first_value_decimation
 
 base = Scale(
     shape=Shape(y=2048, x=2048),
@@ -425,7 +414,7 @@ multiscale = stride_factors.apply_to_scale(
     base,
     rounding="ceil",
     pixel_sizing="exact_factor",
-    translating=first_value_decimation,
+    translating="first_value_decimation",
 )
 
 assert multiscale["s2"].shape == Shape(y=512, x=512)

@@ -80,14 +80,13 @@ from clearscale._services.axis_properties_across_relations import (
     require_consistent_axis_properties,
 )
 from clearscale._services.units import unit_conversion_factor
-from clearscale._services.translating import resolve_translating
+from clearscale._services.translating import _TranslationShiftFunction, resolve_translating
 from clearscale.types import (
     RoundingMethod,
     PixelSizingMethod,
     Json,
     ShapeSource,
     TranslatingMethod,
-    TranslationShiftFunction,
     ShapeLike,
     FactorLike,
     AxisKeyT,
@@ -1132,24 +1131,11 @@ class BlueprintShapes(_ScaledAxisValues[Shape]):
 
     @staticmethod
     def _compute_translation(
-        base: Scale, target_shape: Shape, new_pixel_size: PixelSize, translating: TranslationShiftFunction
+        base: Scale, target_shape: Shape, new_pixel_size: PixelSize, translating: _TranslationShiftFunction
     ) -> Translation:
         target_scale_pre_shift = Scale(shape=target_shape, pixel_size=new_pixel_size, unit=base.unit)
 
-        try:
-            shift = translating(base, target_scale_pre_shift)
-        except TypeError as e:
-            if "argument" in str(e):
-                raise TypeError(
-                    "translating must accept two positional arguments (base and target scale). "
-                    "See clearscale.characterization.half_pixel_space_preservation for an example implementation."
-                ) from e
-            raise e
-        if not isinstance(shift, Translation):
-            raise TypeError(
-                f"translating must return a Translation, got {type(shift).__name__}. "
-                "See clearscale.characterization.half_pixel_space_preservation for an example implementation."
-            )
+        shift = translating(base, target_scale_pre_shift)
         if list(shift.keys()) != list(target_scale_pre_shift.shape.keys()):
             raise ValueError(
                 f"translating returned Translation with axes {list(shift.keys())}, "
@@ -1436,7 +1422,7 @@ class BlueprintFactors(_ScaledAxisValues[Factor]):
 
         if pixel_sizing != "exact_factor":
             # For shape_ratio/corner_ratio, the correct meta depends only on the shapes -> forward
-            return shapes.apply_to_scale(base, translating=shift_function, pixel_sizing=pixel_sizing)
+            return shapes.apply_to_scale(base, translating=translating, pixel_sizing=pixel_sizing)
 
         # exact_factor needs this blueprint's own nominal Factors
         scales = []
@@ -1661,9 +1647,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         Args:
             pixel_sizing: Your scaling method's pixel size scaling behavior. "shape_ratio", "exact_factor", or "corner_ratio"
-            translating: Your scaling method's translating behavior: the name of one of the functions in
-                `clearscale.characterization` (e.g. "half_pixel_space_preservation"), or your own function.
-            rounding: Your scaling method's shape rounding behavior. "floor", "ceil", etc., or your own function.
+            translating: Your scaling method's translation rule, e.g. "half_pixel_space_preservation".
+                See [TranslatingMethod][clearscale.types.TranslatingMethod] for the supported names.
+            rounding: Your scaling method's shape rounding behavior. "floor", "ceil", etc.
         """
         if not isinstance(scale_key, str):
             raise TypeError(
@@ -2172,9 +2158,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             blueprint: How to expand the Scale at `base_key` into the derived Multiscale's levels.
                 Omit to extract the respective Scale as an independent Multiscale with just that one entry.
             pixel_sizing: Your scaling method's pixel size scaling behavior. "shape_ratio", "exact_factor", or "corner_ratio"
-            translating: Your scaling method's translating behavior: the name of one of the functions in
-                `clearscale.characterization` (e.g. "half_pixel_space_preservation"), or your own function.
-            rounding: Your scaling method's shape rounding behavior. "floor", "ceil", etc., or your own function.
+            translating: Your scaling method's translation rule, e.g. "half_pixel_space_preservation".
+                See [TranslatingMethod][clearscale.types.TranslatingMethod] for the supported names.
+            rounding: Your scaling method's shape rounding behavior. "floor", "ceil", etc.
         """
         new_ms = Multiscale.from_single(
             self[base_key],

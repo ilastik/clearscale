@@ -15,7 +15,6 @@ from typing import (
 
 if TYPE_CHECKING:
     from clearscale._axis_values import Factor, PixelSize, Shape, Translation
-    from clearscale._multiscale import Scale
 
 CoordinateSystemName: TypeAlias = str
 """The name of a coordinate system, unique within the Multiscale or Scene that has it."""
@@ -47,27 +46,19 @@ class _Ordered(Protocol[AxisKeyT_co]):
 OrderedAxes = _Ordered[AxisKey]
 ShapeLike = Union["Shape[AxisKeyT]", Mapping[AxisKeyT, int]]
 FactorLike = Union["Factor[AxisKeyT]", Mapping[AxisKeyT, float]]
-RoundingMethod: TypeAlias = Union[
-    Literal["ceil", "floor", "round", "round_half_up", "error_on_round"], Callable[[float], int]
-]
-"""What the `rounding` parameter accepts: a built-in rule or a function.
+RoundingMethod: TypeAlias = Literal["ceil", "floor", "round", "round_half_up", "error_on_round"]
+"""How the scaling method rounds output shape when applying the factor to the input shape would result in a fractional shape.
 
 - `"ceil"`: Round toward positive infinity.
 - `"floor"`: Round toward negative infinity.
 - `"round"`: Round to the nearest integer, with ties going to the even integer (Python's `round`).
 - `"round_half_up"`: Round to the nearest integer, with ties going to the larger integer (positive infinity).
 - `"error_on_round"`: Require an integer-valued input; raise `ValueError` if rounding would be needed.
-- Callable: A function that accepts the unrounded `float` value for one axis and returns an `int`.
 """
-TranslationShiftFunction = Callable[["Scale", "Scale"], "Translation"]
-"""- base_scale: The reference scale being transformed from.
-- target_scale: The new scale being created (with 0 translation).
-- Returns: `target_scale`'s translation.
-"""
-TranslatingMethodName = Literal["half_pixel_space_preservation", "discrete_bin_center", "first_value_decimation"]
-"""Names of the built-in `TranslationShiftFunction`s (they are the functions' own names)."""
-TranslatingMethod = Union[TranslatingMethodName, TranslationShiftFunction]
-"""What the `translating` parameter accepts: the name of a built-in function, or a function."""
+TranslatingMethod: TypeAlias = Literal["half_pixel_space_preservation", "discrete_bin_center", "first_value_decimation"]
+"""How the scaling method shifts the position of the first pixel in space.
+
+See characterization docs for detail."""
 PixelSizingMethod = Literal["shape_ratio", "corner_ratio", "exact_factor"]
 """How the scaling method used spaces output pixels.
 
@@ -138,8 +129,6 @@ __all__ = [
     "ShapeLike",
     "FactorLike",
     "RoundingMethod",
-    "TranslationShiftFunction",
-    "TranslatingMethodName",
     "TranslatingMethod",
     "PixelSizingMethod",
     "HasShape",
