@@ -16,13 +16,8 @@ from typing import (
 
 from clearscale._axis_values import PixelSize, Shape
 from clearscale._multiscale import Scale
-from clearscale._services.translating import (
-    discrete_bin_center,
-    first_value_decimation,
-    half_pixel_space_preservation,
-    known_shift_functions,
-)
-from clearscale.types import PixelSizingMethod, TranslationShiftFunction, RoundingMethod
+from clearscale._services.translating import SHIFT_FUNCTIONS_BY_NAME
+from clearscale.types import PixelSizingMethod, TranslatingMethod, RoundingMethod
 
 
 class ShapeScalingKwargs(TypedDict):
@@ -31,7 +26,7 @@ class ShapeScalingKwargs(TypedDict):
 
     # Unpack unavailable in py3.10 -- make sure these kwargs stay synchronised with the method signatures
     pixel_sizing: PixelSizingMethod
-    translating: TranslationShiftFunction
+    translating: TranslatingMethod
 
 
 # Splitting doesn't buy us a huge amount right now (could just Optional `rounding` on BlueprintShapes.apply_to_scale and use one kwargs interface),
@@ -47,7 +42,7 @@ class FactorScalingKwargs(ShapeScalingKwargs):
 class ScalingMethodCharacterization:
     """Characteristics of a scaling method, determined by one of the `characterize_*` functions."""
 
-    translating: TranslationShiftFunction
+    translating: TranslatingMethod
     translating_error: float
     pixel_sizing: PixelSizingMethod
     pixel_sizing_error: float
@@ -476,22 +471,22 @@ def _characterize_affine(
 
     base = Scale(shape=Shape(x=source_length), pixel_size=PixelSize(x=1.0))
     target = Scale(shape=Shape(x=target_length), pixel_size=PixelSize(x=spacing))
-    translation_scores: List[Tuple[TranslationShiftFunction, float]] = []
-    for rule in known_shift_functions:
+    translation_scores: List[Tuple[TranslatingMethod, float]] = []
+    for name, rule in SHIFT_FUNCTIONS_BY_NAME.items():
         predicted = rule(base, target)["x"]
         rms = math.sqrt(sum((y - (spacing * x + predicted)) ** 2 for x, y in zip(xs, ys)) / n)
-        translation_scores.append((rule, rms))
+        translation_scores.append((name, rms))
     translating, translating_error = min(translation_scores, key=lambda item: item[1])
-    if uses_integer_factors_only and translating is half_pixel_space_preservation:
+    if uses_integer_factors_only and translating == "half_pixel_space_preservation":
         # A method that only accepts integer factors is more likely using discrete bins.
         # half_pixel_space_preservation and discrete_bin_center are numerically identical when spacing is integer:
         # 0.5 * (spacing - 1) == 0.5 * (ceil(spacing) - 1).
         # So prefer the more descriptive discrete_bin_center when this is the case.
         translating_tie_threshold = 1e-9 * abs(spacing)
         """Shift rules whose errors differ by less than this are considered equal."""
-        bin_center_error = dict(translation_scores)[discrete_bin_center]
+        bin_center_error = dict(translation_scores)["discrete_bin_center"]
         if bin_center_error - translating_error <= translating_tie_threshold:
-            translating, translating_error = discrete_bin_center, bin_center_error
+            translating, translating_error = "discrete_bin_center", bin_center_error
 
     warning_msgs: List[str] = []
     if pixel_sizing_error > relative_error_warning_threshold * abs(spacing):
@@ -501,7 +496,7 @@ def _characterize_affine(
         )
     if translating_error > relative_error_warning_threshold * abs(spacing):
         warning_msgs.append(
-            f"Ambiguous or noisy translation characterization (matched {translating.__name__!r}, "
+            f"Ambiguous or noisy translation characterization (matched {translating!r}, "
             f"error {translating_error:.3g}, spacing {spacing:.3g})."
         )
 
@@ -530,9 +525,6 @@ def _as_1d_float_tuple(values: Iterable[float]) -> Tuple[float, ...]:
 __all__ = [
     "Probe",
     "ProbeResult",
-    "discrete_bin_center",
-    "half_pixel_space_preservation",
-    "first_value_decimation",
     "characterize_shape_scaling_method",
     "characterize_shape_factor_scaling_method",
     "characterize_step_factor_scaling_method",

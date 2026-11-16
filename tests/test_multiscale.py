@@ -21,10 +21,6 @@ from clearscale import (
 )
 from clearscale._multiscale import _require_valid_coordinate_system_name
 from clearscale._services.ome_zarr import MultiscaleProperties
-from clearscale.characterization import (
-    discrete_bin_center,
-    half_pixel_space_preservation,
-)
 from clearscale._transforms import (
     OmeZarrAxes,
     CoordinateSystem,
@@ -473,7 +469,7 @@ class TestBlueprintApply:
         )
 
         multiscale = blueprint.apply_to_scale(
-            base, pixel_sizing="shape_ratio", translating=half_pixel_space_preservation
+            base, pixel_sizing="shape_ratio", translating="half_pixel_space_preservation"
         )
 
         # Along y: 8 -> 4 px = factor 2. Pixel size 2.0 * 2 = 4.0
@@ -493,7 +489,7 @@ class TestBlueprintApply:
             translation=Translation(y=10.0, x=-5.0),
         )
 
-        multiscale = blueprint.apply_to_scale(base, pixel_sizing="shape_ratio", translating=discrete_bin_center)
+        multiscale = blueprint.apply_to_scale(base, pixel_sizing="shape_ratio", translating="discrete_bin_center")
 
         # Along y: 5 -> 2 px = factor 2.5 (Pixel size 0.6 * 2.5 = 1.5)
         #   Implicit bin size = ceil(2.5) = 3
@@ -506,13 +502,13 @@ class TestBlueprintApply:
         assert multiscale["s1"].translation == Translation(y=10.6, x=-4.0)
 
     @pytest.mark.parametrize("shift_func", [(lambda param1: True), (lambda scale1, scale2: True)])
-    def test_shapes_rejects_malformed_shift_functions(self, shift_func):
+    def test_shapes_rejects_custom_shift_functions(self, shift_func):
         bp = BlueprintShapes({"s0": Shape(x=2)})
         base = Scale(shape=Shape(x=1))
 
         with pytest.raises(
             TypeError,
-            match="See clearscale.characterization.half_pixel_space_preservation for an example implementation",
+            match="translating must be one of",
         ):
             _ = bp.apply_to_scale(base, pixel_sizing="shape_ratio", translating=shift_func)  # noqa
 
@@ -649,7 +645,7 @@ class TestBlueprintApply:
         base = self._as_xy(Scale(shape=Shape(x=11), pixel_size=PixelSize(x=1.0), translation=Translation(x=0.0)))
 
         multiscale = blueprint.apply_to_scale(
-            base, rounding="ceil", pixel_sizing="exact_factor", translating=half_pixel_space_preservation
+            base, rounding="ceil", pixel_sizing="exact_factor", translating="half_pixel_space_preservation"
         )
 
         # exact_factor pixel size = 4.0; half-pixel shift = 0.5 * (4.0 - 1.0) = 1.5
@@ -1884,9 +1880,9 @@ class TestMultiscaleFromFactors:
 
     def test_is_the_same_as_applying_the_blueprint(self, base, blueprint):
         assert Multiscale.from_factors(
-            blueprint, base, rounding="floor", pixel_sizing="exact_factor", translating=half_pixel_space_preservation
+            blueprint, base, rounding="floor", pixel_sizing="exact_factor", translating="half_pixel_space_preservation"
         ) == blueprint.apply_to_scale(
-            base, rounding="floor", pixel_sizing="exact_factor", translating=half_pixel_space_preservation
+            base, rounding="floor", pixel_sizing="exact_factor", translating="half_pixel_space_preservation"
         )
 
 

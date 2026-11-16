@@ -32,7 +32,7 @@ Potential gotchas:
 * Scaled pixel size cannot be trivially determined. 
     `shape_ratio` is common (`output_spacing = input_spacing * input_shape / output_shape`), but some methods use `"corner_ratio"` or `"exact_factor"`.
     There is no default, because there is no way to guess which one applies: Shapes do not reveal how an array was scaled. Only `BlueprintFactors` can express `"exact_factor"`, because shapes do not contain the factor.
-* Scaling usually introduces a shift, or `Translation`, to the scaled image's origin in physical space. Methods that handle `Scale` objects (and hence `Scale.translation`) compute this using a `TranslationShiftFunction`
+* Scaling usually introduces a shift, or `Translation`, to the scaled image's origin in physical space. Methods that handle `Scale` objects (and hence `Scale.translation`) compute this using a named `TranslatingMethod`
 
 All three characteristics (`rounding`, `pixel_sizing` and `translating`) can be determined for your particular method using [`clearscale.characterization`](characterization.md).
 

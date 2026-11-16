@@ -13,21 +13,19 @@ from clearscale import (
     Factor,
     Multiscale,
 )
+from clearscale._services.translating import (
+    discrete_bin_center,
+    first_value_decimation,
+    half_pixel_space_preservation,
+    resolve_translating,
+)
 from clearscale.characterization import (
     characterize_shape_scaling_method,
     characterize_shape_factor_scaling_method,
     characterize_step_factor_scaling_method,
-    discrete_bin_center,
-    first_value_decimation,
-    half_pixel_space_preservation,
     Probe,
     ScalingMethodCharacterization,
 )
-
-
-def test_can_import_translating_functions():
-    # These are part of the public API through characterization
-    from clearscale.characterization import discrete_bin_center, first_value_decimation, half_pixel_space_preservation
 
 
 def _scale(pixel_size_items):
@@ -129,7 +127,7 @@ class TestCharacterizeShapeScaler:
 
         characterization = characterize_shape_scaling_method(scaling_function)
 
-        assert characterization.translating is expected_translating
+        assert characterization.translating == expected_translating.__name__
         assert characterization.translating_error < 1e-9
         assert characterization.pixel_sizing == expected_pixel_sizing
         assert characterization.pixel_sizing_error < 1e-9
@@ -151,7 +149,7 @@ class TestCharacterizeShapeScaler:
 
         characterization = characterize_shape_scaling_method(scaling_function)
 
-        assert characterization.translating is half_pixel_space_preservation
+        assert characterization.translating == "half_pixel_space_preservation"
         assert characterization.translating_error < 1e-9
 
     def test_reports_error_from_closest_known_translating_convention(self):
@@ -175,7 +173,7 @@ class TestCharacterizeShapeScaler:
 
         characterization = characterize_shape_scaling_method(scaling_function)
 
-        assert characterization.translating is half_pixel_space_preservation
+        assert characterization.translating == "half_pixel_space_preservation"
         assert abs(characterization.translating_error - artificial_error) < 1e-9
 
     @pytest.mark.parametrize(
@@ -210,7 +208,7 @@ class TestCharacterizeShapeScaler:
 
         characterization = characterize_shape_scaling_method(resize_with_op)
 
-        assert characterization.translating is half_pixel_space_preservation
+        assert characterization.translating == "half_pixel_space_preservation"
         assert characterization.translating_error < 1e-9
         assert characterization.rounding is None
 
@@ -254,7 +252,7 @@ class TestCharacterizeShapeFactorScaler:
         assert characterization.rounding == "ceil"
         assert characterization.pixel_sizing == "exact_factor"
         assert characterization.pixel_sizing_error < 1e-9
-        assert characterization.translating is first_value_decimation
+        assert characterization.translating == "first_value_decimation"
         assert characterization.translating_error < 1e-9
 
     def test_detects_shape_ratio_and_round_half_up(self):
@@ -269,7 +267,7 @@ class TestCharacterizeShapeFactorScaler:
 
         assert characterization.rounding == "round_half_up"
         assert characterization.pixel_sizing == "shape_ratio"
-        assert characterization.translating is half_pixel_space_preservation
+        assert characterization.translating == "half_pixel_space_preservation"
 
     def test_tolerates_failing_primary_probe(self):
         base_mock = _mock_factor_scaling_function(
@@ -337,7 +335,7 @@ class TestCharacterizeStepFactorScaler:
 
         assert characterization.rounding == "floor"
         assert characterization.pixel_sizing == "shape_ratio"
-        assert characterization.translating is discrete_bin_center
+        assert characterization.translating == "discrete_bin_center"
 
     def test_detects_exact_factor_and_ceil(self):
         scaling_function = _mock_factor_scaling_function(
@@ -351,7 +349,7 @@ class TestCharacterizeStepFactorScaler:
 
         assert characterization.rounding == "ceil"
         assert characterization.pixel_sizing == "exact_factor"
-        assert characterization.translating is first_value_decimation
+        assert characterization.translating == "first_value_decimation"
 
 
 class TestCharacterizeExactDivisionOnlyFunction:
@@ -371,7 +369,7 @@ class TestCharacterizeExactDivisionOnlyFunction:
 
         assert characterization.rounding == "error_on_round"
         assert characterization.pixel_sizing == "shape_ratio"
-        assert characterization.translating is first_value_decimation
+        assert characterization.translating == "first_value_decimation"
 
     def test_characterize_step_factor_scaling_method_identifies_exact_division_requirement(self):
         """Same reasoning as above"""
@@ -387,7 +385,7 @@ class TestCharacterizeExactDivisionOnlyFunction:
 
         assert characterization.rounding == "error_on_round"
         assert characterization.pixel_sizing == "shape_ratio"
-        assert characterization.translating is first_value_decimation
+        assert characterization.translating == "first_value_decimation"
 
     def test_characterize_shape_factor_scaling_method_still_raises_when_genuinely_broken(self):
         def always_broken(_source, _factor):
@@ -460,7 +458,7 @@ class TestCharacterizationKwargsApply:
             return [first_coordinate + spacing * i for i in range(target_length)]
 
         characterization = characterize_shape_scaling_method(resize_like)
-        assert characterization.translating is half_pixel_space_preservation
+        assert characterization.translating == "half_pixel_space_preservation"
         assert characterization.pixel_sizing == "shape_ratio"
         assert characterization.rounding is None
 
@@ -483,7 +481,7 @@ class TestCharacterizationKwargsApply:
             return [spacing * i for i in range(target_length)]  # first sample pinned to first input sample
 
         characterization = characterize_shape_scaling_method(align_corners_resize)
-        assert characterization.translating is first_value_decimation
+        assert characterization.translating == "first_value_decimation"
         assert characterization.pixel_sizing == "corner_ratio"
         assert characterization.rounding is None
 
@@ -507,7 +505,7 @@ class TestCharacterizationKwargsApply:
             return [spacing * i for i in range(target_length)]
 
         characterization = characterize_shape_factor_scaling_method(zoom_like)
-        assert characterization.translating is first_value_decimation
+        assert characterization.translating == "first_value_decimation"
         assert characterization.pixel_sizing == "exact_factor"
         assert characterization.rounding == "ceil"
 
@@ -533,7 +531,7 @@ class TestCharacterizationKwargsApply:
             return [first_coordinate + spacing * i for i in range(target_length)]
 
         characterization = characterize_step_factor_scaling_method(block_reduce_like)
-        assert characterization.translating is discrete_bin_center
+        assert characterization.translating == "discrete_bin_center"
         assert characterization.pixel_sizing == "shape_ratio"
         assert characterization.rounding == "floor"
 
@@ -554,7 +552,7 @@ class TestCharacterizationKwargsApply:
         What matters is that `to_factor_kwargs` raises, and `to_shapes_kwargs` works, as the error messages promise.
         This only holds for pixel_sizing other than "exact_factor", which BlueprintShapes cannot compute (see below)."""
         characterization = ScalingMethodCharacterization(
-            translating=discrete_bin_center,
+            translating="discrete_bin_center",
             translating_error=0.0,
             pixel_sizing="shape_ratio",
             pixel_sizing_error=0.0,
@@ -589,7 +587,7 @@ class TestCharacterizationKwargsApply:
         characterization = characterize_step_factor_scaling_method(binning)
         assert characterization.rounding == "ceil"
         assert characterization.pixel_sizing == "exact_factor"
-        assert characterization.translating is discrete_bin_center
+        assert characterization.translating == "discrete_bin_center"
 
         with pytest.raises(ValueError, match='pixel_sizing="exact_factor"') as error:
             characterization.to_shape_kwargs()
@@ -627,11 +625,11 @@ class TestCharacterizationKwargsApply:
                 base, pixel_sizing=characterization.pixel_sizing, translating=characterization.translating
             )
 
-        # What the message offers instead: your own rounding function, with BlueprintFactors.
+        # A known built-in rule can still be selected after verifying the scaling method manually.
         factors = BlueprintFactors({"s0": Factor(x=1.0), "s1": Factor(x=2.0)})
         multiscale = factors.apply_to_scale(
             base,
-            rounding=math.ceil,
+            rounding="ceil",
             pixel_sizing=characterization.pixel_sizing,
             translating=characterization.translating,
         )
@@ -659,7 +657,7 @@ class TestCharacterizationKwargsApply:
         real_output = strided_convolution([float(i) for i in range(1001)], 2)
         assert real_output[0] == 0.5
         unscaled_target = _as_xy(Scale(shape=Shape(x=len(real_output)), pixel_size=PixelSize(x=2.0)))
-        predicted_output = characterization.translating(base, unscaled_target)
+        predicted_output = resolve_translating(characterization.translating)(base, unscaled_target)
         assert predicted_output["x"] == 0.0
 
         # What the user would need to do instead:
@@ -693,7 +691,7 @@ class TestMethodsThatOnlyAcceptIntegerFactors:
 
         characterization = characterize_step_factor_scaling_method(_strided_convolution(kernel_size=kernel_size))
 
-        assert characterization.translating is discrete_bin_center
+        assert characterization.translating == "discrete_bin_center"
         assert characterization.translating_error == pytest.approx(0.5)
         (warning,) = [w for w in characterization.warnings if "translation" in w]
         assert "'discrete_bin_center'" in warning  # It names what is reported, not what was matched before renaming
@@ -710,7 +708,7 @@ class TestMethodsThatOnlyAcceptIntegerFactors:
 
         characterization = characterize_step_factor_scaling_method(method)
 
-        assert characterization.translating is half_pixel_space_preservation
+        assert characterization.translating == "half_pixel_space_preservation"
         assert characterization.translating_error < 1e-9
         assert not characterization.warnings
 
@@ -766,7 +764,7 @@ class TestKwargsRefuseQuestionableCharacterizations:
     @pytest.mark.parametrize("to_kwargs_name", ["to_shape_kwargs", "to_factor_kwargs"])
     def test_the_message_has_every_warning_and_says_how_to_go_on(self, to_kwargs_name):
         characterization = ScalingMethodCharacterization(
-            translating=half_pixel_space_preservation,
+            translating="half_pixel_space_preservation",
             translating_error=0.0,
             pixel_sizing="shape_ratio",
             pixel_sizing_error=0.0,

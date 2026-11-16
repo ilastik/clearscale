@@ -280,7 +280,11 @@ def _normalize_rounding(rounding: RoundingMethod) -> RoundingFunction:
         return lambda v: math.floor(v + 0.5)
     if rounding == "error_on_round":
         return error_on_round
-    return rounding
+    if not isinstance(rounding, str):
+        raise TypeError(f"rounding must be the name of a built-in rule, got {type(rounding).__name__}.")
+    raise ValueError(
+        f"Unknown rounding method {rounding!r}. Use one of ceil, floor, round, round_half_up, error_on_round."
+    )
 
 
 def _require_no_extra_factor_axes(base: Mapping[Any, Any], factor: Mapping[Any, Any], base_name: str) -> None:
@@ -641,8 +645,8 @@ class Translation(_AxisFloats[AxisKeyT], SpatialRelation):
         Extra axes in `pixel_size` are ignored, but all Translation axes must be present.
         """
         _require_axes_present(pixel_size, self, container_name="pixel_size", required_name="Translation")
-        rounding = _normalize_rounding(rounding)
-        return PixelOffset((a, rounding(self[a] / pixel_size[a])) for a in self)
+        round_func = _normalize_rounding(rounding)
+        return PixelOffset((a, round_func(self[a] / pixel_size[a])) for a in self)
 
 
 class Unit(_AxisValues[AxisKeyT, str]):
@@ -822,15 +826,14 @@ class Shape(_AxisValues[AxisKeyT, int]):
 
         Args:
             rounding: Specify how the scaling implementation used to scale the image data treats uneven cases.
-                Allowed: "ceil", "floor", "round", "round_half_up", "error_on_round",
-                or a function that takes a float and returns an int.
+                Allowed: "ceil", "floor", "round", "round_half_up", "error_on_round".
                 Example: When scaling 11 pixels by factor 2, does your method produce 5 or 6 pixels?
                 Common examples:
 
-                - skimage.transform.rescale: `rounding=round`.
+                - skimage.transform.rescale: `rounding="round"`.
                 - skimage.transform.downscale_local_mean: `rounding="ceil"`.
         """
-        rounding = _normalize_rounding(rounding)
+        round_func = _normalize_rounding(rounding)
         factor = Factor(factor)
         _require_no_extra_factor_axes(self, factor, "shape")
         factor = factor.with_axes(self)
@@ -840,7 +843,7 @@ class Shape(_AxisValues[AxisKeyT, int]):
 
             Round with the given rounding method, and ensure minimum size is 1.
             """
-            return max(rounding(s / f), self._default())
+            return max(round_func(s / f), self._default())
 
         scaled_shape = self.__class__([(a, _rescale_size(size, factor[a])) for a, size in self.items()])
         return scaled_shape

@@ -49,7 +49,7 @@ def test_exports_exclude_underscore_names_and_incidental_imports(documented_pack
 def test_characterization_intentional_omissions_remain_hidden(documented_package):
     members = selected_members(documented_package["characterization"])
     assert "characterize_shape_scaling_method" in members
-    assert "half_pixel_space_preservation" in members
+    assert "half_pixel_space_preservation" not in members
     assert not {"ScalingMethodCharacterization", "ShapeScalingKwargs"} & members
 
 

@@ -3,39 +3,32 @@ from typing import get_args
 import pytest
 
 from clearscale import BlueprintFactors, BlueprintShapes, Factor, Multiscale, PixelSize, Scale, Shape, Translation
-from clearscale import characterization
 from clearscale._services import translating as _translating
-from clearscale.types import TranslatingMethodName
+from clearscale.types import TranslatingMethod
 
 ALL_NAMES = ["half_pixel_space_preservation", "discrete_bin_center", "first_value_decimation"]
 
 
 class TestRegistry:
     def test_names_match_the_literal_type(self):
-        assert sorted(_translating.SHIFT_FUNCTIONS_BY_NAME) == sorted(get_args(TranslatingMethodName))
+        assert sorted(_translating.SHIFT_FUNCTIONS_BY_NAME) == sorted(get_args(TranslatingMethod))
 
     @pytest.mark.parametrize("name", ALL_NAMES)
     def test_names_are_the_function_names(self, name):
         assert _translating.SHIFT_FUNCTIONS_BY_NAME[name].__name__ == name
 
-    @pytest.mark.parametrize("name", ALL_NAMES)
-    def test_characterization_reexports_the_same_function_objects(self, name):
-        assert getattr(characterization, name) is _translating.SHIFT_FUNCTIONS_BY_NAME[name]
-
-    def test_known_shift_functions_cover_all_names(self):
-        assert [f.__name__ for f in characterization.known_shift_functions] == ALL_NAMES
-
 
 class TestResolve:
     @pytest.mark.parametrize("name", ALL_NAMES)
     def test_resolves_name_to_function(self, name):
-        assert _translating.resolve_translating(name) is getattr(characterization, name)
+        assert _translating.resolve_translating(name) is getattr(_translating, name)
 
-    def test_callables_pass_through(self):
+    def test_callables_are_rejected(self):
         def custom(base, target):
             raise NotImplementedError
 
-        assert _translating.resolve_translating(custom) is custom
+        with pytest.raises(TypeError, match="translating must be one of"):
+            _translating.resolve_translating(custom)  # type: ignore[arg-type]
 
     def test_none_is_rejected_with_a_hint_for_the_old_no_shift_meaning(self):
         with pytest.raises(TypeError, match="Use translating='first_value_decimation' for no shift"):
@@ -46,7 +39,7 @@ class TestResolve:
             _translating.resolve_translating("half_pixel")  # type: ignore[arg-type]
 
     def test_rejects_other_types(self):
-        with pytest.raises(TypeError, match="translating must be a function or one of"):
+        with pytest.raises(TypeError, match="translating must be one of"):
             _translating.resolve_translating(3)  # type: ignore[arg-type]
 
 
@@ -55,21 +48,17 @@ class TestAliasesInPublicMethods:
     base = Scale(shape=Shape(y=8, x=8), pixel_size=PixelSize(y=2.0, x=3.0), translation=Translation(y=10.0, x=-5.0))
 
     @pytest.mark.parametrize("name", ALL_NAMES)
-    def test_shapes_apply_to_scale_matches_passing_the_function(self, name):
-        by_name = self.shapes.apply_to_scale(self.base, pixel_sizing="shape_ratio", translating=name)
-        by_function = self.shapes.apply_to_scale(
-            self.base, pixel_sizing="shape_ratio", translating=getattr(characterization, name)
-        )
-        assert by_name == by_function
+    def test_shapes_apply_to_scale_rejects_functions(self, name):
+        with pytest.raises(TypeError, match="translating must be one of"):
+            self.shapes.apply_to_scale(self.base, pixel_sizing="shape_ratio", translating=getattr(_translating, name))
 
     @pytest.mark.parametrize("name", ALL_NAMES)
-    def test_factors_apply_to_scale_matches_passing_the_function(self, name):
+    def test_factors_apply_to_scale_rejects_functions(self, name):
         factors = BlueprintFactors({"s0": Factor(y=1.0, x=1.0), "s1": Factor(y=2.0, x=4.0)})
-        by_name = factors.apply_to_scale(self.base, rounding="ceil", pixel_sizing="shape_ratio", translating=name)
-        by_function = factors.apply_to_scale(
-            self.base, rounding="ceil", pixel_sizing="shape_ratio", translating=getattr(characterization, name)
-        )
-        assert by_name == by_function
+        with pytest.raises(TypeError, match="translating must be one of"):
+            factors.apply_to_scale(
+                self.base, rounding="ceil", pixel_sizing="shape_ratio", translating=getattr(_translating, name)
+            )
 
     def test_factors_exact_factor_path_resolves_names(self):
         factors = BlueprintFactors({"s0": Factor(y=1.0, x=4.0)})

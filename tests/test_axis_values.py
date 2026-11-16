@@ -165,7 +165,6 @@ def test_translation_is_identity_along(translation, axes, expected):
         ("ceil", [("y", 3), ("x", 2)]),
         ("floor", [("y", 2), ("x", 1)]),
         ("round", [("y", 3), ("x", 2)]),
-        (lambda value: math.floor(value) + 10, [("y", 12), ("x", 11)]),
     ],
 )
 def test_translation_to_pixel_offset_rounds_and_ignores_extra_pixel_size_axes(rounding, expected):
@@ -523,3 +522,16 @@ class TestPixelSizeToVigra:
 
         with pytest.raises(ImportError, match='requires the package "vigra"'):
             PixelSize(x=1.0).to_vigra(None)
+
+
+@pytest.mark.parametrize("rounding", [math.ceil, lambda value: int(value), None, 3, "unknown"])
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda rounding: Shape(x=8).scaled_by(Factor(x=2.0), rounding=rounding),
+        lambda rounding: Translation(x=2.5).to_pixel_offset(PixelSize(x=1.0), rounding=rounding),
+    ],
+)
+def test_rounding_rejects_functions_and_invalid_rules(operation, rounding):
+    with pytest.raises(ValueError if isinstance(rounding, str) else TypeError, match="rounding"):
+        operation(rounding)
