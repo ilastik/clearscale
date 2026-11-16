@@ -205,10 +205,10 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
                 new_v = other[a]
                 if new_v is None:
                     raise ValueError(f"None values not allowed. Got None for axis {a!r}.")
+            if isinstance(new_v, bool):
+                raise TypeError(f"Boolean values not allowed. Got bool for axis {a!r}.")
             if type(old_v) is type(new_v):
                 pass
-            elif isinstance(old_v, bool) and isinstance(new_v, numbers.Integral):
-                new_v = bool(new_v)
             elif isinstance(old_v, int) and not isinstance(old_v, bool) and isinstance(new_v, numbers.Integral):
                 # bools are instances of int
                 new_v = int(new_v)

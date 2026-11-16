@@ -2056,15 +2056,25 @@ class TestBlueprintShapesApplyToScaleAxes:
     [(BlueprintShapes, Shape, "with_sizes"), (BlueprintFactors, Factor, "with_factors")],
 )
 @pytest.mark.parametrize("nested", [False, True])
-def test_blueprint_replacement_validates_only_effective_values(blueprint_cls, value_cls, method, nested):
+@pytest.mark.parametrize(
+    "invalid_value, error, match",
+    [
+        (None, ValueError, "None values not allowed"),
+        (True, TypeError, "Boolean values not allowed"),
+        (False, TypeError, "Boolean values not allowed"),
+    ],
+)
+def test_blueprint_replacement_validates_only_effective_values(
+    blueprint_cls, value_cls, method, nested, invalid_value, error, match
+):
     blueprint = blueprint_cls({"s0": value_cls.fromkeys("yx"), "s1": value_cls.fromkeys("yx")})
     replace = getattr(blueprint, method)
-    invalid = {"y": None}
+    invalid = {"y": invalid_value}
     replacements = {"s0": invalid} if nested else invalid
-    with pytest.raises(ValueError, match="None values not allowed"):
+    with pytest.raises(error, match=match):
         replace(replacements, only_axes="tcy")
     assert replace(replacements, only_axes="tcx") == blueprint
     assert replace(replacements, only_axes=()) == blueprint
-    unknown = {"z": None}
+    unknown = {"z": invalid_value}
     assert replace({"s0": unknown} if nested else unknown) == blueprint
     assert blueprint == blueprint_cls({"s0": value_cls.fromkeys("yx"), "s1": value_cls.fromkeys("yx")})
