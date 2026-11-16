@@ -2361,6 +2361,10 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             _legacy_convention_global_t_scale=self._legacy_convention_global_t_scale,
         )
 
+    def _summary(self) -> str:
+        """One-line description for listings of many Multiscales (e.g. in the repr of a Scene)."""
+        return f"{type(self).__name__}(axes={self.axes}, len(items)={len(self)})"
+
     @staticmethod
     def _replace_transform_ref(t: Transform, old: NodeRef, new: NodeRef) -> Transform:
         return t.bound(source=new if t.source == old else t.source, target=new if t.target == old else t.target)

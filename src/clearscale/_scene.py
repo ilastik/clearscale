@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, Iterable, Mapping, NamedTuple, Union, Tuple, Literal
 from typing import Optional, List
 
-from clearscale._services.display import list_truncated
+from clearscale._services.display import counted, list_truncated
 from clearscale._errors import CannotConvertToSpatialRelationError, MismatchingMultiscaleError
 from clearscale._axis_values import Unit
 from clearscale._multiscale import Multiscale, _require_valid_coordinate_system_name
@@ -127,7 +127,7 @@ class Scene:
             parts.extend(
                 list_truncated(
                     entries,
-                    lambda e: f"{e[0]!r}: Multiscale(axes={e[1].axes}, len(items)={len(e[1])}),",
+                    lambda e: f"{e[0]!r}: {e[1]._summary()},",
                     "multiscales",
                     indent="    ",
                 )
@@ -522,6 +522,15 @@ class Scene:
     @functools.cached_property
     def _path_by_id(self) -> Dict[int, RelativePath]:
         return {id(ms): path for path, ms in self._multiscale_paths.items()}
+
+    def _summary(self) -> str:
+        """One-line description for listings of many Scenes (e.g. in the repr of an OmeZarrGroup)."""
+        counts = (
+            counted(len(self._internal_graph.transforms), "transform"),
+            counted(len(self._multiscale_paths), "multiscale"),
+            counted(len(self.unresolved_multiscale_paths), "unresolved path"),
+        )
+        return f"{type(self).__name__}({', '.join(counts)})"
 
     def _path_label(self, ref: AnyRef) -> Optional[str]:
         """Name a Multiscale-owned graph endpoint by storage path (`path#name` for non-intrinsic systems)."""

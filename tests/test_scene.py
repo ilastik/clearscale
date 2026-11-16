@@ -1014,132 +1014,129 @@ class TestRelationBetween:
         assert "CoordinatesTransform has no SpatialRelation equivalent" in caplog.text, "the reason is logged"
 
 
-def _stage_scene(n_tiles: int) -> Scene:
-    tile = _multiscale(y=10, x=10)
-    return Scene.from_shared_coordinate_system(
-        coordinate_system="stage",
-        connections=[Scene.Connection(tile.copy(), Translation(y=0, x=10 * i), f"tiles/{i}") for i in range(n_tiles)],
-    )
-
-
-def _unresolved_scene(n_tiles: int) -> Scene:
-    return Scene.from_ome_zarr(
-        {
-            "coordinateSystems": [{"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}],
-            "coordinateTransformations": [
-                {
-                    "type": "translation",
-                    "translation": [0, 10 * i],
-                    "input": {"path": f"tile_{i}", "name": "physical"},
-                    "output": {"name": "world"},
-                }
-                for i in range(n_tiles)
+class TestSceneDisplay:
+    @staticmethod
+    def _stage_scene(n_tiles: int) -> Scene:
+        tile = _multiscale(y=10, x=10)
+        return Scene.from_shared_coordinate_system(
+            coordinate_system="stage",
+            connections=[
+                Scene.Connection(tile.copy(), Translation(y=0, x=10 * i), f"tiles/{i}") for i in range(n_tiles)
             ],
-        }
+        )
+
+    @staticmethod
+    def _unresolved_scene(n_tiles: int) -> Scene:
+        return Scene.from_ome_zarr(
+            {
+                "coordinateSystems": [{"name": "world", "axes": [{"name": "y"}, {"name": "x"}]}],
+                "coordinateTransformations": [
+                    {
+                        "type": "translation",
+                        "translation": [0, 10 * i],
+                        "input": {"path": f"tile_{i}", "name": "physical"},
+                        "output": {"name": "world"},
+                    }
+                    for i in range(n_tiles)
+                ],
+            }
+        )
+
+    @pytest.mark.parametrize("format_scene", [repr, str])
+    def test_empty_scene(self, format_scene):
+        assert format_scene(Scene(TransformGraph([]), {})) == "Scene()"
+
+    def test_repr_labels_resolved_multiscales_by_path(self):
+        scene = self._stage_scene(2)
+
+        assert repr(scene).splitlines() == [
+            "Scene(",
+            "  multiscale_paths={",
+            "    'tiles/0': Multiscale(axes=('y', 'x'), len(items)=1),",
+            "    'tiles/1': Multiscale(axes=('y', 'x'), len(items)=1),",
+            "  },",
+            "  graph:",
+            f"    'stage'={scene._internal_graph.system_refs[0].owner!r},",
+            "    ('tiles/0' -> 'stage'('y', 'x'))=Transform({'type': 'identity'}),",
+            "    ('tiles/1' -> 'stage'('y', 'x'))=Transform({'type': 'translation', 'translation': [0.0, 10.0]}),",
+            ")",
+        ]
+
+    @pytest.mark.parametrize(
+        "format_scene, expected",
+        [
+            (repr, "('a#deskewed' -> 'b')=Transform({'type': 'translation', 'translation': [3.0, 4.0]})"),
+            (str, "  'a#deskewed' -> 'b': translation [3.0, 4.0]"),
+        ],
     )
+    def test_labels_other_multiscale_systems_with_path_and_name(self, format_scene, expected):
+        tile = _multiscale(y=10, x=10).with_coordinate_system("deskewed", reached_by=Translation(y=1, x=1))
+        scene = Scene.from_multiscale_pair(
+            a=(tile, "deskewed"), b=_multiscale(y=10, x=10), a_to_b=Translation(y=3, x=4), a_path="a", b_path="b"
+        )
+        assert expected in format_scene(scene)
 
+    def test_repr_marks_unresolved_paths_and_labels_them_with_their_system_names(self):
+        scene = self._unresolved_scene(2)
 
-def test_repr_of_empty_scene():
-    assert repr(Scene(TransformGraph([]), {})) == "Scene()"
+        text = repr(scene)
 
+        assert "  unresolved_multiscale_paths=['tile_0', 'tile_1']," in text
+        assert "    ('tile_0#physical' -> 'world'('y', 'x'))=Transform(" in text
+        assert "\n  multiscale_paths={" not in text
 
-def test_repr_labels_resolved_multiscales_by_path():
-    scene = _stage_scene(2)
+    def test_repr_cuts_off_long_listings(self):
+        n = MAX_LISTED + 5
+        scene = self._unresolved_scene(n)
 
-    assert repr(scene).splitlines() == [
-        "Scene(",
-        "  multiscale_paths={",
-        "    'tiles/0': Multiscale(axes=('y', 'x'), len(items)=1),",
-        "    'tiles/1': Multiscale(axes=('y', 'x'), len(items)=1),",
-        "  },",
-        "  graph:",
-        f"    'stage'={scene._internal_graph.system_refs[0].owner!r},",
-        "    ('tiles/0' -> 'stage'('y', 'x'))=Transform({'type': 'identity'}),",
-        "    ('tiles/1' -> 'stage'('y', 'x'))=Transform({'type': 'translation', 'translation': [0.0, 10.0]}),",
-        ")",
-    ]
+        lines = repr(scene).splitlines()
 
+        assert "  unresolved_multiscale_paths=['tile_0', " in lines[1]
+        assert lines[1].endswith("... 5 more paths],")
+        assert f"tile_{MAX_LISTED}" not in repr(scene)
+        assert lines[-2] == "    ... 5 more transforms"
+        assert len([line for line in lines if "-> 'world'" in line]) == MAX_LISTED
 
-def test_repr_labels_other_multiscale_systems_with_path_and_name():
-    tile = _multiscale(y=10, x=10).with_coordinate_system("deskewed", reached_by=Translation(y=1, x=1))
-    scene = Scene.from_multiscale_pair(
-        a=(tile, "deskewed"), b=_multiscale(y=10, x=10), a_to_b=SameSpace(), a_path="a", b_path="b"
+    def test_repr_cuts_off_long_multiscale_listings(self):
+        lines = repr(self._stage_scene(MAX_LISTED + 3)).splitlines()
+
+        assert len([line for line in lines if line.startswith("    'tiles/")]) == MAX_LISTED
+        assert "    ... 3 more multiscales" in lines
+        assert "    ... 3 more transforms" in lines
+
+    def test_repr_does_not_cut_off_exactly_the_limit(self):
+        assert "more" not in repr(self._stage_scene(MAX_LISTED))
+
+    def test_str_lists_one_transform_per_line_labelled_by_path(self):
+        assert str(self._stage_scene(2)).splitlines() == [
+            "Scene(",
+            "  'tiles/0' -> 'stage'(y, x): identity",
+            "  'tiles/1' -> 'stage'(y, x): translation [0.0, 10.0]",
+            ")",
+        ]
+
+    def test_str_lists_unresolved_paths(self):
+        lines = str(self._unresolved_scene(2)).splitlines()
+
+        assert "  'tile_0#physical' -> 'world'(y, x): translation [0.0, 0.0]" in lines
+        assert "  unresolved paths: 'tile_0', 'tile_1'" in lines
+
+    def test_str_cuts_off_long_listings(self):
+        lines = str(self._unresolved_scene(MAX_LISTED + 5)).splitlines()
+
+        assert len([line for line in lines if "-> 'world'" in line]) == MAX_LISTED
+        assert "  ... 5 more transforms" in lines
+        assert lines[-2].endswith("... 5 more paths")
+
+    @pytest.mark.parametrize(
+        "resolved, count, expected",
+        [
+            (True, 3, "Scene(3 transforms, 3 multiscales, 0 unresolved paths)"),
+            (False, 2, "Scene(2 transforms, 0 multiscales, 2 unresolved paths)"),
+            (True, 1, "Scene(1 transform, 1 multiscale, 0 unresolved paths)"),
+            (False, 1, "Scene(1 transform, 0 multiscales, 1 unresolved path)"),
+        ],
     )
-
-    assert "('a#deskewed' -> 'b')=Transform({'type': 'identity'})" in repr(scene)
-
-
-def test_repr_marks_unresolved_paths_and_labels_them_with_their_system_names():
-    scene = _unresolved_scene(2)
-
-    text = repr(scene)
-
-    assert "  unresolved_multiscale_paths=['tile_0', 'tile_1']," in text
-    assert "    ('tile_0#physical' -> 'world'('y', 'x'))=Transform(" in text
-    assert "\n  multiscale_paths={" not in text
-
-
-def test_repr_resolved_scene_has_no_unresolved_paths_line():
-    assert "unresolved_multiscale_paths" not in repr(_stage_scene(2))
-
-
-def test_repr_cuts_off_long_listings():
-    n = MAX_LISTED + 5
-    scene = _unresolved_scene(n)
-
-    lines = repr(scene).splitlines()
-
-    assert "  unresolved_multiscale_paths=['tile_0', " in lines[1]
-    assert lines[1].endswith("... 5 more paths],")
-    assert f"tile_{MAX_LISTED}" not in repr(scene)
-    assert lines[-2] == "    ... 5 more transforms"
-    assert len([line for line in lines if "-> 'world'" in line]) == MAX_LISTED
-
-
-def test_repr_cuts_off_long_multiscale_listings():
-    lines = repr(_stage_scene(MAX_LISTED + 3)).splitlines()
-
-    assert len([line for line in lines if line.startswith("    'tiles/")]) == MAX_LISTED
-    assert "    ... 3 more multiscales" in lines
-    assert "    ... 3 more transforms" in lines
-
-
-def test_repr_does_not_cut_off_exactly_the_limit():
-    assert "more" not in repr(_stage_scene(MAX_LISTED))
-
-
-def test_str_of_empty_scene():
-    assert str(Scene(TransformGraph([]), {})) == "Scene()"
-
-
-def test_str_lists_one_transform_per_line_labelled_by_path():
-    assert str(_stage_scene(2)).splitlines() == [
-        "Scene(",
-        "  'tiles/0' -> 'stage'(y, x): identity",
-        "  'tiles/1' -> 'stage'(y, x): translation [0.0, 10.0]",
-        ")",
-    ]
-
-
-def test_str_labels_other_multiscale_systems_with_path_and_name():
-    tile = _multiscale(y=10, x=10).with_coordinate_system("deskewed", reached_by=Translation(y=1, x=1))
-    scene = Scene.from_multiscale_pair(
-        a=(tile, "deskewed"), b=_multiscale(y=10, x=10), a_to_b=Translation(y=3, x=4), a_path="a", b_path="b"
-    )
-
-    assert "  'a#deskewed' -> 'b': translation [3.0, 4.0]" in str(scene).splitlines()
-
-
-def test_str_lists_unresolved_paths():
-    lines = str(_unresolved_scene(2)).splitlines()
-
-    assert "  'tile_0#physical' -> 'world'(y, x): translation [0.0, 0.0]" in lines
-    assert "  unresolved paths: 'tile_0', 'tile_1'" in lines
-
-
-def test_str_cuts_off_long_listings():
-    lines = str(_unresolved_scene(MAX_LISTED + 5)).splitlines()
-
-    assert len([line for line in lines if "-> 'world'" in line]) == MAX_LISTED
-    assert "  ... 5 more transforms" in lines
-    assert lines[-2].endswith("... 5 more paths")
+    def test_summary_counts_transforms_and_paths(self, resolved, count, expected):
+        scene = self._stage_scene(count) if resolved else self._unresolved_scene(count)
+        assert scene._summary() == expected

@@ -1538,3 +1538,7 @@ class TestMultiscaleRepr:
         assert len([line for line in section if line.startswith("    (<self> -> ")]) == MAX_LISTED
         assert "    ... 3 more transforms" in section
         assert f"system_{MAX_LISTED}" not in "\n".join(section)
+
+    def test_summary_names_axes_and_number_of_items(self):
+        ms = Multiscale({"s0": Scale(Shape(y=10, x=10)), "s1": Scale(Shape(y=5, x=5))})
+        assert ms._summary() == "Multiscale(axes=('y', 'x'), len(items)=2)"

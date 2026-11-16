@@ -6,6 +6,11 @@ MAX_LISTED = 10
 _T = TypeVar("_T")
 
 
+def counted(n: int, noun: str) -> str:
+    """'1 scale', '2 scales': a count as prose (not `scales=2`, which would suggest an attribute that may not exist)."""
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
 def list_truncated(items: Sequence[_T], fmt: Callable[[_T], str], noun: str, *, indent: str = "") -> List[str]:
     """Format the first `MAX_LISTED` items, then summarize how many more there are."""
     lines = [indent + fmt(item) for item in items[:MAX_LISTED]]
