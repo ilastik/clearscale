@@ -474,7 +474,7 @@ For a scipy pull matrix, this means the *input* acts as the *target* and the out
 The Affine returned by the constructor will then be accurately converted to physical, but still in "pull" direction, so it needs to be inverted to obtain an accurate "push" Affine relation:
 
 ```python
-pull_affine = cs.Affine.from_linear_and_offset(
+pull_affine = cs.Affine.from_matrix_and_offset(
     matrix,
     offset,
     "yx",
@@ -502,7 +502,7 @@ If you need a physical `Affine` for a coordinate system that has no `Scale` (i.e
 grid = cs.Scale(shape=cs.Shape.all_singletons("yx"), pixel_size=cs.PixelSize(y=0.5, x=0.5))
 ```
 
-`to_linear_and_offset` returns a push matrix and offset, optionally converted to index space.
+`to_matrix_and_offset` returns a push matrix and offset, optionally converted to index space.
 For scipy arguments, again, explicitly invert the Affine and swap the input and output grids.
 You choose the output grid: its pixel size, and the region it covers (`translation`).
 Its shape is what you pass to the resampling function, not to the placeholder `Scale`:
@@ -513,17 +513,17 @@ affine = multiscale.relation_to_coordinate_system("deskewed")
 output_grid = cs.Scale(
     shape=cs.Shape.all_singletons("zyx"), pixel_size=input_scale.pixel_size, translation=output_origin
 )
-matrix, offset = affine.inverted().to_linear_and_offset(source=output_grid, target=input_scale)
+matrix, offset = affine.inverted().to_matrix_and_offset(source=output_grid, target=input_scale)
 deskewed = scipy.ndimage.affine_transform(data, matrix, offset=offset, output_shape=output_shape)
 ```
 
 The result is plain nested tuples in the order of `affine.axes`; your array must have its axes in the same order.
-`Affine.from_linear_and_offset(*affine.to_linear_and_offset(source=a, target=b), affine.axes, source=a, target=b)` gives the same `Affine` back.
-Without `source` and `target`, `to_linear_and_offset` returns the physical values as they are.
+`Affine.from_matrix_and_offset(*affine.to_matrix_and_offset(source=a, target=b), affine.axes, source=a, target=b)` gives the same `Affine` back.
+Without `source` and `target`, `to_matrix_and_offset` returns the physical values as they are.
 
 #### Matrices from other sources
 
-Without `source` and `target`, `from_array` and `from_linear_and_offset` take the numbers as they are.
+Without `source` and `target`, `from_array` and `from_matrix_and_offset` take the numbers as they are.
 If your matrix does not follow the "push" or "forward" physical coordinate mapping convention, convert it first:
 
 * **Direction**: If it maps output coordinates to input coordinates as resampling matrices often do, supply output as source, input as target, and invert it (`.inverted()` after constructing).
