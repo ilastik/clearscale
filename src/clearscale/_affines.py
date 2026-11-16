@@ -213,6 +213,10 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
     def with_values(
         self, other: Mapping[AxisKey, Mapping[AxisKey, Scalar]], *, only: Optional[Axes] = None
     ) -> "Linear":
+        """Replace nested {output_axis: {input_axis: value}} entries on present axes.
+
+        `only` restricts the replacement to both output and input axes. Unknown axes it specifies are ignored.
+        """
         if not isinstance(other, ABCMapping):
             raise TypeError(f"Pass {{output_axis: {{input_axis: value}}}} mapping. Received: {other!r}")
         if not other or (only is not None and not only):

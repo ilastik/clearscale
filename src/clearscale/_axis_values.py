@@ -39,7 +39,8 @@ _AxisValuesSelf = TypeVar("_AxisValuesSelf", bound="_AxisValues[Any, Any]")
 
 def _axis_in(axis: AxisKey, axes: Axes) -> bool:
     """Required whenever `axes` should tolerate strings like "xyz",
-    because `axis` can be any Hashable, and `hashable_obj in 'tczyx'` raises TypeError"""
+    because `axis` can be any Hashable, and `hashable_obj in 'tczyx'` raises TypeError.
+    At the same time, `axis` could also be a word like 'width'."""
     if isinstance(axes, str):
         return isinstance(axis, str) and len(axis) == 1 and axis in axes
     return axis in axes
@@ -127,7 +128,7 @@ class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, A
         return list(self.values())
 
     def without_axes_except(self: _AxisMappingSelf, axes: Axes) -> _AxisMappingSelf:
-        """Keep only given axes (no reordering)."""
+        """Keep only given axes in their original order, ignoring unknown keys. The result must remain nonempty."""
         kept_items = [(a, self[a]) for a in self if _axis_in(a, axes)]
         if not kept_items:
             raise ValueError(
@@ -137,7 +138,7 @@ class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, A
         return self.__class__(kept_items)
 
     def without_axes(self: _AxisMappingSelf, axes: Axes) -> _AxisMappingSelf:
-        """Drop given axes."""
+        """Drop given axes, ignoring absent keys. The result must remain nonempty."""
         kept_items = [(a, self[a]) for a in self if not _axis_in(a, axes)]
         if not kept_items:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Removing {axes!r} would leave no axes.")
@@ -152,6 +153,7 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
 
     @classmethod
     def fromkeys(cls: type[_AxisValuesSelf], keys: OrderedAxesT) -> _AxisValuesSelf:
+        """Fill unique, ordered axis keys with this class's default value."""
         keys = _validated_axes(keys)
         return cls((axis, cls._default()) for axis in keys)
 
@@ -178,6 +180,8 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
     def with_default(self: _AxisValuesSelf, axes: Axes) -> _AxisValuesSelf:
         """Reset the values for `axes` to the type's default value, keeping the rest unchanged.
 
+        Ignore specified axes that are unknown.
+
         Equivalent to pandas.DataFrame.mask(self in axes, other=self._default()).
         """
         reset_items = [(a, self._default() if _axis_in(a, axes) else self[a]) for a in self]
@@ -185,6 +189,8 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
 
     def with_default_except(self: _AxisValuesSelf, axes: Axes) -> _AxisValuesSelf:
         """Keep the values for `axes` and reset the remaining values to the type's default value.
+
+        Ignore specified axes that are unknown.
 
         Equivalent to pandas.DataFrame.where(self in axes, other=self._default()).
         """
@@ -194,6 +200,14 @@ class _AxisValues(ABC, _AxisMapping[AxisKeyT, AxisMappedPrimitive], Generic[Axis
     def with_values(
         self: _AxisValuesSelf, other: Mapping[AxisKeyT, Union[Scalar, str]], *, only: Optional[Axes] = None
     ) -> _AxisValuesSelf:
+        """Replace values on present, supplied axes, optionally restricted by `only`.
+
+        Absent axes and values excluded by `only` are ignored without validation.
+        String selectors name individual characters; use a collection for multi-character keys.
+        Applied values must satisfy construction rules: None and numeric booleans are rejected.
+        Integer-to-float conversion is supported; float-to-integer conversion is rejected.
+        Empty replacements or `only=()` preserve the value, without an object identity guarantee.
+        """
         if not isinstance(other, ABCMapping):
             raise TypeError(f"Pass {{axis: value}} mapping. Received: {other!r}")
         if not other or (only is not None and not only):
