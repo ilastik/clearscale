@@ -124,12 +124,14 @@ class _AxisMapping(ABCMapping[AxisKeyT, AxisMappedHashable], Generic[AxisKeyT, A
         """Order like given axes (but no new insertions or drops)."""
         if not axes:
             raise ValueError(f"Cannot create empty {self.__class__.__name__}. Attempted reorder to {axes!r}.")
-        would_drop = tuple(a for a in self if a not in axes)
+        # Iterating gives single axes even for strings like "xyz", so tuple membership is safe for any hashable.
+        ordered_axes = tuple(axes)
+        would_drop = tuple(a for a in self if a not in ordered_axes)
         if would_drop:
             raise ValueError(
                 f"Cannot reorder {self.__class__.__name__} to axes {axes!r}. This would drop: {would_drop!r}."
             )
-        reordered_items = [(a, self[a]) for a in axes if a in self]
+        reordered_items = [(a, self[a]) for a in ordered_axes if a in self]
         return self.__class__(reordered_items)
 
     def without_axes_except(self: _AxisMappingSelf, axes: Axes) -> _AxisMappingSelf:
@@ -789,7 +791,7 @@ class Shape(_AxisValues[AxisKeyT, int]):
             True if shapes are equal in all shared axes, optionally further constrained to `only`.
         """
         shared = set(self.keys()) & set(other.keys())
-        if only:
+        if only is not None:
             shared &= set(only)
         return all(self[axis] == other[axis] for axis in shared)
 
@@ -808,6 +810,9 @@ class Shape(_AxisValues[AxisKeyT, int]):
     ) -> "Shape[AxisKeyT]":
         """Return the Shape of this image when scaled by `factor`.
 
+        - Missing axes in `factor` default to 1.0 (no change)
+        - Extra axes in `factor` are rejected
+
         Args:
             rounding: Specify how the scaling implementation used to scale the image data treats uneven cases.
                 Allowed: "ceil", "floor", or a function that takes a float and returns an int.
@@ -818,7 +823,14 @@ class Shape(_AxisValues[AxisKeyT, int]):
                 - skimage.transform.downscale_local_mean: `rounding="ceil"`.
         """
         rounding = _normalize_rounding(rounding)
-        factor = Factor(factor).with_axes(self)
+        factor = Factor(factor)
+        invalid_axes = set(factor.keys()) - set(self.keys())
+        if invalid_axes:
+            raise ValueError(
+                f"Attempted to scale axes with no base shape: "
+                f"{sorted(invalid_axes, key=str)} not present in {sorted(self.keys(), key=str)}"
+            )
+        factor = factor.with_axes(self)
 
         def _rescale_size(s: int, f: float) -> int:
             """Rescale a single dimension of a shape.
