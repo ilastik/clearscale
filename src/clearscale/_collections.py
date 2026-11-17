@@ -406,9 +406,8 @@ class OmeZarrGroup:
         if isinstance(unique_omero, Omero):
             multiscale_group_attrs["omero"] = unique_omero.to_ome_zarr()
         elif unique_omero is not None:
-            logger.debug(
-                "This group's Multiscales carry conflicting `.ome.omero` metadata. "
-                "Only one Multiscale should set it, or all of them must agree. Continuing without writing omero."
+            raise ValueError(
+                "Can only write one omero per group. Drop some, or store these Multiscales in separate groups."
             )
         if isinstance(unique_image_label, ImageLabel):
             multiscale_group_attrs["image-label"] = unique_image_label.to_ome_zarr(version=version)
