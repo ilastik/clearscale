@@ -6,6 +6,7 @@ from typing import (
     Callable,
     Literal,
     Mapping,
+    MutableMapping,
     Any,
     Sequence,
     Union,
@@ -118,6 +119,13 @@ class ZarrGroup(ShapeSourceMap, Protocol):
     def attrs(self) -> Mapping[str, Any]: ...
 
 
+class MutableZarrGroup(Protocol):
+    """A group whose `attrs` can be modified, e.g. zarr.Group (zarr-python) with mode='w'."""
+
+    @property
+    def attrs(self) -> MutableMapping[str, Any]: ...
+
+
 __all__ = [
     "CoordinateSystemName",
     "ScaleKey",
@@ -137,4 +145,5 @@ __all__ = [
     "ShapeSourceMap",
     "ShapeSource",
     "ZarrGroup",
+    "MutableZarrGroup",
 ]

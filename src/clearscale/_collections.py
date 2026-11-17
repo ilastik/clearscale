@@ -15,9 +15,12 @@ from clearscale._services.ome_zarr import (
     Omero,
     InvalidObject,
 )
-from clearscale.types import ZarrGroup, ShapeSource, Json
+from clearscale.types import MutableZarrGroup, ZarrGroup, ShapeSource, Json
 
 logger = logging.getLogger(__name__)
+
+_OME_ZARR_ATTRS_KEYS = ("ome", "multiscales", "omero", "image-label", "labels")
+"""The top-level attrs keys that `OmeZarrGroup.to_attrs` can produce, in any version."""
 
 
 class GroupKind(str, Enum):
@@ -366,9 +369,42 @@ class OmeZarrGroup:
             else:
                 raise NotImplementedError("No version of OME-Zarr currently supports collections.")
         if version == "0.4":
+            assert self.kind is not GroupKind.SCENE, "for clarity; enforced in Scene.to_ome_zarr"
             return ome
         ome["version"] = version
         return {"ome": ome}
+
+    def update_attrs(
+        self,
+        group: MutableZarrGroup,
+        version: Literal["0.4", "0.5", "0.6"],
+        *,
+        override_multi_multiscales: bool = False,
+    ) -> None:
+        """Write the metadata of this OmeZarrGroup to the attrs of `group`, replacing any OME-Zarr metadata that is
+        already there.
+
+        This is `group.attrs.update(self.to_attrs(version))`, except that OME-Zarr keys that are present in the group
+        but not part of the new metadata are removed. A plain `update` cannot do this: OME-Zarr 0.4 stores its keys
+        (`multiscales`, `omero`, `image-label`, ...) as top-level attrs, so for example an `omero` that was removed
+        from the Multiscale would stay in the group's attrs, and be read back. The same goes for leftovers of another
+        OME-Zarr version, when you change the version of an existing group.
+
+        Attrs that are not OME-Zarr keys are left alone.
+        If the metadata is empty (`kind is None`), all OME-Zarr keys are removed.
+        The new metadata is computed completely before anything in `group` is changed.
+
+        Args:
+            group: Any group with mutable `attrs`, like a zarr-python Group. Its `attrs` must support `update` and `del`.
+
+        Raises:
+            ValueError, NotImplementedError: Like `to_attrs`, which receives the other arguments.
+        """
+        new_attrs = self.to_attrs(version, override_multi_multiscales=override_multi_multiscales)
+        stale = [key for key in _OME_ZARR_ATTRS_KEYS if key in group.attrs and key not in new_attrs]
+        for key in stale:
+            del group.attrs[key]
+        group.attrs.update(new_attrs)
 
     def _validate_for_version(self, version: Literal["0.4", "0.5", "0.6"], override_multi_multiscales):
         assert self.kind is not None, "should skip if empty"

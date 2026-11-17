@@ -19,9 +19,7 @@ multiscale = cs.OmeZarrGroup.from_group(zarr_group).multiscales[0]
 
 # Write
 
-output_group_attrs = cs.OmeZarrGroup.from_single(output_multiscale).to_attrs(version="0.5")
-
-output_zarr_group.attrs.update(output_group_attrs)
+cs.OmeZarrGroup.from_single(output_multiscale).update_attrs(output_zarr_group, version="0.5")
 ```
 
 
@@ -358,19 +356,17 @@ for scale_key in new_multiscale.keys():
 If you did not scale the data, you would of course only have one scale, and you would know its key (the array path within the group).
 If you did scale the data, it might be simpler to write the data according to the scaling blueprint you used as shown in the [examples](examples.md).
 
-Generating the new zarr attrs then simply becomes:
+Writing the metadata to the group attrs then simply becomes:
 
 ```python
 import clearscale as cs
 
 new_ome_zarr_group = cs.OmeZarrGroup.from_single(new_multiscale)
 
-new_attrs = new_ome_zarr_group.to_attrs(version="0.5")
-
-new_zarr_group.attrs.update(new_attrs)
+new_ome_zarr_group.update_attrs(new_zarr_group, version="0.5")
 ```
 
-Or more compact:
+Alternatively, use `to_attrs` to obtain the metadata as a dict and write it yourself:
 
 ```python
 import clearscale as cs
@@ -382,9 +378,12 @@ new_zarr_group.attrs.update(
 )
 ```
 
-That's all.
+`update_attrs` removes old OME-Zarr keys that are absent from the new metadata, including leftovers of another OME-Zarr version.
+It does not touch unrelated keys not used by OME-Zarr.
+A plain `attrs.update` only adds or replaces keys, so use it only when the group has no existing OME-Zarr metadata.
+Neither method writes array data or changes the group's zarr format.
 
-When re-writing existing metadata (like `OmeZarrGroup.from_group(...).to_attrs(...)`), if there were any `invalid_objects`, these are excluded from the output.
+When re-writing existing metadata (like `OmeZarrGroup.from_group(...).update_attrs(...)`), if there were any `invalid_objects`, these are excluded from the output.
 
 ### OME-Zarr version specifics
 
