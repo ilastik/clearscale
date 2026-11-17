@@ -187,7 +187,7 @@ def test_image_label_to_ome_zarr_splits_colors_and_properties(version):
         source="../../",
         labels={
             1: LabelEntry(color=(255, 0, 0, 128), properties={"class": "foo", "area (pixels)": 1200}),
-            3: LabelEntry(),  # no color, no properties -> appears in neither list
+            3: LabelEntry(),  # value-only declaration in properties
             4: LabelEntry(color=(0, 255, 255, 128)),
         },
     )
@@ -196,7 +196,7 @@ def test_image_label_to_ome_zarr_splits_colors_and_properties(version):
         {"label-value": 1, "rgba": [255, 0, 0, 128]},
         {"label-value": 4, "rgba": [0, 255, 255, 128]},
     ]
-    assert d["properties"] == [{"label-value": 1, "class": "foo", "area (pixels)": 1200}]
+    assert d["properties"] == [{"label-value": 1, "class": "foo", "area (pixels)": 1200}, {"label-value": 3}]
     assert d["source"] == {"image": "../../"}
     assert d.get("version") == (version if version in ("0.4", "0.5") else None)
 
@@ -246,6 +246,30 @@ def test_image_label_invalid_rgba_is_dropped_rest_of_entry_kept():
     assert label is not None
     assert label.labels[1].color is None
     assert label.labels[1].properties == {"@color:hexColor": "#fff"}
+
+
+def test_image_label_from_ome_zarr_drops_color_entries_whose_only_content_was_an_invalid_rgba():
+    json = {
+        "colors": [{"label-value": 1, "rgba": [1, 2, 3]}, {"label-value": 2, "rgba": [1, 2, 3, 4]}],
+        "properties": [{"label-value": 3}],
+    }
+    label = ImageLabel.from_ome_zarr(json)
+    assert label is not None
+    assert list(label.labels) == [2, 3], "1 dropped (invalid), 3 kept (empty but not invalid)"
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+def test_image_label_value_only_entries_round_trip(version):
+    """If the user intentionally specifies empty entries, keep them.
+    The spec is unclear about whether one should only write entries for label values that actually have metadata,
+    or for all label values in the image. Keeping them makes a cleaner roundtrip.
+    https://ngff.openmicroscopy.org/specifications/dev/index.html#labels-md"""
+    label = ImageLabel(
+        labels={0: LabelEntry(), 1: LabelEntry(color=(255, 0, 0, 255)), 2: LabelEntry(properties={"name": "cell"})}
+    )
+    attrs = label.to_ome_zarr(version)
+    assert attrs["properties"] == [{"label-value": 0}, {"label-value": 2, "name": "cell"}]
+    assert ImageLabel.from_ome_zarr(attrs) == label
 
 
 @pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
