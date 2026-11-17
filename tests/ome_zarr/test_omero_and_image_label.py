@@ -129,6 +129,18 @@ def test_omero_extra_deep_copies_so_writer_output_does_not_alias_the_stored_obje
     assert omero.extra["nested"]["a"] == 1
 
 
+@pytest.mark.parametrize("metadata", [_channel(), Omero([_channel()])])
+def test_omero_and_channels_explicitly_disable_hashing(metadata):
+    assert type(metadata).__hash__ is None
+    with pytest.raises(TypeError, match="unhashable type"):
+        hash(metadata)
+
+
+def test_omero_equality_includes_extra_metadata():
+    assert Omero([_channel()], extra={"name": "a"}) != Omero([_channel()], extra={"name": "b"})
+    assert _channel() != OmeroChannel(color="FF0000", window=_channel().window, extra={"label": "a"})
+
+
 ####
 # ImageLabel / LabelEntry
 ####
