@@ -219,8 +219,9 @@ class OmeroWindow:
 
 @dataclass(frozen=True, slots=True, init=False)
 class OmeroChannel:
-    """One entry of omero.channels."""
+    """One entry of omero.channels. Not hashable because its mutable extra metadata participates in equality."""
 
+    __hash__ = None  # type: ignore[assignment]
     _HEX_COLOR_RE = re.compile(r"^[0-9A-Fa-f]{6}$")
 
     color: str
@@ -272,8 +273,11 @@ class OmeroChannel:
 
 @dataclass(frozen=True, slots=True, init=False)
 class Omero:
-    """Display/rendering metadata from the OME-Zarr group-level 'omero' key."""
+    """Display/rendering metadata from the OME-Zarr group-level 'omero' key.
+    Not hashable because its mutable extra metadata participates in equality.
+    """
 
+    __hash__ = None  # type: ignore[assignment]
     channels: Tuple[OmeroChannel, ...]
     extra: Mapping[str, Any] = field(default_factory=dict)
     """Top-level keys other than 'channels' (e.g. 'id', 'name', 'rdefs'). If .extra['channels'] is defined,
