@@ -66,16 +66,12 @@ array_path = "s0"
 group.create_array(array_path, data=image)
 
 # 2. Metadata: Scale -> Multiscale -> Group -> attrs
-group.attrs.update(
-    cs.OmeZarrGroup  # Group = one zarr group's OME metadata
-    .from_single(
-        cs.Multiscale.from_single(  # Multiscale = an image
-            scale=cs.Scale.from_lists("zyx"),  # Scale = an array
-            scale_key=array_path
-        )
+cs.OmeZarrGroup.from_single(  # Group = one zarr group's OME metadata
+    cs.Multiscale.from_single(  # Multiscale = an image
+        scale=cs.Scale.from_lists("zyx"),  # Scale = an array
+        scale_key=array_path
     )
-    .to_attrs(version="0.5")
-)
+).update_attrs(group, version="0.5")
 ```
 
 ## Overview

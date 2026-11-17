@@ -388,3 +388,102 @@ def test_omero_and_image_label_deep_copy_cleanly():
 def test_image_label_rejects_empty_or_non_string_source(source):
     with pytest.raises(ValueError, match="source must be a non-empty string"):
         ImageLabel(source=source)
+
+
+####
+# OmeZarrGroup.update_attrs
+####
+
+
+class _Group:
+    def __init__(self, attrs):
+        self.attrs = attrs
+
+
+def _group_with_omero_and_label():
+    ms = _multiscale(Shape(c=1, y=4, x=4))
+    ms.ome.omero = Omero([_channel()])
+    ms.ome.image_label = ImageLabel(source="../../", labels={1: LabelEntry()})
+    return OmeZarrGroup.from_single(ms)
+
+
+@pytest.mark.parametrize("field, key", [("omero", "omero"), ("image_label", "image-label")])
+def test_update_attrs_removes_stale_display_metadata_of_flat_0_4_attrs(field, key):
+    group = _Group({})
+    metadata = _group_with_omero_and_label()
+    metadata.update_attrs(group, "0.4")
+    assert key in group.attrs
+
+    read = OmeZarrGroup.from_attrs(group.attrs, shape_source={"s0": (1, 4, 4)})
+    setattr(read.multiscales[0].ome, field, None)
+    read.update_attrs(group, "0.4")
+
+    assert key not in group.attrs
+    assert "multiscales" in group.attrs
+    assert group.attrs == read.to_attrs("0.4")
+    reread = OmeZarrGroup.from_attrs(group.attrs, shape_source={"s0": (1, 4, 4)})
+    assert getattr(reread.multiscales[0].ome, field) is None
+
+
+@pytest.mark.parametrize("old", ["0.4", "0.5", "0.6"])
+@pytest.mark.parametrize("new", ["0.4", "0.5", "0.6"])
+def test_update_attrs_removes_leftovers_of_other_versions(old, new):
+    group = _Group({"my-key": {"nested": [1, 2]}})
+    metadata = _group_with_omero_and_label()
+    metadata.update_attrs(group, old)
+    metadata.update_attrs(group, new)
+    assert group.attrs == {"my-key": {"nested": [1, 2]}, **metadata.to_attrs(new)}
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+def test_update_attrs_keeps_foreign_keys_and_clears_ome_zarr_keys_for_empty_metadata(version):
+    group = _Group(
+        {
+            "my-key": {"nested": [1, 2]},
+            "ome": {},
+            "multiscales": [],
+            "omero": {},
+            "image-label": {},
+            "labels": [],
+        }
+    )
+
+    OmeZarrGroup().update_attrs(group, version)
+    assert group.attrs == {"my-key": {"nested": [1, 2]}}
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+def test_update_attrs_replaces_stale_keys_when_group_kind_changes(version):
+    labels_group = _Group({"labels": ["old-labels"], "my-key": 1})
+    metadata = _group_with_omero_and_label()
+
+    metadata.update_attrs(labels_group, version)  # converts it into a MULTISCALE
+
+    assert labels_group.attrs == {"my-key": 1, **metadata.to_attrs(version)}
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+def test_update_attrs_forwards_override_multi_multiscales(version):
+    ms = _multiscale(Shape(y=4, x=4))
+    metadata = OmeZarrGroup(multiscales=(ms, ms.with_keys(["s1"])))
+    original_attrs = {"omero": {"keep": "me"}, "my-key": 1}
+    group = _Group(copy.deepcopy(original_attrs))
+
+    with pytest.raises(ValueError, match="not supported"):
+        metadata.update_attrs(group, version)
+    assert group.attrs == original_attrs
+
+    metadata.update_attrs(group, version, override_multi_multiscales=True)
+    assert group.attrs == {"my-key": 1, **metadata.to_attrs(version, override_multi_multiscales=True)}
+
+
+def test_update_attrs_leaves_attrs_untouched_if_metadata_cannot_be_written():
+    ms1 = _multiscale(Shape(c=1, y=4, x=4))
+    ms2 = _multiscale(Shape(c=1, y=2, x=2))
+    ms1.ome.omero = Omero([_channel("FF0000")])
+    ms2.ome.omero = Omero([_channel("00FF00")])
+    group = _Group({"omero": {"keep": "me"}})
+
+    with pytest.raises(ValueError, match="Can only write one omero per group"):
+        OmeZarrGroup(multiscales=(ms1, ms2)).update_attrs(group, "0.4", override_multi_multiscales=True)
+    assert group.attrs == {"omero": {"keep": "me"}}
