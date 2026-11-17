@@ -294,15 +294,25 @@ def test_from_attrs_shares_omero_but_copies_image_label_across_multiscales():
     assert "touched" not in ms1.ome.image_label.labels[1].properties
 
 
-def test_to_attrs_omits_omero_on_conflict_across_multiscales():
+def test_to_attrs_raises_on_omero_conflict_across_multiscales():
     ms1 = _multiscale(Shape(c=1, y=4, x=4))
     ms2 = _multiscale(Shape(c=1, y=2, x=2))
     ms1.ome.omero = Omero([_channel("FF0000")])
     ms2.ome.omero = Omero([_channel("00FF00")])
     group = OmeZarrGroup(multiscales=(ms1, ms2))
 
+    with pytest.raises(ValueError, match="Can only write one omero per group"):
+        group.to_attrs(version="0.6", override_multi_multiscales=True)
+
+
+def test_to_attrs_writes_omero_if_only_some_multiscales_have_it():
+    ms1 = _multiscale(Shape(c=1, y=4, x=4))
+    ms2 = _multiscale(Shape(c=1, y=2, x=2))
+    ms2.ome.omero = Omero([_channel("00FF00")])
+    group = OmeZarrGroup(multiscales=(ms1, ms2))
+
     attrs: Dict[str, Any] = group.to_attrs(version="0.6", override_multi_multiscales=True)
-    assert "omero" not in attrs["ome"]
+    assert attrs["ome"]["omero"]["channels"][0]["color"] == "00FF00"
 
 
 def test_to_attrs_raises_on_image_label_conflict_across_multiscales():
