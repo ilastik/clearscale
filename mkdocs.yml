@@ -11,15 +11,16 @@ nav:
   - Home: index.md
   - OME-Zarr: ome_zarr.md
   - Basics: basics.md
+  - Omero and image-label: omero_label.md
   - Scaling methods: characterization.md
   - Coordinate systems: space.md
   - Scenes: scene.md
   - Examples: examples.md
   - API Reference:
+      - OME-Zarr groups: reference/groups.md
       - Multiscale: reference/multiscale.md
       - Blueprints: reference/blueprints.md
       - Scenes: reference/scenes.md
-      - OME-Zarr groups: reference/groups.md
       - Axis values: reference/axis-values.md
       - Affine transformations: reference/affines.md
       - Spatial relations: reference/spatial-relations.md

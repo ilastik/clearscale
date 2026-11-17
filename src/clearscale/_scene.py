@@ -456,7 +456,7 @@ class Scene:
         """Build OME-Zarr "scene" JSON.
 
         Args:
-            `version´: Must be "0.6"
+            version: Must be "0.6"
         """
         if version != "0.6":
             raise ValueError(f"Scenes can only be written in OME-Zarr version 0.6. Received: {version}")
