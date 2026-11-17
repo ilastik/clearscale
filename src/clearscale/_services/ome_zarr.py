@@ -411,7 +411,7 @@ class ImageLabel:
                     property_entry[key] = value
             if len(color_entry) > 1:
                 colors.append(color_entry)
-            if len(property_entry) > 1:
+            if len(property_entry) > 1 or len(color_entry) == 1:
                 properties.append(property_entry)
 
         d: Dict[str, Json] = {}
@@ -443,7 +443,9 @@ class ImageLabel:
             except ValueError:
                 continue
 
-            entry = entry_for(label_value)
+            existing = labels.get(label_value)
+            entry = existing if existing is not None else LabelEntry()
+            rgba_invalid = False
             for key, value in entry_dict.items():
                 if key == "label-value":
                     continue
@@ -451,9 +453,13 @@ class ImageLabel:
                     try:
                         entry.color = value
                     except ValueError:
+                        rgba_invalid = True
                         logger.debug(f"Invalid image-label color for label {label_value}, ignoring: {value!r}")
                 else:
                     entry.properties[f"{cls._COLOR_PREFIX}{key}"] = value
+            if existing is None and rgba_invalid and not entry:
+                continue  # The invalid color was all this entry had to say about the label
+            labels[label_value] = entry
 
         for entry_dict in image_label_dict.get("properties") or []:
             if not isinstance(entry_dict, Mapping) or "label-value" not in entry_dict:
