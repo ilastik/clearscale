@@ -25,13 +25,13 @@ Your application keeps control of array storage, image processing, and the user 
 Requires Python 3.10 or newer.
 
 ```bash
-pip install clearscale==0.9.0rc3
+pip install clearscale==0.9.0rc4
 ```
 
 Conda packages are available from the maintainer's `btbest` channel:
 
 ```bash
-conda install -c btbest clearscale==0.9.0rc3
+conda install -c btbest clearscale==0.9.0rc4
 ```
 
 The 0.9 series is in beta; the public API may change before 1.0.
