@@ -2423,7 +2423,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 or (isinstance(t.transforms[0], ome_zarr.InvertedMultiscaleTransforms))
             ):
                 return True
-            scale_found = translation_found = False
+            scale_i = translation_i = None
             last_index = len(t.transforms) - 1
             for i, nested in enumerate(t.transforms):
                 compatible_types = (
@@ -2437,17 +2437,20 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                     return False  # sequence with something we can't handle
                 if isinstance(nested, ScaleTransform):
                     # scale at start or at end-1 (or end if translation missing)
-                    if scale_found or i not in (0, last_index - 1, last_index):
+                    if scale_i is not None or i not in (0, last_index - 1, last_index):
                         # sequence with multiple scales or scale in middle -- would need to track axes
                         return False
-                    scale_found = True
+                    scale_i = i
                 if isinstance(nested, TranslationTransform):
                     # translation at 1, 0 if scale missing, or at end (inverted or just axesTo-then-translate)
-                    if translation_found or i not in (0, 1, last_index):
+                    if translation_i is not None or i not in (0, 1, last_index):
                         # see above
                         return False
-                    translation_found = True
-            return scale_found or translation_found
+                    translation_i = i
+            if scale_i is not None and translation_i is not None and abs(scale_i - translation_i) != 1:
+                # Scale and translation on either side of an axis change act on different axes -- see above
+                return False
+            return scale_i is not None or translation_i is not None
 
         candidates = [t for t in self._transform_graph.transforms if _is_raw_or_transferred_legacy(t)]
 
@@ -2523,10 +2526,12 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             # Inverted: external --t--> self; presumably stored this way because the sequence is non-invertible.
             # Legacy transforms express self --global_transforms--> external, so the physical component of t must be inverted
             if translation_i is not None and scale_i is not None and scale_i < translation_i:
-                # external --translation--scale--> self ; see above
+                # external --scale--translation--> self ; see above
                 continue
-            last = len(t.transforms)
-            is_physical_then_structural = translation_i == last if scale is None else scale_i == last
+            # The values of the physical part refer to the axes it acts on: external's if it comes before the axis
+            # change in `t` (the sequence starts with it), self's if it comes after.
+            first_physical_i = translation_i if translation_i is not None else scale_i
+            is_physical_then_structural = first_physical_i == 0
             assert isinstance(t.source, NodeRef), "all transforms in graph must be bound and resolved"
             ms_t_source_axes = t.source.owner.axes if is_physical_then_structural else self.axes
             identity_scale = ScaleTransform((1.0,) * len(ms_t_source_axes))
