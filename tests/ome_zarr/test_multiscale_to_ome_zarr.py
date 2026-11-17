@@ -11,6 +11,7 @@ from clearscale._services.ome_zarr import SUPPORTED_VERSIONS_WRITE
 from clearscale._spatial_relations import AxisRearrangementTo, SpatialRelationSequence
 from clearscale._transforms import (
     ProjectAxisTransform,
+    ScaleTransform,
     TransformGraph,
     TransformSequence,
     TranslationTransform,
@@ -357,4 +358,113 @@ class TestLegacyScaleAndTranslationWithAxisChanges:
         assert translation_only.to_ome_zarr(version="0.4")["coordinateTransformations"] == [
             {"type": "scale", "scale": [1.0, 1.0]},
             {"type": "translation", "translation": [1.0, 2.0]},
+        ]
+
+
+def _multiscale_with_stored_transform(transforms, *, self_axes, other_axes, stored_from_self: bool):
+    """Build a Multiscale with a hand-assembled graph holding one transform sequence to/from another system.
+
+    `stored_from_self=True` stores `self --t--> other`, which is what with_coordinate_system and as_derived_from
+    produce. `False` stores `other --t--> self`, which can only come from metadata read from elsewhere.
+    """
+    base = Multiscale({"s0": Scale(shape=Shape(zip(self_axes, [4] * len(self_axes))))})
+    other_ref = CoordinateSystem(OmeZarrAxes.fromkeys(other_axes).with_types_inferred())._as_ref("other")
+    source, target = (base._intrinsic_ref, other_ref) if stored_from_self else (other_ref, base._intrinsic_ref)
+    edge = TransformSequence(tuple(transforms)).bound(source=source, target=target)
+    return Multiscale(
+        base.items(), _transform_graph=TransformGraph(transforms=(edge,)), _intrinsic_ref=base._intrinsic_ref
+    )
+
+
+class TestLegacyTransformsFromHandBuiltGraphs:
+    def test_does_not_write_scale_and_translation_around_an_axis_change(self):
+        """Could potentially handle these cases with the same widening/narrowing"""
+        forward = _multiscale_with_stored_transform(
+            [ScaleTransform((2.0, 2.0)), ProjectAxisTransform(inserts=(0,)), TranslationTransform((0.0, 3.0, 4.0))],
+            self_axes="yx",
+            other_axes="zyx",
+            stored_from_self=True,
+        )
+        inverted = _multiscale_with_stored_transform(
+            [TranslationTransform((0.0, 3.0, 4.0)), ProjectAxisTransform(drops=(0,)), ScaleTransform((2.0, 2.0))],
+            self_axes="yx",
+            other_axes="zyx",
+            stored_from_self=False,
+        )
+
+        assert "coordinateTransformations" not in forward.to_ome_zarr(version="0.4")
+        assert "coordinateTransformations" not in inverted.to_ome_zarr(version="0.4")
+
+
+class TestLegacyTransformsFromStoredOtherToSelf:
+    """`other --t--> self`, i.e. the opposite of what the public API creates.
+
+    The legacy format wants `self --scale[, translation]--> other`, so the physical part of `t` has to be inverted.
+    Which axes its values refer to depends on whether it comes before or after the axis change in `t`:
+    before, they are `other`'s axes; after, they are `self`'s axes.
+    """
+
+    @staticmethod
+    def _global(ms):
+        return ms.to_ome_zarr(version="0.4")["coordinateTransformations"]
+
+    @pytest.mark.parametrize(
+        "transforms, expected",
+        [
+            pytest.param(
+                [ProjectAxisTransform(drops=(0,)), TranslationTransform((-3.0, -4.0))],
+                [{"type": "scale", "scale": [1.0, 1.0]}, {"type": "translation", "translation": [3.0, 4.0]}],
+                id="drop, then translation in self axes",
+            ),
+            pytest.param(
+                [ProjectAxisTransform(drops=(0,)), ScaleTransform((0.5, 0.5))],
+                [{"type": "scale", "scale": [2.0, 2.0]}],
+                id="drop, then scale in self axes",
+            ),
+            pytest.param(
+                [ProjectAxisTransform(drops=(0,)), TranslationTransform((-3.0, -4.0)), ScaleTransform((0.5, 0.5))],
+                [{"type": "scale", "scale": [2.0, 2.0]}, {"type": "translation", "translation": [3.0, 4.0]}],
+                id="drop, then translation and scale in self axes",
+            ),
+            pytest.param(
+                [TranslationTransform((1.0, -3.0, -4.0)), ProjectAxisTransform(drops=(0,))],
+                [{"type": "scale", "scale": [1.0, 1.0]}, {"type": "translation", "translation": [3.0, 4.0]}],
+                id="translation in other axes, then drop",
+            ),
+            pytest.param(
+                [ScaleTransform((2.0, 0.5, 0.5)), ProjectAxisTransform(drops=(0,))],
+                [{"type": "scale", "scale": [2.0, 2.0]}],
+                id="scale in other axes, then drop",
+            ),
+            pytest.param(
+                [
+                    TranslationTransform((1.0, -3.0, -4.0)),
+                    ScaleTransform((2.0, 0.5, 0.5)),
+                    ProjectAxisTransform(drops=(0,)),
+                ],
+                [{"type": "scale", "scale": [2.0, 2.0]}, {"type": "translation", "translation": [3.0, 4.0]}],
+                id="translation and scale in other axes, then drop",
+            ),
+        ],
+    )
+    def test_writes_drop_with_physical_part_inverted_in_selfs_axes(self, transforms, expected):
+        ms = _multiscale_with_stored_transform(transforms, self_axes="yx", other_axes="zyx", stored_from_self=False)
+
+        assert self._global(ms) == expected
+
+    @pytest.mark.parametrize(
+        "transforms",
+        [
+            pytest.param(
+                [ProjectAxisTransform(inserts=(0,)), TranslationTransform((0.0, -3.0, -4.0))], id="insert first"
+            ),
+            pytest.param([TranslationTransform((-3.0, -4.0)), ProjectAxisTransform(inserts=(0,))], id="insert last"),
+        ],
+    )
+    def test_writes_insert_with_identity_values_for_the_new_axis(self, transforms):
+        ms = _multiscale_with_stored_transform(transforms, self_axes="zyx", other_axes="yx", stored_from_self=False)
+
+        assert self._global(ms) == [
+            {"type": "scale", "scale": [1.0, 1.0, 1.0]},
+            {"type": "translation", "translation": [0.0, 3.0, 4.0]},
         ]
