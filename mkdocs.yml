@@ -9,8 +9,8 @@ extra_css:
 
 nav:
   - Home: index.md
-  - OME-Zarr: ome_zarr.md
   - Basics: basics.md
+  - OME-Zarr: ome_zarr.md
   - Omero and image-label: omero_label.md
   - Scaling methods: characterization.md
   - Coordinate systems: space.md
