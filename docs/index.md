@@ -1,4 +1,4 @@
-# <img class="home-logo" src="assets/clearscale-scales.png" alt="" width="910" height="910"> clearscale
+# <img class="home-logo" src="assets/clearscale-scales.png" alt="clearscale logo: three clear scaled scales" width="384" height="384"> clearscale
 
 clearscale is a dependency-free Python library for reading, working with, and writing multiscale image metadata.
 
@@ -27,14 +27,17 @@ Please try it and let us know if you encounter anything unclear!
 Install from PyPI:
 
 ```bash
-pip install clearscale==0.9.0rc3
+pip install clearscale==0.9.0
 ```
 
-Or using conda:
+Using conda:
 
 ```bash
-conda install -c btbest clearscale==0.9.0rc3
+conda install -c conda-forge clearscale==0.9.0
 ```
+
+Note the conda-forge package requires minimum Python 3.11 due to the channel's convention.
+The package from `-c btbest` also accepts Python 3.10.
 
 Until 1.0, the API is considered subject to change so we can ensure it "solidifies" with as much convenience and robustness as possible.
 We hope there won't be too many changes necessary at this point.

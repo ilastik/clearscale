@@ -1,14 +1,14 @@
 # Recipe for manual upload to personal channel
 schema_version: 1
 context:
-  version: "0.9.0rc2"
+  version: "0.9.0"
   python_min: "3.10"
 package:
   name: clearscale
   version: ${{ version }}
 source:
   url: https://pypi.org/packages/source/c/clearscale/clearscale-${{ version }}.tar.gz
-  sha256: cfcde4bcdde4a2140a00df54f32f4685f0e03dd9487c49ae568d0c9ceb185a1c
+  sha256: <insert 0.9.0 tarball hash>
 build:
   number: 0
   noarch: python
@@ -42,12 +42,10 @@ about:
   homepage: https://github.com/ilastik/clearscale
   summary: "Clear multiscale image metadata manipulation"
   description: |
-    clearscale is a small, dependency-free Python package for
-    handling multiscale image metadata.
-
-    It provides an abstraction layer for metadata parsing, processing and
-    serialization, and allows your code to focus on filesystem handling,
-    data processing, and user experience.
+    clearscale is a dependency-free Python library for handling multiscale
+    image metadata. It provides an abstraction layer over metadata formats
+    like OME-Zarr, along with tools for creating and manipulating metadata 
+    independently of data processing.
   license: MIT OR Apache-2.0
   license_file:
     - LICENSE

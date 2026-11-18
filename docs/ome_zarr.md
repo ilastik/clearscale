@@ -408,17 +408,19 @@ Very few tools support 0.6.
 
 ## Advanced OME-Zarr features
 
-This covers multiple multiscales, HCS plates, labels, bioformats2raw, scenes.
+This covers multiple multiscales, HCS plates, labels, bioformats2raw, omero display metadata, and scenes.
 
 ### Path discovery
 
 Special cases for further path discovery that you may want to handle for full support:
 
 * OME-Zarr multiscale groups *usually* define only a single multiscale (in which case they would be `GroupKind.MULTISCALE`), but they can define multiple (in which case they are `GroupKind.COLLECTION`). In this case, you could obtain the first scale key from each Multiscale, form the full paths like `f"{group_path}/{first_scale_key}"`, and display them to choose from. Then on the second round, pick the Multiscale that contains the chosen scale key.
-* In the `GroupKind.BF2RAW` case, there may or may not be a subgroup called `"OME"` that you can try inspecting like `bf2raw_ome_zarr_group = OmeZarrGroup.from_group(bf2raw_group["OME"])`.
-  If it exists, it may or may not have `bf2raw_ome_zarr_group.children` with `child.path` like `"../ms_0"`.
-  The paths will all begin with `../` because they reference multiscales in `bf2raw_group`, which is the parent of `bf2raw_group["OME"]` (where the `bf2raw_ome_zarr_group.children` are defined).
-  If the `bf2raw_group["OME"]` does *not* exist or if there are no `bf2raw_ome_zarr_group.children`, this means there are an unknown number of multiscales in the parent `bf2raw_group` and the only way to find out how many is to try progressively loading `bf2raw_group["0"]`, `bf2raw_group["1"]`, etc., until a load fails because that number is absent.
+* In the `GroupKind.BF2RAW` case:
+  * There may or may not be a subgroup called `"OME"` that you can try inspecting like `bf2raw_ome_sub_group = OmeZarrGroup.from_group(bf2raw_group["OME"])`.
+  * If it exists, it may or may not have `bf2raw_ome_sub_group.children` with `child.path` like `"../ms_0"`.
+    The paths will all begin with `../` because they reference multiscales in `bf2raw_group`, which is the parent of `bf2raw_group["OME"]` (where the `bf2raw_ome_sub_group.children` are defined).
+  * If the `bf2raw_group["OME"]` does *not* exist or if there are no `bf2raw_ome_sub_group.children`, this means there are an unknown number of multiscales in the parent `bf2raw_group`.
+    In that case, the only way to find out how many is to try progressively loading `bf2raw_group["0"]`, `bf2raw_group["1"]`, etc., until a load fails because that number is absent.
 * Any OME-Zarr group that has `.multiscales` may also have one `"labels"` subgroup per multiscale.
   This subgroup will be a sibling to the multiscale's individual scale arrays.
   If a multiscale's first key is `ms0/scale0`, there may or may not be a group at `ms0/labels` that points to label multiscales (usually segmentation overlays).
@@ -427,10 +429,15 @@ Special cases for further path discovery that you may want to handle for full su
 
 #### Special treatment for advanced OME-Zarr kinds
 
-If a group is `GroupKind.SCENE` (single scene) or `GroupKind.COLLECTION`, the group may contain one or more `.scenes`.
-These are `clearscale.Scene` instances and handle the scene as defined in OME-Zarr version 0.6 (see [Scenes](scene.md)).
-The specifics of the `Scene` class in clearscale are still in development, so expect changes to methods and parameters in the future.
+If you want to specially handle HCS plates (i.e. plate layout and acquisition metadata), you would need to implement custom parsing.
+clearscale currently only supports retrieving paths to the contained Multiscales via `group_meta.children`.
+You can detect these cases using `GroupKind.PLATE` and `.WELL` if you want to handle them specially.
 
-If you want to specially handle HCS plates, you would currently need to implement custom parsing.
-clearscale does not offer a convenient API to access plate layout yet, though the contained Multiscales can be found via `group_meta.children`.
-You can detect these cases using `GroupKind.PLATE`, `.WELL`.
+If a group is `GroupKind.SCENE` or `GroupKind.COLLECTION`, the group may contain one or more `.scenes`.
+These are `clearscale.Scene` instances and handle the scene as defined in OME-Zarr version 0.6 (see [Scenes](scene.md)).
+`SCENE` is supported as of OME-Zarr 0.6; `COLLECTION` with multiple scenes is expected to be introduced by future versions.
+Since it is a new concept in the ecosystem, the Scene class is among the more likely places where clearscale's API might change in the future.
+
+#### Omero and label display metadata
+
+See [OMERO and image-label](omero_label.md)

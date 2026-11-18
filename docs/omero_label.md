@@ -20,7 +20,7 @@ The snippets use `zarr-python` 3 for storage, as in the other guides, but clears
 
 ## Concept
 
-`Multiscale.ome` is a small mutable bag of OME-Zarr-specific properties:
+`Multiscale.ome` is a small, mostly mutable bag of OME-Zarr-specific properties:
 
 | `multiscale.ome` field | Where it lives in OME-Zarr                  | Level                   |
 |------------------------|---------------------------------------------|-------------------------|
@@ -133,7 +133,9 @@ assert omero.extra == {"name": "tile 7"}
 `multiscale.ome.omero` is `None` if the group has no `omero` key, or if clearscale could not use it (see [below](#what-to-watch-out-for)).
 
 Label images are read the same way.
-`ome.image_label` is `None` for ordinary images:
+A group that holds a label image is an ordinary `GroupKind.MULTISCALE` group.
+The label image is recognized by its `ome.image_label`, nothing else.
+`ome.image_label` is `None` for ordinary images.
 
 ```python
 label_attrs = {
@@ -174,9 +176,6 @@ for value, entry in image_label.labels.items():
 # 1 (255, 0, 0, 255) {'name': 'cell', 'area': 12.5}
 # 2 (0, 0, 255, 255) {'name': 'nucleus'}
 ```
-
-A group that holds a label image is an ordinary `GroupKind.MULTISCALE` group.
-The label image is recognized by its `ome.image_label`, nothing else.
 
 ### Finding label images
 
@@ -352,7 +351,7 @@ cells_meta = cs.OmeZarrGroup.from_group(image_group["labels/cells"])
 assert cells_meta.multiscales[0].ome.image_label.source == "../../"
 ```
 
-(The `labels` group metadata is the one part of this that is not yet optimized or tested in clearscale, see [OME-Zarr features](ome_zarr.md#ome-zarr-features).)
+(The `labels` group metadata is the one part of this that is not yet tested in clearscale, see [OME-Zarr features](ome_zarr.md#ome-zarr-features).)
 
 Because `.ome` is part of the Multiscale, the usual read, modify, write cycle keeps `omero` and `image-label`:
 
@@ -462,7 +461,7 @@ assert cs.OmeZarrGroup.from_group(legacy_group).multiscales[0].ome.omero is None
 ### Details of the written form
 
 * Colors are normalized: upper case, no `#`. Window values are written as floats (`0.0`, not `0`).
-* For OME-Zarr 0.4 and 0.5, `image-label` also contains a `"version"` entry, as those specifications ask; for 0.6, it doesn't.
+* For OME-Zarr 0.4 and 0.5, `image-label` also contains a `"version"` key, as those specifications ask; for 0.6, it doesn't.
 * When reading, a `colors` entry whose only content is an invalid `rgba` is dropped. If it has other keys, it is kept without color.
 * A `LabelEntry()` without a color or properties is written as a value-only entry in `properties`, so the label stays declared when reading it back. An `ImageLabel()` with nothing in it still writes `image-label` (with a version entry in 0.4 and 0.5), which marks the multiscale as a label image.
 * Colors and properties are merged into one entry per label value when reading, so the *order* of `labels` after reading is "all labels with colors, then all with only properties" and may differ from the file.
