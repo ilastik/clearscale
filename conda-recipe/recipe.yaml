@@ -8,7 +8,7 @@ package:
   version: ${{ version }}
 source:
   url: https://pypi.org/packages/source/c/clearscale/clearscale-${{ version }}.tar.gz
-  sha256: <insert 0.9.0 tarball hash>
+  sha256: a4172af29390d34ede9d6c4c184d8c97f11e296be5c48d792c8edbf082022538
 build:
   number: 0
   noarch: python
