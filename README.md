@@ -1,10 +1,11 @@
 # clearscale
 
-[![CI](https://github.com/ilastik/clearscale/actions/workflows/ci.yaml/badge.svg?branch=main&event=push)](https://github.com/ilastik/clearscale/actions/workflows/ci.yaml?query=branch%3Amain)
-[![Coverage](https://codecov.io/gh/ilastik/clearscale/branch/main/graph/badge.svg)](https://app.codecov.io/gh/ilastik/clearscale)
 [![PyPI](https://img.shields.io/pypi/v/clearscale.svg)](https://pypi.org/project/clearscale/)
+[![Conda Version](https://img.shields.io/conda/vn/conda-forge/clearscale.svg)](https://anaconda.org/conda-forge/clearscale)
 [![Python versions](https://img.shields.io/pypi/pyversions/clearscale.svg)](https://pypi.org/project/clearscale/)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/ilastik/clearscale/blob/main/LICENSE)
+[![CI](https://github.com/ilastik/clearscale/actions/workflows/ci.yaml/badge.svg?branch=main&event=push)](https://github.com/ilastik/clearscale/actions/workflows/ci.yaml?query=branch%3Amain)
+[![Coverage](https://codecov.io/gh/ilastik/clearscale/branch/main/graph/badge.svg)](https://app.codecov.io/gh/ilastik/clearscale)
 
 clearscale is a dependency-free Python library for reading, transforming, and writing multiscale image metadata.
 
