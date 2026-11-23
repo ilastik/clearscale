@@ -208,7 +208,10 @@ def test_group_records_invalid_multiscale_reason():
     group = OmeZarrGroup.from_attrs(invalid_meta, shape_source="singletons")
     assert group.kind is GroupKind.INVALID and group.multiscales == ()
     assert group.version == "0.4"
-    assert "require 2 or 3 axes of type 'space', but this Multiscale has 0" in group.invalid_objects[0].error
+    assert (
+        "require 2 or 3 axes with ome_zarr_axes[].type=='space', but this Multiscale has 0"
+        in group.invalid_objects[0].error
+    )
 
 
 def test_ome_zarr_group_parses_scene_stitching_example():
