@@ -36,7 +36,7 @@ from clearscale._transforms import (
     TransformSignature,
     IDENTITY_TOLERANCE,
 )
-from clearscale.types import ShapeValue, ShapeSource, Json
+from clearscale.types import ShapeValue, ShapeSource, Json, CoordinateSystemName
 
 logger = logging.getLogger(__name__)
 SUPPORTED_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
@@ -1021,16 +1021,16 @@ def pixel_size_to_scale_with_reintroduced_zeros(
     return ScaleTransform(scale=scale)
 
 
-def require_valid_axes(axes: OmeZarrAxes, *, system_name: Optional[str] = None) -> None:
+def require_valid_axes(axes: OmeZarrAxes, *, system_name: Optional[CoordinateSystemName] = None) -> None:
     """Raise if `axes` can't be the axes of a coordinate system in OME-Zarr multiscale metadata: Distinct names,
     between 2 and 5 axes of which 2 or 3 are of type "space". `system_name` is None for the Multiscale's own
     (intrinsic) system."""
     where = "this Multiscale" if system_name is None else f"coordinate system {system_name!r}"
     keys = list(axes.keys())
-    keys_by_name: Dict[str, List[AxisKey]] = {}
+    axis_key_by_axis_name: Dict[str, List[AxisKey]] = {}
     for key in keys:
-        keys_by_name.setdefault(str(key), []).append(key)
-    clashes = {name: same for name, same in keys_by_name.items() if len(same) > 1}
+        axis_key_by_axis_name.setdefault(str(key), []).append(key)
+    clashes = {name: same for name, same in axis_key_by_axis_name.items() if len(same) > 1}
     if clashes:  # Possible with non-str axis keys, whose str() is what gets written as the axis name
         details = "; ".join(f"{name!r} for {same!r}" for name, same in clashes.items())
         raise ValueError(f"Axis names must be unique, but {where} has axis keys with the same str(): {details}.")
@@ -1046,20 +1046,18 @@ def require_valid_axes(axes: OmeZarrAxes, *, system_name: Optional[str] = None) 
     if not MIN_SPACE_AXES <= len(space) <= MAX_SPACE_AXES:
         untyped = [a for a, ax in axes.items() if not ax.type]
         problem = (
-            f"Multiscales require {MIN_SPACE_AXES} or {MAX_SPACE_AXES} axes of type 'space', "
+            f"Multiscales require {MIN_SPACE_AXES} or {MAX_SPACE_AXES} axes with ome_zarr_axes[].type=='space', "
             f"but {where} has {len(space)} (axes: {keys}, space axes: {space})."
         )
         if len(space) < MIN_SPACE_AXES and untyped:
-            problem += (
-                f" Axes without a type: {untyped}. Give the axes types, e.g. `Scale(..., ome_zarr_axes='infer')`."
-            )
+            problem += f" Axes without a type: {untyped}. Specify e.g. `Scale(..., ome_zarr_axes='infer')`?"
         raise ValueError(problem)
     type_order_ranks: Dict[Optional[str], int] = {"time": 0, "channel": 1}
     ranks = [type_order_ranks.get(ax.type, len(type_order_ranks)) for ax in axes.values()]
     if ranks != sorted(ranks):
         raise ValueError(
             f"Multiscales require axes of type time, then channel, before all others, but {where} has axes "
-            f"ordered like this: {axes!r}. (Reorder using `.with_axes` first?)"
+            f"ordered: {dict((a, ax.type) for a, ax in axes.items())}."
         )
 
 
