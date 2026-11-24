@@ -1,6 +1,6 @@
 import itertools
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Callable, Dict, List, Optional, Tuple, Type, Union, cast
 
 from clearscale._affines import Affine
 from clearscale._errors import CannotConvertToAffineError, CannotConvertToSpatialRelationError
@@ -19,6 +19,7 @@ from clearscale._spatial_relations import (
 from clearscale._transforms._base import IdentityTransform, Transform, TransformSequence
 from clearscale._transforms._transform_types import (
     ScaleTransform,
+    AffineRepresentableTransform,
     AffineTransform,
     MapAxisTransform,
     ProjectAxisTransform,
@@ -29,7 +30,7 @@ from clearscale._transforms._transform_types import (
 from clearscale.types import AxisKey, OrderedAxes
 
 _PHYSICAL_TYPES = (ScaleTransform, TranslationTransform, RotationTransform, AffineTransform)
-"""Types that change values, not axes: Expressed as Translation and Affine."""
+"""Types that change values, not axes: Expressed as Affine (including translations, see `_runs`)."""
 _STRUCTURAL_TYPES: Tuple[Type[Transform], ...] = (MapAxisTransform, ProjectAxisTransform)
 """Types that change axes, not values: Expressed as PermutationTo, ProjectionTo, AxisRearrangementTo."""
 
@@ -229,25 +230,6 @@ def _structural_relations(trace: _AxisLineageTrace, start: int, end: int) -> Lis
     return [] if relation is None else [relation]
 
 
-def _physical_relation(transform: Transform, axes: Tuple[AxisKey, ...]) -> SpatialRelation:
-    """Inverse of the Translation and Affine branches of relation_to_transform."""
-    assert isinstance(transform, _PHYSICAL_TYPES)
-    if isinstance(transform, TranslationTransform):
-        if not transform.translation:
-            raise CannotConvertToSpatialRelationError(
-                f"{type(transform).__name__} values are not loaded (path-backed); please request if you need this"
-            )
-        return Translation(zip(axes, transform.translation))
-    try:
-        as_affine = transform._to_affine_transform()
-    except CannotConvertToAffineError:
-        raise CannotConvertToSpatialRelationError(
-            f"{type(transform).__name__} values are not loaded (path-backed); please request if you need this"
-        ) from None
-    assert as_affine.affine is not None, "_to_affine_transform returns transforms with values"
-    return Affine.from_array(as_affine.affine, axes)
-
-
 @dataclass(frozen=True, slots=True)
 class _StructuralRun:
     """The atomic transforms `trace.transforms[start:end]`, all structural."""
@@ -258,25 +240,44 @@ class _StructuralRun:
 
 @dataclass(frozen=True, slots=True)
 class _PhysicalRun:
-    """The one physical transform `trace.transforms[start]`."""
+    """One or more consecutive physical transforms, composed into the single `affine`, which acts on the axis lineages
+    of `trace.stages[start]` (physical transforms keep the axes, so this holds for the whole run)."""
 
     start: int
+    affine: AffineTransform
+
+
+def _composed_physical(transforms: Tuple[Transform, ...]) -> AffineTransform:
+    """The one affine that is equivalent to applying the physical `transforms` first to last."""
+    assert transforms and all(isinstance(t, _PHYSICAL_TYPES) for t in transforms)
+    try:
+        composed = cast(AffineRepresentableTransform, transforms[0])._to_affine_transform()
+        for t in transforms[1:]:
+            next_affine = cast(AffineRepresentableTransform, t)._to_affine_transform()
+            result = next_affine.composed_with(composed)
+            assert isinstance(result, AffineTransform), f"dev error: affines of equal ndim always compose: {result!r}"
+            composed = result
+    except CannotConvertToAffineError:
+        raise CannotConvertToSpatialRelationError(
+            "transform values are not loaded (path-backed); please request if you need this"
+        ) from None
+    return composed.unbound()
 
 
 def _runs(trace: _AxisLineageTrace) -> List[Union[_StructuralRun, _PhysicalRun]]:
-    """Split the chain into runs: Every physical transform is a run of its own, consecutive structural transforms
-    form one run."""
+    """Split the chain into alternating structural runs and physical runs.
+    Each physical run is composed into one affine, which includes its translations."""
     runs: List[Union[_StructuralRun, _PhysicalRun]] = []
     index = 0
     while index < len(trace.transforms):
-        if isinstance(trace.transforms[index], _PHYSICAL_TYPES):
-            runs.append(_PhysicalRun(index))
-            index += 1
-            continue
+        is_physical = isinstance(trace.transforms[index], _PHYSICAL_TYPES)
         run_end = index
-        while run_end < len(trace.transforms) and not isinstance(trace.transforms[run_end], _PHYSICAL_TYPES):
+        while run_end < len(trace.transforms) and isinstance(trace.transforms[run_end], _PHYSICAL_TYPES) == is_physical:
             run_end += 1
-        runs.append(_StructuralRun(index, run_end))
+        if is_physical:
+            runs.append(_PhysicalRun(index, _composed_physical(trace.transforms[index:run_end])))
+        else:
+            runs.append(_StructuralRun(index, run_end))
         index = run_end
     return runs
 
@@ -302,13 +303,20 @@ def transform_to_relation(transform: Transform, source_axes: OrderedAxes, target
     taken only from the two ends. Axes that have different names at the two ends are renamed in a final
     AxisRenaming step.
 
+    Physical transformations (scale, translation, rotation, affine) are never returned as separate relations: Each run
+    of them is combined into one `Affine` that includes the translation (a pure translation is an `Affine` with identity
+    linear part), so `Translation` is never returned. A canonical transform has one physical part, so the result has at
+    most one `Affine`, together with `PermutationTo`, `ProjectionTo`, `AxisRearrangementTo` and `AxisRenaming` for
+    changes to axes.
+
     Chains of relations convert back, apart from the naming ambiguity described under Raises: Canonicalization keeps
     where axes are inserted, dropped and reordered, also if an Affine mixes them (a tilted plane in 3D: insert z, then
     make it depend on x). A canonical form inserts all new axes before its affine, and drops axes that the affine
     still uses after it, so a new axis cannot have the name of such an axis.
 
     Returns:
-        `SameSpace()` if the transform is an identity (and `source_axes == target_axes`).
+        `SameSpace()` if the transform is an identity (and `source_axes == target_axes`). A single `Affine` if the
+        transform only changes values.
 
     Raises:
         CannotConvertToSpatialRelationError: If there is no faithful relation, which callers may expect and handle:
@@ -329,7 +337,8 @@ def transform_to_relation(transform: Transform, source_axes: OrderedAxes, target
     relations: List[SpatialRelation] = []
     for run in _runs(trace):
         if isinstance(run, _PhysicalRun):
-            relations.append(_physical_relation(trace.transforms[run.start], trace.axis_keys_at(run.start)))
+            assert run.affine.affine is not None
+            relations.append(Affine.from_array(run.affine.affine, trace.axis_keys_at(run.start)))
         else:
             relations.extend(_structural_relations(trace, run.start, run.end))
     # All relations above used the source axis keys. Add a final renaming if target uses aliases

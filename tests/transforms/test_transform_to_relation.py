@@ -39,6 +39,23 @@ def scaling_relation(**factors: float) -> Affine:
     return Affine.from_factor(Factor(factors))
 
 
+def shifted(**translation: float) -> Affine:
+    """A pure translation is expressed as an Affine: transform_to_relation never returns Translation"""
+    return Affine(translation=Translation(translation))
+
+
+def scaled_and_shifted(factors: dict, translation: dict) -> Affine:
+    return Affine(linear=scaling_relation(**factors).linear, translation=Translation(translation))
+
+
+def parts_of(relation: SpatialRelation) -> list:
+    return list(relation) if isinstance(relation, SpatialRelationSequence) else [relation]
+
+
+def affines_in(relation: SpatialRelation) -> list:
+    return [r for r in parts_of(relation) if isinstance(r, Affine)]
+
+
 def assert_same_payloads(actual: Transform, expected: Transform):
     actual_atomic = _flatten_atomic(actual)
     expected_atomic = _flatten_atomic(expected)
@@ -82,7 +99,6 @@ class TestRoundtrip:
         [
             (scaling_relation(z=1, y=2, x=2), "zyx"),
             (scaling_relation(c=1, y=2.5, x=0.5), "cyx"),
-            (Translation(z=0.0, y=1.5, x=-2.0), "zyx"),
             (ProjectionTo("x"), "yx"),
             (ProjectionTo("cyx"), "yx"),
             (ProjectionTo("yx"), "zyx"),
@@ -93,18 +109,34 @@ class TestRoundtrip:
             (AxisRearrangementTo("cxy"), "yx"),
             (AxisRearrangementTo("xz"), "zyx"),
             (AxisRearrangementTo("xyc"), "zyx"),
-            (SpatialRelationSequence((scaling_relation(y=2, x=2), Translation(y=1.0, x=1.0))), "yx"),
-            (
-                SpatialRelationSequence(
-                    (PermutationTo("xyz"), scaling_relation(x=2, y=4, z=1), Translation(x=1.0, y=0, z=0))
-                ),
-                "zyx",
-            ),
             (SpatialRelationSequence((ProjectionTo("yx"), AxisRearrangementTo("xyc"))), "cyx"),
         ],
     )
     def test_simple_relations_and_canonical_sequences_roundtrip_through_transform(self, relation, source_axes):
         assert self.roundtrip(relation, source_axes) == relation
+
+    @pytest.mark.parametrize(
+        "relation, source_axes, expected",
+        [
+            (Translation(z=0.0, y=1.5, x=-2.0), "zyx", shifted(z=0.0, y=1.5, x=-2.0)),
+            (
+                SpatialRelationSequence((scaling_relation(y=2, x=2), Translation(y=1.0, x=1.0))),
+                "yx",
+                scaled_and_shifted(dict(y=2, x=2), dict(y=1.0, x=1.0)),
+            ),
+            (
+                SpatialRelationSequence(
+                    (PermutationTo("xyz"), scaling_relation(x=2, y=4, z=1), Translation(x=1.0, y=0, z=0))
+                ),
+                "zyx",
+                SpatialRelationSequence(
+                    (PermutationTo("xyz"), scaled_and_shifted(dict(x=2, y=4, z=1), dict(x=1.0, y=0, z=0)))
+                ),
+            ),
+        ],
+    )
+    def test_translations_roundtrip_as_affines(self, relation, source_axes, expected):
+        assert self.roundtrip(relation, source_axes) == expected
 
     def test_arbitrary_sequences_may_roundtrip_equivalent_not_equal(self):
         # The transform can't express all information about the specific arrangement of relations it came from
@@ -187,15 +219,11 @@ class TestEdgeCases:
         assert transform_to_relation(two_scales, "yx", "yx") == scaling_relation(y=0.25, x=0.5)
 
         affine = AffineTransform(affine=((0.5, 0.0, 3.0), (0.0, 0.5, 4.0)))
-        assert transform_to_relation(affine, "yx", "yx") == SpatialRelationSequence(
-            (scaling_relation(y=0.5, x=0.5), Translation(y=3.0, x=4.0))
-        )
+        assert transform_to_relation(affine, "yx", "yx") == scaled_and_shifted(dict(y=0.5, x=0.5), dict(y=3.0, x=4.0))
 
     def test_legacy_multiscale_transforms_are_flattened(self):
         legacy = MultiscaleTransforms((ScaleTransform((0.5, 0.5)), TranslationTransform((1.0, 2.0))))
-        assert transform_to_relation(legacy, "yx", "yx") == SpatialRelationSequence(
-            (scaling_relation(y=0.5, x=0.5), Translation(y=1.0, x=2.0))
-        )
+        assert transform_to_relation(legacy, "yx", "yx") == scaled_and_shifted(dict(y=0.5, x=0.5), dict(y=1.0, x=2.0))
 
     def test_worked_example_zyx_to_cyx(self):
         transform = TransformSequence((ProjectAxisTransform(drops=(0,), inserts=(0,)), ScaleTransform((1.0, 0.5, 0.5))))
@@ -257,6 +285,83 @@ class TestEdgeCases:
         assert transform_to_relation(dropping_scaling, "yx", "y") == SpatialRelationSequence(
             (ProjectionTo("y"), scaling_relation(y=2.0))
         )
+
+
+class TestPhysicalRuns:
+    """Consecutive physical transforms (scale, translation, rotation, affine) are one Affine, which includes the
+    translation. Translation is never returned."""
+
+    def test_scale_then_translation_is_one_affine(self):
+        transform = TransformSequence((ScaleTransform((2.0, 3.0)), TranslationTransform((1.0, 1.0))))
+        relation = transform_to_relation(transform, "yx", "yx")
+        assert relation == scaled_and_shifted(dict(y=2.0, x=3.0), dict(y=1.0, x=1.0))
+        assert isinstance(relation, Affine) and relation.translation == Translation(y=1.0, x=1.0)
+
+    def test_translation_then_scale_scales_the_translation(self):
+        transform = TransformSequence((TranslationTransform((1.0, 1.0)), ScaleTransform((2.0, 3.0))))
+        assert transform_to_relation(transform, "yx", "yx") == scaled_and_shifted(
+            dict(y=2.0, x=3.0), dict(y=2.0, x=3.0)
+        )
+
+    def test_rotation_scale_translation_is_one_affine(self):
+        transform = TransformSequence(
+            (
+                RotationTransform(rotation=((COS, -SIN), (SIN, COS))),
+                ScaleTransform((2.0, 2.0)),
+                TranslationTransform((5.0, 6.0)),
+            )
+        )
+        relation = transform_to_relation(transform, "yx", "yx")
+        assert isinstance(relation, Affine)
+        assert [v for row in relation.to_tuples() for v in row] == pytest.approx(
+            [2 * COS, -2 * SIN, 5.0, 2 * SIN, 2 * COS, 6.0]
+        )
+
+    def test_pure_translation_is_an_affine_with_identity_linear(self):
+        relation = transform_to_relation(TranslationTransform((1.0, 2.0)), "yx", "yx")
+        assert isinstance(relation, Affine)
+        assert relation.linear.is_identity()
+        assert relation.translation == Translation(y=1.0, x=2.0)
+
+    def test_structural_relations_stay_separate_from_the_affine(self):
+        transform = TransformSequence(
+            (MapAxisTransform((2, 1, 0)), ScaleTransform((2.0, 1.0, 1.0)), TranslationTransform((1.0, 0.0, 0.0)))
+        )
+        relation = transform_to_relation(transform, "zyx", "xyz")
+        assert relation == SpatialRelationSequence(
+            (PermutationTo("xyz"), scaled_and_shifted(dict(x=2.0, y=1.0, z=1.0), dict(x=1.0, y=0.0, z=0.0)))
+        )
+
+    def test_offset_stays_in_the_affine_when_it_uses_an_axis_that_is_dropped(self):
+        # z depends on x, which is dropped afterwards, so the affine has to act on all three axes before the drop
+        shear = Affine.from_array([[1.0, 0.0, 0.5, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0]], "zyx")
+        chain = SpatialRelationSequence((shear, ProjectionTo("zy"), Translation(z=1.0, y=2.0)))
+        transform = relation_to_transform_canonic(chain, "zyx")
+        relation = transform_to_relation(transform, "zyx", "zy")
+        assert isinstance(relation, SpatialRelationSequence) and len(relation) == 2
+        affine, projection = relation
+        assert projection == ProjectionTo("zy")
+        assert isinstance(affine, Affine) and affine.axes == ("z", "y", "x")
+        assert affine.to_tuples() == ((1.0, 0.0, 0.5, 1.0), (0.0, 1.0, 0.0, 2.0), (0.0, 0.0, 1.0, 0.0))
+        assert_same_payloads(relation_to_transform_canonic(relation, "zyx"), transform)
+
+    def test_translation_after_a_lone_projection_is_an_affine_after_it(self):
+        chain = SpatialRelationSequence((ProjectionTo("yx"), Translation(y=1.0, x=2.0)))
+        transform = relation_to_transform_canonic(chain, "zyx")
+        assert transform_to_relation(transform, "zyx", "yx") == SpatialRelationSequence(
+            (ProjectionTo("yx"), shifted(y=1.0, x=2.0))
+        )
+
+    def test_one_affine_with_axis_changes_before_and_after(self):
+        shear = Affine.from_array([[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.5, 1.0, 0.0]], "xyz")
+        chain = SpatialRelationSequence(
+            (PermutationTo("xyz"), shear, ProjectionTo("xy"), Translation(x=2.0, y=1.0), PermutationTo("yx"))
+        )
+        transform = relation_to_transform_canonic(chain, "zyx")
+        relation = transform_to_relation(transform, "zyx", "yx")
+        assert len(affines_in(relation)) == 1
+        assert not any(isinstance(r, Translation) for r in parts_of(relation))
+        assert_same_payloads(relation_to_transform_canonic(relation, "zyx"), transform)
 
 
 class TestErrors:
@@ -335,6 +440,8 @@ def test_random_relation_chains_roundtrip_through_transforms(seed):
         return
     assert recovered.target_axes(source) == target
     assert_same_payloads(relation_to_transform_canonic(recovered, source), transform)
+    assert not any(isinstance(r, Translation) for r in parts_of(recovered)), "translations are part of the Affine"
+    assert len(affines_in(recovered)) <= 1, "all physical transformation is combined in one Affine"
     if not mixes:
         # Same axis lineage, whichever way it is expressed. (For chains that mix axes, both sides are only
         # upper bounds that may differ by numerical cancellation, see SpatialRelationSequence._axis_links.)
@@ -346,7 +453,7 @@ class TestRenaming:
         assert transform_to_relation(IdentityTransform(), "zyx", "ZYX") == AxisRenaming(z="Z", y="Y", x="X")
         assert transform_to_relation(IdentityTransform(), "zyx", "zYx") == AxisRenaming(y="Y")
         assert transform_to_relation(TranslationTransform((2.0, 2.0)), "yx", "vu") == SpatialRelationSequence(
-            (Translation(y=2.0, x=2.0), AxisRenaming(y="v", x="u"))
+            (shifted(y=2.0, x=2.0), AxisRenaming(y="v", x="u"))
         )
 
     def test_swapped_axis_names_become_one_simultaneous_renaming_not_a_permutation(self):
