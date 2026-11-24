@@ -82,16 +82,24 @@ class TestConstructionAxisRequirements:
         Multiscale.from_single(Scale.from_lists(axes, ome_zarr_axes="infer"))
 
     @pytest.mark.parametrize("axes", ["x", "tczyxa"])
-    def test_rejects_wrong_ndim(self, axes):
-        scale = Scale.from_lists(axes)  # shouldn't error - Scales are dumb data bags without enforcement
-        with pytest.raises(ValueError, match="2 to 5 axes"):
-            Multiscale.from_single(scale)
+    def test_wrong_ndim_is_only_writable_in_0_9_dev2(self, axes):
+        ms = Multiscale.from_single(Scale.from_lists(axes))
+        assert ms.axes == tuple(axes)
+        for version in ("0.4", "0.5", "0.6"):
+            with pytest.raises(ValueError, match=f"Cannot write OME-Zarr {version}: Multiscales require 2 to 5 axes"):
+                ms.to_ome_zarr(version=version)
+        assert ms.to_ome_zarr(version="0.9.dev2")
+        assert ms.lowest_lossless_ome_zarr_version == "0.9.dev2"
 
     @pytest.mark.parametrize("n_space", [0, 1, 4, 5])
-    def test_rejects_wrong_n_space_axes(self, n_space):
+    def test_wrong_n_space_axes_is_only_writable_in_0_9_dev2(self, n_space):
         ome_axes: List[ome_zarr.Axis] = ([SPACE] * n_space) + ([ome_zarr.Axis()] * (5 - n_space))
-        with pytest.raises(ValueError, match=f"has {n_space}"):
-            Multiscale.from_single(Scale.from_lists("abcde", ome_zarr_axes=ome_axes))
+        ms = Multiscale.from_single(Scale.from_lists("abcde", ome_zarr_axes=ome_axes))
+        for version in ("0.4", "0.5", "0.6"):
+            with pytest.raises(ValueError, match=f"Cannot write OME-Zarr {version}:.*has {n_space}"):
+                ms.to_ome_zarr(version=version)
+        assert ms.to_ome_zarr(version="0.9.dev2")
+        assert ms.lowest_lossless_ome_zarr_version == "0.9.dev2"
 
     @pytest.mark.parametrize("keys", [("y", "x", 1, "1"), ("y", "x", "1", 1)])
     def test_rejects_axis_keys_with_the_same_str(self, keys):
@@ -1333,21 +1341,23 @@ class TestMultiscaleWithCoordinateSystem:
         ms = _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("iyx"))
         assert ms.coordinate_system_names == ("w",)
 
-    def test_rejects_too_few_axes(self):
-        with pytest.raises(ValueError, match="2 to 5 axes, but coordinate system 'w'"):
-            _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("x"))
-
-    def test_rejects_too_many_axes(self):
-        with pytest.raises(ValueError, match="2 to 5 axes"):
-            _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("tczyxa"))
-
-    def test_rejects_too_few_space_axes(self):
-        with pytest.raises(ValueError, match="'space', but coordinate system 'w' has 1"):
-            _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("yc"))
-
-    def test_rejects_untyped_axes_taking_the_place_of_space_axes(self):
-        with pytest.raises(ValueError, match="Axes without a type"):
-            _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo("ix"))
+    @pytest.mark.parametrize(
+        "axes, error",
+        [
+            ("x", "2 to 5 axes, but coordinate system 'w'"),
+            ("tczyxa", "2 to 5 axes, but coordinate system 'w'"),
+            ("yc", "'space', but coordinate system 'w' has 1"),
+            ("ix", "Axes without a type"),
+        ],
+    )
+    def test_system_with_axes_outside_0_6_limits_is_only_writable_in_0_9_dev2(self, axes, error):
+        ms = _multiscale().with_coordinate_system("w", reached_by=AxisRearrangementTo(axes))
+        assert ms.coordinate_system_names == ("w",)
+        with pytest.raises(ValueError, match=f"Cannot write OME-Zarr 0.6: .*{error}"):
+            ms.to_ome_zarr(version="0.6")
+        assert ms.to_ome_zarr(version="0.9.dev2")
+        # 0.4 does not write the additional system, but it does not read back equal
+        assert ms.lowest_lossless_ome_zarr_version == "0.9.dev2"
 
     def test_rejects_non_spatial_relations(self):
         ms = _multiscale("zyx")

@@ -1,6 +1,7 @@
 from typing import cast, Any, Dict
 
 import pytest
+from clearscale import Multiscale, Scale
 from clearscale._scene import Scene
 from clearscale._collections import OmeZarrGroup, GroupKind
 from clearscale.ome_zarr import make_all_singleton_shapes, SUPPORTED_VERSIONS_WRITE
@@ -12,6 +13,7 @@ from tests.ome_zarr.multiscale_examples import (
     MultiscaleMetadataExample,
 )
 from tests.ome_zarr.scene_examples import (
+    scene_stitching,
     all_invalid_scene_examples,
     all_supported_scene_examples,
     all_external_payload_scene_examples,
@@ -200,7 +202,7 @@ def test_group_records_invalid_multiscale_reason():
         "multiscales": [
             {
                 "version": "0.4",
-                "axes": [{"name": "y"}, {"name": "x"}],  # invalid: MUST have 2 or 3 type="space" axes
+                "axes": [{"name": "y"}, {"name": "y"}],  # invalid: axis names MUST be unique
                 "datasets": [{"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0]}]}],
             }
         ]
@@ -208,10 +210,7 @@ def test_group_records_invalid_multiscale_reason():
     group = OmeZarrGroup.from_attrs(invalid_meta, shape_source="singletons")
     assert group.kind is GroupKind.INVALID and group.multiscales == ()
     assert group.version == "0.4"
-    assert (
-        "require 2 or 3 axes with ome_zarr_axes[].type=='space', but this Multiscale has 0"
-        in group.invalid_objects[0].error
-    )
+    assert "Two axes named 'y'" in group.invalid_objects[0].error
 
 
 def test_ome_zarr_group_parses_scene_stitching_example():
@@ -271,3 +270,16 @@ def test_ome_zarr_group_ignores_scene_invalid_examples(meta):
     assert not ome_group.scenes
     assert ome_group.version == "0.6"
     assert [obj.kind for obj in ome_group.invalid_objects] == ["scene"]
+
+
+def test_group_reads_what_was_written_as_0_9_dev2():
+    multiscale = Multiscale.from_single(Scale.from_lists("abcdefg"))
+    scene = Scene.from_ome_zarr(scene_stitching())
+    for item, attribute in [(multiscale, "multiscales"), (scene, "scenes")]:
+        attrs = OmeZarrGroup.from_single(item).to_attrs(version="0.9.dev2")
+
+        group = OmeZarrGroup.from_attrs(attrs, shape_source=lambda _: (1,) * 7)
+
+        assert group.version == "0.9.dev2"
+        assert group.invalid_objects == ()
+        assert getattr(group, attribute) == (item,)

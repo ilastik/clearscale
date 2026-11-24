@@ -45,6 +45,8 @@ _RefT = TypeVar("_RefT")
 AxisDependencies = Tuple[AxisIndices, ...]
 """One entry per target axis (in target order), with the indices of the source axes it depends on."""
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
+TRANSFORM_GRAPH_VERSIONS = ("0.6", "0.9.dev2")
+"""Versions that store coordinate systems and transformations as a graph, which can be written."""
 
 
 def require_inline_transform_payloads(
@@ -492,9 +494,10 @@ class _UnresolvedRef:
         return cls(name=name, path=path)
 
     def to_ome_zarr(self, *, version: str) -> Dict[str, Json]:
-        if version != "0.6":
+        if version not in TRANSFORM_GRAPH_VERSIONS:
             raise ValueError(
-                f"Unsupported OME-Zarr version {version!r}. Transform endpoints can only be written to '0.6'."
+                f"Unsupported OME-Zarr version {version!r}. Transform endpoints can only be written to "
+                f"{' and '.join(map(repr, TRANSFORM_GRAPH_VERSIONS))}."
             )
         d: Dict[str, Json] = {}
         if self.name:
@@ -1444,8 +1447,11 @@ class TransformGraph:
         }
         ```
         """
-        if version != "0.6":
-            raise ValueError(f"Unsupported OME-Zarr version {version!r}. Graphs can only be written to '0.6'.")
+        if version not in TRANSFORM_GRAPH_VERSIONS:
+            raise ValueError(
+                f"Unsupported OME-Zarr version {version!r}. "
+                f"Graphs can only be written to {' and '.join(map(repr, TRANSFORM_GRAPH_VERSIONS))}."
+            )
         systems = [
             ref.owner.to_ome_zarr(name=ref.name, version=version)
             for ref in self.all_system_refs

@@ -318,7 +318,7 @@ class OmeZarrGroup:
 
     def to_attrs(
         self,
-        version: Literal["0.4", "0.5", "0.6"],
+        version: Literal["0.4", "0.5", "0.6", "0.9.dev2"],
         *,
         override_multi_multiscales: bool = False,
     ) -> Dict[str, Json]:
@@ -377,7 +377,7 @@ class OmeZarrGroup:
     def update_attrs(
         self,
         group: MutableZarrGroup,
-        version: Literal["0.4", "0.5", "0.6"],
+        version: Literal["0.4", "0.5", "0.6", "0.9.dev2"],
         *,
         override_multi_multiscales: bool = False,
     ) -> None:
@@ -406,7 +406,7 @@ class OmeZarrGroup:
             del group.attrs[key]
         group.attrs.update(new_attrs)
 
-    def _validate_for_version(self, version: Literal["0.4", "0.5", "0.6"], override_multi_multiscales):
+    def _validate_for_version(self, version: Literal["0.4", "0.5", "0.6", "0.9.dev2"], override_multi_multiscales):
         assert self.kind is not None, "should skip if empty"
         not_implemented_kinds = (GroupKind.BF2RAW, GroupKind.BF2RAW_OME)
         if self.kind in not_implemented_kinds:
@@ -418,6 +418,7 @@ class OmeZarrGroup:
             "0.4": base_kinds,
             "0.5": base_kinds,
             "0.6": base_kinds + (GroupKind.SCENE,),
+            "0.9.dev2": base_kinds + (GroupKind.SCENE,),
         }
         is_multi_multiscale = (
             self.kind is GroupKind.COLLECTION and len(self.multiscales) > 1 and not self.scenes and not self.children
@@ -427,7 +428,7 @@ class OmeZarrGroup:
                 f"Cannot write this group in OME-Zarr version {version}: {self.kind.value} groups are not supported."
             )
 
-    def _multiscales_to_attrs(self, version: Literal["0.4", "0.5", "0.6"]) -> Dict[str, Json]:
+    def _multiscales_to_attrs(self, version: Literal["0.4", "0.5", "0.6", "0.9.dev2"]) -> Dict[str, Json]:
         multiscale_group_attrs: Dict[str, Json] = {
             "multiscales": [ms.to_ome_zarr(version=version) for ms in self.multiscales]
         }

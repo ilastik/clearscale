@@ -333,6 +333,34 @@ OME_ZARR_MAX_MS_0_6 = {
     "metadata": SCALING_METHOD_EXAMPLE,
 }
 
+# OME-Zarr 0.9.dev2 differs from 0.6 in its axes: Any number, types and order. One channel axis alone is minimal.
+OME_ZARR_MIN_MS_0_9_DEV2 = {
+    "coordinateSystems": [{"name": "physical", "axes": [{"name": "c", "type": "channel"}]}],
+    "datasets": [
+        {
+            "path": "s0",
+            "coordinateTransformations": [
+                {"type": "scale", "scale": [1.0], "input": {"path": "s0"}, "output": {"name": "physical"}}
+            ],
+        }
+    ],
+}
+
+# Otherwise the same as 0.6, which can't hold these axes: 6 axes, with a channel after the space axes
+OME_ZARR_MAX_MS_0_9_DEV2 = copy.deepcopy(OME_ZARR_MAX_MS_0_6)
+for _system in OME_ZARR_MAX_MS_0_9_DEV2["coordinateSystems"]:
+    _system["axes"] = [*_system["axes"], {"name": "v", "type": "channel"}]
+for _dataset in OME_ZARR_MAX_MS_0_9_DEV2["datasets"]:
+    _transform = _dataset["coordinateTransformations"][0]
+    if _transform["type"] == "sequence":
+        for _t in _transform["transformations"]:
+            _t[_t["type"]].append(1.0 if _t["type"] == "scale" else 0.0)
+    else:
+        _transform["scale"].append(1.0)
+for _transform in OME_ZARR_MAX_MS_0_9_DEV2["coordinateTransformations"]:
+    if _transform["type"] == "sequence":
+        _transform["transformations"][0]["translation"].append(0.0)
+
 _MINIMAL_MULTISCALE_EXAMPLES = (
     MultiscaleMetadataExample("0.1", OME_ZARR_MIN_MS_0_1, ndim=5),
     MultiscaleMetadataExample("0.2", OME_ZARR_MIN_MS_0_2, ndim=5),
@@ -340,6 +368,7 @@ _MINIMAL_MULTISCALE_EXAMPLES = (
     MultiscaleMetadataExample("0.4", OME_ZARR_MIN_MS_0_4, ndim=2),
     MultiscaleMetadataExample("0.5", OME_ZARR_MIN_MS_0_5, ndim=2),
     MultiscaleMetadataExample("0.6", OME_ZARR_MIN_MS_0_6, ndim=2),
+    MultiscaleMetadataExample("0.9.dev2", OME_ZARR_MIN_MS_0_9_DEV2, ndim=1),
 )
 
 _MAXIMAL_MULTISCALE_EXAMPLES = (
@@ -365,6 +394,12 @@ _MAXIMAL_MULTISCALE_EXAMPLES = (
         "0.6",
         OME_ZARR_MAX_MS_0_6,
         ndim=5,
+        group_metadata={"omero": OMERO_EXAMPLE, "image-label": image_label_example(None)},
+    ),
+    MultiscaleMetadataExample(
+        "0.9.dev2",
+        OME_ZARR_MAX_MS_0_9_DEV2,
+        ndim=6,
         group_metadata={"omero": OMERO_EXAMPLE, "image-label": image_label_example(None)},
     ),
 )
