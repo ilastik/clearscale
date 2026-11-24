@@ -168,7 +168,9 @@ if ome_zarr_group.kind is cs.GroupKind.COLLECTION:
 Invalid objects are excluded from `.multiscales` and `.scenes`.
 
 For now, `.invalid_objects` also contains entries that use features clearscale cannot support yet (non-linear transforms), so its meaning is a mix between "invalid" and "unusable" objects.
-Validation is lenient: E.g. as long as the core structure of a `Multiscale` is valid (axis keys, axis types and scale keys determined; valid axis and shape order), invalid additional metadata is discarded.
+Validation itself is lenient:
+E.g. as long as the core structure of a `Multiscale` is valid (axis keys and scale keys determined, array dimensions matching the axes), invalid additional metadata is discarded.
+Datasets whose dimensionality or axis order is strictly invalid in the version they claim are also read as-is (see [Basics](basics.md#axis-types)).
 
 `cs.GroupKind` is a string enum, so you can use the exact checks as shown here (`.kind is cs.GroupKind.MULTISCALE`), or compare `.kind == "multiscale"` if you prefer.
 
@@ -309,7 +311,7 @@ multiscale = cs.Multiscale.from_single(
 
 If more metadata is available (pixel size, units, etc.), pass it to the `Scale`.
 
-If you're not using standard axis keys (`t, c, z, y, x` or a subset), specify at least two axes as "space" like `ome_zarr_axes={your_axis_key: cs.ome_zarr.Axis(type="space")}`.
+If you're not using standard axis keys (`t, c, z, y, x` or a subset) and write OME-Zarr 0.4, 0.5 or 0.6, specify two or three axes as "space" like `ome_zarr_axes={your_axis_key: cs.ome_zarr.Axis(type="space")}`.
 
 If you're scaling the data, make a matching blueprint and add the `blueprint=your_blueprint` parameter to expand the single Scale to multiple scales matching your blueprint.
 Don't forget to supply how your scaling method handles `pixel_sizing`, `translating` and `rounding`.

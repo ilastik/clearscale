@@ -44,17 +44,14 @@ clearscale models them as properties of the Multiscale instead of `OmeZarrGroup`
 ### `omero`
 
 `Omero` holds one `OmeroChannel` per channel.
-Each channel has these optional properties:
+Each channel may provide:
 
 * `color`: 6 hex digits, like `"FF8800"`
-* `window`: an `OmeroWindow` with `start` and `end` (the contrast limits to display), and optionally `min` and `max` (the full range the data can take, e.g. 0 and 255 for `uint8`)
+* `window`: an `OmeroWindow` with `start` and `end` (the contrast limits to display), and `min` and `max` (the full range the data can take, e.g. 0 and 255 for `uint8`)
 * `label`: the channel's name
 * `active`: whether to display the channel
 * `inverted`: whether to invert the rendering of darkest to brightest
 * `extra`: any other keys of the channel, like `family` or `coefficient`
-
-OME-Zarr 0.4, 0.5 and 0.6 require every channel to have a `color` and a `window` with `min`, `max`, `start` and `end`.
-Trying to write an `Omero` that lacks any of this in those versions raises, naming the channel.
 
 `Omero.extra` holds any other top-level keys, like `name` or `rdefs`.
 
@@ -136,7 +133,7 @@ for channel in omero.channels:
 assert omero.extra == {"name": "tile 7"}
 ```
 
-`multiscale.ome.omero` is `None` if the group has no `omero` key, or if clearscale could not use it (see [below](#what-to-watch-out-for)).
+`multiscale.ome.omero` is `None` if the group has no `omero` key, or if clearscale could not use it (see [below](#malformed-omero-metadata)).
 
 Label images are read the same way.
 A group that holds a label image is an ordinary `GroupKind.MULTISCALE` group.
@@ -228,7 +225,8 @@ image.ome.omero = cs.ome_zarr.Omero(
         cs.ome_zarr.OmeroChannel(
             color=color,
             window=cs.ome_zarr.OmeroWindow(start=0, end=255, min=0, max=255),
-            extra={"label": f"channel {index}", "active": True},
+            label=f"channel {index}",
+            active=True,
         )
         for index, color in enumerate(colors)
     ],
@@ -236,7 +234,9 @@ image.ome.omero = cs.ome_zarr.Omero(
 )
 ```
 
-Constructors check their input: `color` must be 6 hex digits (a leading `#` is accepted and removed, lowercase is converted to uppercase), the window values must be finite numbers, `label` a string, `active` and `inverted` booleans, and an `Omero` needs at least one channel.
+When supplied, `color` must be 6 hex digits (a leading `#` is accepted and removed, lowercase is converted to uppercase), `label` must be a string, and `active` and `inverted` must be booleans.
+Window values must be finite numbers, and an `Omero` needs at least one channel.
+Note that `OmeroChannel()` is valid, but trying to write a channel without the required color and fully-specified window in OME-Zarr versions 0.4, 0.5 or 0.6 raises an error.
 
 `Omero`, `OmeroChannel` and `OmeroWindow` are frozen dataclasses.
 To change one, make a modified copy with `dataclasses.replace` and assign it back:
@@ -255,7 +255,8 @@ assert image.ome.omero.channels[1].color == "FF00FF"
 ```
 
 `extra` is a plain dict, so you *can* edit it in place (`omero.extra["name"] = "new"`), but see [shared instances](#what-to-watch-out-for) first.
-Keys in `extra` named `color`, `window` (on a channel) or `channels` (on `Omero`) are overridden by the dedicated attributes when writing.
+When writing, clearscale takes `color`, `window`, `label`, `active` and `inverted` from the channel properties, and `channels` from `Omero.channels`.
+It ignores matching extra keys like `extra["label"]`.
 
 To remove omero metadata, set `image.ome.omero = None`.
 
@@ -320,6 +321,11 @@ image.ome.metadata = {"method": "skimage.transform.pyramid_gaussian", "version":
 Writing works exactly like the other metadata: wrap the Multiscale in an `OmeZarrGroup`.
 `omero` and `image-label` are written to the right place in the group attrs automatically.
 `update_attrs(group, version)` writes them to the group; `to_attrs(version)` returns the attrs if you want to write them yourself, but see [Updating attrs](#updating-attrs-that-already-hold-metadata).
+
+Writing OME-Zarr 0.4, 0.5 or 0.6 requires every channel to have a `color` and a `window` with all four values (`start`, `end`, `min` and `max`).
+If any of these are missing, `to_attrs` and `update_attrs` raise `ValueError`.
+Only the experimental version `0.9.dev2` allows missing values for these properties.
+`multiscale.lowest_lossless_ome_zarr_version` accounts for these `omero` requirements.
 
 This example writes an image group, with its `omero` metadata, a `labels` group, and one label image inside (though with no actual data):
 
@@ -422,11 +428,16 @@ Use `dataclasses.replace` as shown above (it makes copies), or `copy.deepcopy`, 
 As the warning at the top says, clearscale does not check `.ome` against anything: Not the number of `omero.channels` against the size of the `c` axis (an image with 3 channels and 1 `OmeroChannel`, or no `c` axis at all, is written without complaint, and viewers will not display it correctly), not label values against the label array, not `image_label` against the data type of the array.
 Keep `.ome` in step with the data yourself, especially after selecting or reordering channels.
 
-### Reading `omero` is strict about what is invalid
+### Malformed `omero` metadata
 
-Missing properties are fine, but clearscale does not guess what invalid ones were meant to be: `multiscale.ome.omero` is `None`, *without any warning*, if **any** channel has a property that is present but invalid (a `color` that is not 6 hex digits, a `window` without `start` or `end`, a `label` that is not a string, ...), or if `channels` is missing or empty.
-Files with such a channel lose *all* of their omero metadata this way, because dropping just that channel would shift the index of every channel after it.
-To see why a group's `omero` was ignored, enable debug logging:
+When reading `omero` metadata, clearscale is permissive regarding missing properties that would technically be required by the dataset's version.
+For example: Up to OME-Zarr 0.6, every channel was required to specify its `color`.
+Only the experimental version 0.9.dev2 removes this requirement, but clearscale accepts missing `color` regardless of claimed version.
+
+The lower requirement bound of 0.9.dev2 still applies:
+The `omero` block must still be an object with a nonempty `channels` list.
+If any channel entry is invalid under 0.9.dev2 (e.g. color not a hex-string, window is missing `start` or `end`), clearscale sets `multiscale.ome.omero` to `None` for the whole block, since skipping that entry would shift subsequent channel indices.
+Enable debug logging to diagnose invalid channel lists and entries.
 
 ```python
 import logging
