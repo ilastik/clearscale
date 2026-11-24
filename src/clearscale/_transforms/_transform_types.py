@@ -623,40 +623,41 @@ class AffineTransform(AffineRepresentableTransform):
         - a single simpler transform (ProjectAxis, MapAxis, Rotation, Scale, Translation)
         - a Sequence of such simpler transforms
         - for affines with source_ndim != target_ndim, the Sequence may contain a remainder Affine.
+
+        A linear part that is not one of the simpler types stays a general Affine that keeps the translation inside,
+        like the Affine of a square matrix always did: There is no separate Translation after it.
         """
         if self.affine is None:
             return self
         linear = self._linear()
         translation = self._translation()
         target_ndim, source_ndim = matrix_shape(linear)
-        components: List[Union[AffineRepresentableSubtypes, "AffineTransform"]] = []
+        # Split off the axis changes, so that what is left is a square affine (linear part and offset together)
+        leading_projection: Optional[ProjectAxisTransform] = None
+        trailing_projection: Optional[ProjectAxisTransform] = None
         projection_and_linear = self._decompose_project_axis(linear)
         if projection_and_linear is not None:
-            project, post_project_linear = projection_and_linear
-            components.append(project)
-            components.extend(self._decompose_square_linear_else_affine(post_project_linear))
+            leading_projection, linear = projection_and_linear
         elif target_ndim > source_ndim:
-            inserts = tuple(range(source_ndim, target_ndim))
-            components.append(ProjectAxisTransform(inserts=inserts))
-            post_project_linear = self._pad_to_square_matrix(linear)
-            components.extend(self._decompose_square_linear_else_affine(post_project_linear))
+            leading_projection = ProjectAxisTransform(inserts=tuple(range(source_ndim, target_ndim)))
+            linear = self._pad_to_square_matrix(linear)
         elif target_ndim < source_ndim:
             drops = tuple(range(target_ndim, source_ndim))
-            pre_project_linear = self._pad_to_square_matrix(linear)
-            components.extend(self._decompose_square_linear_else_affine(pre_project_linear))
-            components.append(ProjectAxisTransform(drops=drops))
-        else:
-            linear_components = self._decompose_square_linear(linear)
-            if linear_components is None:
+            trailing_projection = ProjectAxisTransform(drops=drops)
+            linear = self._pad_to_square_matrix(linear)
+            translation = translation + (0.0,) * len(drops)  # the padded rows are the ones that get dropped
+        physical = self._decompose_square_affine(linear, translation)
+        if physical is None:
+            if leading_projection is None and trailing_projection is None:
                 return self
-            components.extend(linear_components)
-        if not all(abs(value) <= IDENTITY_TOLERANCE for value in translation):
-            components.append(TranslationTransform(translation=translation))
+            # The linear part needs a general affine, which has room for the offset: No separate Translation.
+            physical = (AffineTransform(affine=tuple(row + (offset,) for row, offset in zip(linear, translation))),)
+        components = tuple(c for c in (leading_projection, *physical, trailing_projection) if c is not None)
         if not components:
             return IdentityTransform(source=self.source, target=self.target)
         if len(components) == 1:
             return components[0].bound(source=self.source, target=self.target)
-        return TransformSequence(tuple(components)).bound(source=self.source, target=self.target)
+        return TransformSequence(components).bound(source=self.source, target=self.target)
 
     def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         if self._ome_zarr_path is not None:
@@ -834,13 +835,15 @@ class AffineTransform(AffineRepresentableTransform):
         return (t_rotation,)
 
     @classmethod
-    def _decompose_square_linear_else_affine(
-        cls, linear: FloatMatrix
-    ) -> Tuple[Union[AffineRepresentableSubtypes, "AffineTransform"], ...]:
+    def _decompose_square_affine(
+        cls, linear: FloatMatrix, translation: FloatVector
+    ) -> Optional[Tuple[AffineRepresentableSubtypes, ...]]:
+        """Specific transform types (Rotation, Scale, ..., then Translation) for the square affine, if its linear part
+        can be expressed by them. None if it needs a general affine."""
         components = cls._decompose_square_linear(linear)
-        if components is not None:
-            return components
-        return (AffineTransform(affine=tuple(row + (0.0,) for row in linear)),)
+        if components is not None and any(abs(value) > IDENTITY_TOLERANCE for value in translation):
+            return components + (TranslationTransform(translation=translation),)
+        return components
 
     @staticmethod
     def _are_any_zeros(numbers: Iterable[float], tolerance: float) -> bool:

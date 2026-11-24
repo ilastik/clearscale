@@ -916,9 +916,8 @@ def test_affine_simplified_does_not_decompose_square_except_zero_scale(linear):
             ((1, 1, 3),),
             TransformSequence(
                 (
-                    AffineTransform(((1, 1, 0), (0, 1, 0))),
+                    AffineTransform(((1, 1, 3), (0, 1, 0))),
                     ProjectAxisTransform(drops=(1,)),
-                    TranslationTransform((3,)),
                 )
             ),
             id="general affine then dimensionality reduction",
@@ -928,8 +927,7 @@ def test_affine_simplified_does_not_decompose_square_except_zero_scale(linear):
             TransformSequence(
                 (
                     ProjectAxisTransform(inserts=(1,)),
-                    AffineTransform(((1, 0, 0), (1, 1, 0))),
-                    TranslationTransform((3, 7)),
+                    AffineTransform(((1, 0, 3), (1, 1, 7))),
                 )
             ),
             id="dimensionality expansion then general affine",
