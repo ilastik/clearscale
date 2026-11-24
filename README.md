@@ -10,7 +10,7 @@
 clearscale is a dependency-free Python library for reading, transforming, and writing multiscale image metadata.
 
 It provides an abstraction layer between image-processing code and metadata formats such as OME-Zarr.
-Work with named axes, shapes, pixel sizes, and spatial relations; clearscale handles the format-specific parsing and serialization.
+Work with named axes, shapes, pixel sizes, and spatial relationships; clearscale handles the metadata calculations, validation and format-specific parsing and serialization.
 Your application keeps control of array storage, image processing, and the user interface.
 
 ## Install
@@ -42,7 +42,7 @@ The [documentation](https://clearscale.readthedocs.io/) includes the full API re
 - **Axis-aware metadata:** Immutable, ordered mappings keep axis names attached to their shapes, pixel size, unit and translation values through reordering, insertions and drops.
 - **Multiscale planning:** Shape and factor blueprints describe resolution levels and can drive your processing code. Scaling method characterization helps you calculate the corresponding pixel sizes and translations.
 - **OME-Zarr support:** Read versions 0.1–0.6 through a common API and write versions 0.4, 0.5, and 0.6, with validation on read and construction.
-- **Spatial relationships:** Describe alternate coordinate systems, affine transformations, and relations between images, including OME-Zarr 0.6 scenes.
+- **Spatial relationships:** Describe additional coordinate systems, affine transformations, and relations between images, including OME-Zarr 0.6 scenes.
 - **A small integration footprint:** Pure Python, no runtime dependencies, and typed APIs designed to work with ordinary Python mappings and your choice of array and storage libraries.
 
 ## Metadata-only quickstart
@@ -72,7 +72,89 @@ Typically:
 `zarr_group.attrs.update(ome_attrs)`.
 
 Your code retains full ownership of data processing, but also the responsibility for keeping data and metadata in sync.
-See documentation for suggested approaches, including complete data+metadata [examples](https://clearscale.readthedocs.io/en/latest/examples/).
+
+## End-to-end example
+
+This example creates an OME-Zarr 0.6 pyramid from synthetic data.
+NumPy striding is used here for simplicity; in practice, you can use any resampling method and specify its corresponding scaling characteristics.
+It demonstrates how to:
+
+* describe arrays when existing metadata values are sequences (not mappings)
+* plan a multiscale pyramid using a blueprint
+* calculate metadata that matches the scaling method
+* relate the image to an external coordinate system
+* use the same blueprint to drive data processing
+
+```python
+# Requires numpy and zarr-python 3.*
+import numpy as np
+import zarr
+import clearscale as cs
+
+# Create a 3D image
+data = np.random.default_rng(42).random((32, 128, 128)).astype(np.float32)
+
+# Describe the base scale
+base = cs.Scale.from_lists(
+    keys="zyx",
+    shape=data.shape,
+    pixel_size=[2.6, 0.45, 0.45],
+    unit=["micrometer"] * 3,
+)
+
+# Define the pyramid blueprint. NumPy striding is a "step factor" scaling method
+blueprint = cs.BlueprintFactors.downscale_powers_of_2_xyz(
+    base_shape=base.shape,
+    rounding="ceil",
+    limit_all=cs.Shape(z=8, y=32, x=32),
+)
+
+# Generate metadata matching the scaling method (NumPy striding)
+ms = cs.Multiscale.from_single(
+    base,
+    blueprint=blueprint,
+    pixel_sizing="exact_factor",
+    translating="first_value_decimation",
+    rounding="ceil",
+)
+
+# Relate the image to the microscope stage coordinate system
+ms = ms.with_coordinate_system(
+    "stage",
+    reached_by=cs.Translation(z=224.0, y=770.0, x=684.5),
+)
+
+# Execute:
+
+group = zarr.open_group(
+    "demo-output/image.ome.zarr",
+    mode="w",
+    zarr_format=3,
+)
+
+# Scale data according to the blueprint
+for key, factors in blueprint.items():
+    slices = tuple(slice(None, None, int(factor)) for factor in factors.values())
+    scaled = data[slices]
+    assert scaled.shape == ms[key].shape.values_tuple()
+    group.create_array(key, data=scaled)
+
+# Write OME-Zarr v0.6 metadata
+group.attrs.update(
+    cs.OmeZarrGroup.from_single(ms).to_attrs(version="0.6")
+)
+```
+
+The blueprint describes the desired resolution levels, while the scaling method parameters describe how NumPy striding changes the sampling interval, pixel positions, and array shape.
+Together, they allow clearscale to calculate the corresponding metadata without performing any image processing itself.
+The same blueprint drives the actual downsampling, keeping data and metadata consistent.
+
+`Multiscale.with_coordinate_system` describes how the image relates to another coordinate system, here that of the microscope stage.
+Rather than defining the additional coordinate system and coordinate transformations separately, you express the spatial relationship using a `SpatialRelation`, such as a translation, permutation, or any affine mapping.
+clearscale derives the corresponding coordinate system and transformation metadata, taking axis names, types, and units into account.
+
+The resulting spatial relationships can be serialized to OME-Zarr 0.6.
+See the [coordinate systems](https://clearscale.readthedocs.io/en/latest/space/) guide for more examples.
 
 ## Where clearscale fits
 

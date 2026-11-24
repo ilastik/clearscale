@@ -3,6 +3,8 @@ from unittest.mock import Mock, MagicMock
 
 import clearscale as cs
 
+# The first three are technically docs examples now (index.md and examples.md)
+
 
 def test_minimal_ome_zarr_example():
     # 1. Data: Make a group and write the array into it
@@ -232,3 +234,74 @@ def test_extract_single_scale_example():
 
     assert local_group_meta.to_attrs(version="0.4") == expected_written_meta
     local_group.attrs.update.assert_called_once_with(expected_written_meta)
+
+
+def test_metadata_only_quickstart():
+    shape = cs.Shape(z=16, y=64, x=64)
+    pixel_size = cs.PixelSize(z=0.5, y=0.25, x=0.25)
+    unit = cs.Unit(z="micrometer", y="micrometer", x="micrometer")
+
+    # A Scale describes one array
+    scale = cs.Scale(shape=shape, pixel_size=pixel_size, unit=unit)
+
+    # A Multiscale describes the image the Scale belongs to
+    multiscale = cs.Multiscale.from_single(scale, scale_key="s0")
+
+    # An OmeZarrGroup prepares the metadata for a Zarr group's attributes
+    ome_attrs = cs.OmeZarrGroup.from_single(multiscale).to_attrs(version="0.5")
+
+    assert ome_attrs == {
+        "ome": {
+            "multiscales": [
+                {
+                    "version": "0.5",
+                    "datasets": [
+                        {"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [0.5, 0.25, 0.25]}]}
+                    ],
+                    "axes": [
+                        {"name": "z", "type": "space", "unit": "micrometer"},
+                        {"name": "y", "type": "space", "unit": "micrometer"},
+                        {"name": "x", "type": "space", "unit": "micrometer"},
+                    ],
+                }
+            ],
+            "version": "0.5",
+        }
+    }
+
+
+def test_end_to_end_example():
+    # Create a 3D image
+    # data = np.random.default_rng(42).random((32, 128, 128)).astype(np.float32)
+
+    # Describe the base scale
+    base = cs.Scale.from_lists(
+        keys="zyx",
+        shape=(32, 128, 128),  # data.shape,
+        pixel_size=[2.6, 0.45, 0.45],
+        unit=["micrometer"] * 3,
+    )
+
+    # Define the pyramid blueprint. NumPy striding is a "step factor" scaling method
+    blueprint = cs.BlueprintFactors.downscale_powers_of_2_xyz(
+        base_shape=base.shape,
+        rounding="ceil",
+        limit_all=cs.Shape(z=8, y=32, x=32),
+    )
+
+    # Generate metadata matching the scaling method (NumPy striding)
+    ms = cs.Multiscale.from_single(
+        base,
+        blueprint=blueprint,
+        pixel_sizing="exact_factor",
+        translating="first_value_decimation",
+        rounding="ceil",
+    )
+
+    # Relate the image to the microscope stage coordinate system
+    ms = ms.with_coordinate_system(
+        "stage",
+        reached_by=cs.Translation(z=224.0, y=770.0, x=684.5),
+    )
+
+    assert ms.coordinate_system_names == ("stage",)
