@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, Mapping, NamedTuple, Union, Tuple, Liter
 from typing import Optional, List
 
 from clearscale._services.display import counted, list_truncated
+from clearscale._services.ome_zarr import require_no_axis_orientation
 from clearscale._errors import CannotConvertToSpatialRelationError, MismatchingMultiscaleError
 from clearscale._axis_values import Unit
 from clearscale._multiscale import Multiscale, _require_valid_coordinate_system_name
@@ -34,7 +35,7 @@ from clearscale._transforms import (
     TransformGraph,
     require_inline_transform_payloads,
 )
-from clearscale._transforms._base import _is_owner_coordinate_system, TransformGraphNode
+from clearscale._transforms._base import _is_owner_coordinate_system, TransformGraphNode, TRANSFORM_GRAPH_VERSIONS
 
 MultiscalesByPath = Mapping[RelativePath, Multiscale]
 MultiscaleSystemKey = Union[Multiscale, Tuple[Multiscale, CoordinateSystemName]]
@@ -409,6 +410,7 @@ class Scene:
 
         Paths identifying transform endpoints are supported; paths identifying transform payloads are not (yet).
         """
+        require_no_axis_orientation(scene_attrs)
         transform_dicts = scene_attrs.get("coordinateTransformations", [])
         require_inline_transform_payloads(transform_dicts)
         system_dicts = scene_attrs.get("coordinateSystems", [])
@@ -456,10 +458,10 @@ class Scene:
         """Build OME-Zarr "scene" JSON.
 
         Args:
-            version: Must be "0.6"
+            version: Must be "0.6" or "0.9.dev2"
         """
-        if version != "0.6":
-            raise ValueError(f"Scenes can only be written in OME-Zarr version 0.6. Received: {version}")
+        if version not in TRANSFORM_GRAPH_VERSIONS:
+            raise ValueError(f"Scenes can only be written in OME-Zarr version 0.6 or 0.9.dev2. Received: {version}")
         return self._internal_graph.to_ome_zarr(version=version, nodes_by_path=self._multiscale_paths)
 
     def relation_from(

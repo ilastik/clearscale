@@ -421,26 +421,35 @@ class TestMultiscale:
 
 
 class TestMultiscaleAxisOrderValidation:
-    def test_init_with_bad_order_infer_raises(self):
-        s0 = Scale(shape=Shape(y=2, x=2, c=2))
-        with pytest.raises(ValueError, match="time, then channel, before all others"):
-            Multiscale({"s0": s0})
+    def test_bad_order_with_inferred_types_is_only_writable_in_0_9_dev2(self):
+        ms = Multiscale({"s0": Scale(shape=Shape(y=2, x=2, c=2))})
+        assert ms.axes == ("y", "x", "c")
+        with pytest.raises(ValueError, match="Cannot write OME-Zarr 0.6: .*time, then channel, before all others"):
+            ms.to_ome_zarr(version="0.6")
+        written: Dict[str, Any] = ms.to_ome_zarr(version="0.9.dev2")
+        assert [axis["name"] for axis in written["coordinateSystems"][0]["axes"]] == [
+            "y",
+            "x",
+            "c",
+        ]
 
-    def test_init_with_bad_order_explicit_axes_raises(self):
+    def test_bad_order_with_explicit_types_is_only_writable_in_0_9_dev2(self):
         s0 = Scale(
             shape=Shape(y=2, x=2, c=2),
             ome_zarr_axes=dict(
                 y=ome_zarr.Axis(type="space"), x=ome_zarr.Axis(type="space"), c=ome_zarr.Axis(type="channel")
             ),
         )
-        with pytest.raises(ValueError, match="time, then channel, before all others"):
-            Multiscale({"s0": s0})
+        ms = Multiscale({"s0": s0})
+        with pytest.raises(ValueError, match="Cannot write OME-Zarr 0.4: .*time, then channel, before all others"):
+            ms.to_ome_zarr(version="0.4")
+        assert ms.lowest_lossless_ome_zarr_version == "0.9.dev2"
 
     def test_init_with_good_order_does_not_raise(self):
         s0 = Scale(shape=dict(zip("tcyx", [1, 3, 10, 10])))
         _ = Multiscale({"s0": s0})
 
-    def test_bad_axis_order_is_rejected_when_reading(self):
+    def test_bad_axis_order_is_read_in_storage_order(self):
         bad_multiscale_dict = {
             "version": "0.5",
             "axes": [
@@ -450,13 +459,18 @@ class TestMultiscaleAxisOrderValidation:
             ],
             "datasets": [{"path": "s0", "coordinateTransformations": [{"type": "scale", "scale": [1.0, 1.0, 1.0]}]}],
         }
-        with pytest.raises(ValueError, match="time, then channel, before all others"):
-            Multiscale.from_ome_zarr(bad_multiscale_dict, shape_source=lambda _: (10, 10, 3))
+        ms = Multiscale.from_ome_zarr(bad_multiscale_dict, shape_source=lambda _: (10, 10, 3))
+        assert ms.axes == ("x", "y", "c")
+        assert ms["s0"].shape == Shape(x=10, y=10, c=3)
+        with pytest.raises(ValueError, match="Cannot write OME-Zarr 0.5: .*time, then channel, before all others"):
+            ms.to_ome_zarr(version="0.5")
 
-    def test_bad_axis_order_is_rejected_in_additional_coordinate_systems(self):
+    def test_bad_axis_order_in_additional_coordinate_system_is_only_writable_in_0_9_dev2(self):
         ms = Multiscale({"s0": Scale(shape=Shape(c=2, y=2, x=2))})
-        with pytest.raises(ValueError, match="time, then channel.*coordinate system 'w'"):
-            ms.with_coordinate_system("w", reached_by=PermutationTo("yxc"))
+        ms = ms.with_coordinate_system("w", reached_by=PermutationTo("yxc"))
+        with pytest.raises(ValueError, match="Cannot write OME-Zarr 0.6: .*time, then channel.*coordinate system 'w'"):
+            ms.to_ome_zarr(version="0.6")
+        assert ms.to_ome_zarr(version="0.9.dev2")
 
 
 class TestMultiscaleTransfer:

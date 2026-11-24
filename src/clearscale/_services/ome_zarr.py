@@ -39,8 +39,8 @@ from clearscale._transforms import (
 from clearscale.types import ShapeValue, ShapeSource, Json, CoordinateSystemName
 
 logger = logging.getLogger(__name__)
-SUPPORTED_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6")
-SUPPORTED_VERSIONS_WRITE = ("0.4", "0.5", "0.6")
+SUPPORTED_VERSIONS_READ = ("0.1", "0.2", "0.3", "0.4", "0.5", "0.6", "0.9.dev2")
+SUPPORTED_VERSIONS_WRITE = ("0.4", "0.5", "0.6", "0.9.dev2")
 
 OME_ZARR_TRANSFORM = Mapping[str, Any]
 """Single transform.
@@ -511,11 +511,12 @@ def make_all_singleton_shapes(ndim_or_spec: Union[int, OME_ZARR_MULTISCALE]) -> 
         return lambda _: (1,) * ndim
 
 
-def normalize_shape_source_to_callable(
-    shape_source: ShapeSource, multiscale_dict: OME_ZARR_MULTISCALE
-) -> GetShapeFunction:
+def normalize_shape_source_to_callable(shape_source: ShapeSource, ndim: int) -> GetShapeFunction:
+    """`ndim` is the number of axes of the image's intrinsic coordinate system, which determines the number of
+    dimensions of its arrays. (Guessing it from the metadata is unreliable now that images can have any number of axes.)
+    """
     if shape_source == "singletons":
-        return make_all_singleton_shapes(multiscale_dict)
+        return make_all_singleton_shapes(ndim)
     if isinstance(shape_source, (str, bytes)):
         raise TypeError(
             f"Cannot obtain array shape from plain path. Received: {shape_source!r}."
@@ -732,6 +733,19 @@ class InvertedMultiscaleTransforms(TransformSequence):
 
     def simplified(self) -> "InvertedMultiscaleTransforms":
         return self  # Avoid dropping explicitly recorded global identity by simplification
+
+
+def require_no_axis_orientation(raw: Mapping[str, Any]) -> None:
+    """Raise if any axis in a multiscale or scene has an `orientation` (introduced in OME-Zarr 0.9.dev2).
+    This is temporary: It waits for support of anatomical orientation.
+
+    clearscale does not model orientations yet. Ignoring them would silently drop them when the metadata is written
+    again, and a lost left-right orientation is worse than a metadata object that cannot be read."""
+    systems = raw.get("coordinateSystems")
+    for system in [raw, *(systems if isinstance(systems, list) else ())]:
+        axes = system.get("axes") if isinstance(system, Mapping) else None
+        if isinstance(axes, list) and any(isinstance(axis, Mapping) and "orientation" in axis for axis in axes):
+            raise ValueError("Reading axes with an anatomical orientation is not supported yet.")
 
 
 def require_dataset_paths(raw: Mapping[str, Any]):
@@ -1021,25 +1035,36 @@ def pixel_size_to_scale_with_reintroduced_zeros(
     return ScaleTransform(scale=scale)
 
 
-def require_valid_axes(axes: OmeZarrAxes, *, system_name: Optional[CoordinateSystemName] = None) -> None:
-    """Raise if `axes` can't be the axes of a coordinate system in OME-Zarr multiscale metadata: Distinct names,
-    between 2 and 5 axes of which 2 or 3 are of type "space". `system_name` is None for the Multiscale's own
-    (intrinsic) system."""
-    where = "this Multiscale" if system_name is None else f"coordinate system {system_name!r}"
-    keys = list(axes.keys())
+def require_distinct_axis_names(axes: OmeZarrAxes, *, system_name: Optional[CoordinateSystemName] = None) -> None:
+    """Raise if two axes would be written under the same name. Every OME-Zarr version requires distinct axis names
+    within a coordinate system, so this holds for every Multiscale, whichever version it is later written in.
+    `system_name` is None for the Multiscale's own (intrinsic) system."""
+    where = "this Multiscale" if system_name is None else f"coordinate system {system_name !r}"
     axis_key_by_axis_name: Dict[str, List[AxisKey]] = {}
-    for key in keys:
+    for key in axes.keys():
         axis_key_by_axis_name.setdefault(str(key), []).append(key)
     clashes = {name: same for name, same in axis_key_by_axis_name.items() if len(same) > 1}
     if clashes:  # Possible with non-str axis keys, whose str() is what gets written as the axis name
         details = "; ".join(f"{name!r} for {same!r}" for name, same in clashes.items())
         raise ValueError(f"Axis names must be unique, but {where} has axis keys with the same str(): {details}.")
+
+
+def require_axis_layout_of_0_4_to_0_6(axes: OmeZarrAxes, *, system_name: Optional[CoordinateSystemName] = None) -> None:
+    """Raise if `axes` can't be the axes of a coordinate system in OME-Zarr 0.4, 0.5 or 0.6 multiscale metadata:
+    Between 2 and 5 axes of which 2 or 3 are of type "space", with time and channel axes first.
+    `system_name` is None for the Multiscale's own (intrinsic) system.
+
+    OME-Zarr 0.9.dev2 dropped all of these restrictions, so this is only checked when writing those versions: Existing
+    data does not always follow them, and we would rather read it than refuse it for being unwritable in old versions.
+    """
+    where = "this Multiscale" if system_name is None else f"coordinate system {system_name !r}"
+    keys = list(axes.keys())
     if not MIN_NDIM <= len(keys) <= MAX_NDIM:
         problem = f"Multiscales require {MIN_NDIM} to {MAX_NDIM} axes, but {where} has {len(keys)}: {keys}."
         if system_name is None:
             problem += (
-                f" If your data are genuinely {len(keys)}D, you cannot validly write them in any supported "
-                "Multiscale format. Otherwise, maybe use Scale.with_axes to rearrange to a valid number of dimensions?"
+                f" If your data are genuinely {len(keys)}D, you can only write them in OME-Zarr 0.9.dev2. "
+                "Otherwise, maybe use Scale.with_axes to rearrange to a valid number of dimensions?"
             )
         raise ValueError(problem)
     space = [a for a, ax in axes.items() if ax.type == "space"]

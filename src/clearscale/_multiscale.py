@@ -1549,10 +1549,12 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             self._transform_graph = transform_graph
             self._intrinsic_ref = _intrinsic_ref
         # Make sure we never construct Multiscales that cannot be serialized (-> enforce OME-Zarr MUSTs for multiscales).
+        # Axis layout restrictions are not part of this: OME-Zarr 0.9.dev2 has none, so a Multiscale with any layout can
+        # be written. `to_ome_zarr` checks the layout for the versions that do restrict it.
         _require_non_increasing_shapes([(key, scale.shape) for key, scale in self._mapping.items()], "Multiscales")
-        # Axis requirements apply to *all* coordinate systems in multiscale metadata per spec.
+        # Axis names must be distinct in *all* coordinate systems in multiscale metadata per spec.
         for ref in self._transform_graph.all_system_refs:
-            ome_zarr.require_valid_axes(
+            ome_zarr.require_distinct_axis_names(
                 OmeZarrAxes(ref.owner), system_name=None if ref == self._intrinsic_ref else ref.name
             )
         if _zero_scale_axes_by_key:
@@ -1709,10 +1711,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         Raises ValueError for unsupported external transform data, even if other metadata could be recovered.
         Dataset transforms retain their permissive parsing behavior.
+
+        Axes do not need to follow the layout restrictions of OME-Zarr 0.4 to 0.6, because data that does not is common.
+        (Writing such a Multiscale in those versions raises, in `to_ome_zarr`.)
         """
+        ome_zarr.require_no_axis_orientation(multiscale_dict)
         ome_zarr.require_dataset_paths(multiscale_dict)
         require_inline_transform_payloads(multiscale_dict.get("coordinateTransformations"))
-        get_shape = ome_zarr.normalize_shape_source_to_callable(shape_source, multiscale_dict)
         global_meta = global_t_scale = None
         try:
             transform_graph, intrinsic_system_ref = ome_zarr.extract_multiscale_graph(multiscale_dict)
@@ -1725,6 +1730,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 global_t_scale, _ = global_meta
         assert intrinsic_system_ref.owner, "dev error: must reference intrinsic system"
         axis_keys = list(intrinsic_system_ref.owner.axes)
+        get_shape = ome_zarr.normalize_shape_source_to_callable(shape_source, len(axis_keys))
         unit = intrinsic_system_ref.owner.get_unit()
         datasets = multiscale_dict["datasets"]
         base_shape = None
@@ -1732,7 +1738,13 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         zero_scale_axes_by_key = {}
         for dataset in datasets:
             scale_key = dataset["path"]
-            scale_shape = Shape(zip(axis_keys, get_shape(scale_key)))
+            shape = get_shape(scale_key)
+            if len(shape) != len(axis_keys):
+                # Pairing them anyway would silently drop the trailing dimensions (or axes).
+                raise ValueError(
+                    f"Dataset {scale_key!r} has {len(shape)} dimensions, but the axes specify {len(axis_keys)}: {axis_keys!r}."
+                )
+            scale_shape = Shape(zip(axis_keys, shape))
             if base_shape is None:
                 base_shape = scale_shape
             relative_scale_factor = base_shape.factor_to(scale_shape)
@@ -1868,7 +1880,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         return MappingProxyType({shape: tuple(keys) for shape, keys in grouped.items()})
 
     @cached_property
-    def lowest_lossless_ome_zarr_version(self) -> Literal["0.6", "0.4"]:
+    def lowest_lossless_ome_zarr_version(self) -> Literal["0.4", "0.6", "0.9.dev2"]:
         """The lowest OME-Zarr version that can reproduce this Multiscale through write/read cycles,
         i.e. the lowest `version` for which
         `Multiscale.from_ome_zarr(self.to_ome_zarr(version=version)) == self`
@@ -1879,22 +1891,31 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
                 because then no version reproduces it.
 
         Note:
-            Never returns 0.5, because it added no new multiscale features over 0.4
+            Never returns 0.5, because it added no new multiscale features over 0.4.
+            Returns 0.9.dev2 only for Multiscales that cannot be written in any older version,
+            because their axes break the layout restrictions of 0.4 to 0.6.
+            Note that 0.9.dev2 is experimental and datasets using this version may become permanently
+            unusable in the future.
         """
-        candidate_versions: Tuple[Literal["0.6", "0.4"], ...] = ("0.4", "0.6")
+        candidate_versions: Tuple[Literal["0.4", "0.6", "0.9.dev2"], ...] = ("0.4", "0.6", "0.9.dev2")
+        write_errors: List[str] = []
         written = None
         for version in candidate_versions:
             try:
                 written = self.to_ome_zarr(version=version)
             except ValueError as e:
-                raise ValueError(
-                    f"No lowest lossless version: this Multiscale cannot be written as valid OME-Zarr. {e}"
-                ) from e
+                # Not necessarily fatal: Older versions cannot write every Multiscale
+                write_errors.append(str(e))
+                continue
             round_tripped = Multiscale.from_ome_zarr(written, shape_source=lambda key: self[key].shape)
             if round_tripped == self:
                 return version
+        if len(write_errors) == len(candidate_versions):
+            raise ValueError(
+                f"No lowest lossless version: this Multiscale cannot be written as valid OME-Zarr. {write_errors[-1]}"
+            )
         raise AssertionError(
-            "0.6 failed to round-trip losslessly. This indicates a bug in clearscale. "
+            "0.9.dev2 failed to round-trip losslessly. This can happen when using non-string axis keys. "
             f"Self: {self!r}.\nself.to_ome_zarr: {written}"
         )
 
@@ -2216,15 +2237,28 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
     def to_ome_zarr(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         *,
-        version: Literal["0.4", "0.5", "0.6"],
+        version: Literal["0.4", "0.5", "0.6", "0.9.dev2"],
     ) -> Dict[str, Json]:
         """Return this Multiscale as the contents of an OME-Zarr "multiscales" entry, for the given OME-Zarr `version`.
 
         Raises:
-            ValueError: For unrecognized `version`, or if `self.ome` contains invalid metadata.
+            ValueError: For unrecognized `version`, if `self.ome` contains invalid metadata, or if the axes cannot be
+                written in `version`: Versions 0.4 to 0.6 restrict the number, types and order of axes, 0.9.dev2 does not.
         """
         if version not in ome_zarr.SUPPORTED_VERSIONS_WRITE:
-            raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5 and 0.6.")
+            raise ValueError("Cannot write OME-Zarr versions other than 0.4, 0.5, 0.6 and 0.9.dev2.")
+        if version in ("0.4", "0.5", "0.6"):
+            # Versions before 0.6 only write the intrinsic system's axes
+            written_systems = (
+                (self._intrinsic_ref,) if version in PRE_TRANSFORMS_VERSIONS else self._transform_graph.all_system_refs
+            )
+            for ref in written_systems:
+                try:
+                    ome_zarr.require_axis_layout_of_0_4_to_0_6(
+                        OmeZarrAxes(ref.owner), system_name=None if ref == self._intrinsic_ref else ref.name
+                    )
+                except ValueError as e:
+                    raise ValueError(f"Cannot write OME-Zarr {version}: {e}") from e
         datasets: List[Dict[str, Json]] = []
         result: Dict[str, Json] = {"version": version, "datasets": datasets}
         if self.ome:

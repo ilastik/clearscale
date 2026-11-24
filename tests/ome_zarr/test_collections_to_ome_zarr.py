@@ -13,7 +13,7 @@ def _mock_ms_with_to_ome_zarr(to_ome_zarr_result):
     return multiscale
 
 
-@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6", "0.9.dev2"])
 def test_ome_zarr_group_to_attrs_empty(version):
     assert OmeZarrGroup().to_attrs(version) == {}
 
@@ -24,6 +24,7 @@ def test_ome_zarr_group_to_attrs_empty(version):
         ("0.4", {"multiscales": [{"ms": "meta"}]}),
         ("0.5", {"ome": {"version": "0.5", "multiscales": [{"ms": "meta"}]}}),
         ("0.6", {"ome": {"version": "0.6", "multiscales": [{"ms": "meta"}]}}),
+        ("0.9.dev2", {"ome": {"version": "0.9.dev2", "multiscales": [{"ms": "meta"}]}}),
     ],
 )
 def test_ome_zarr_group_to_attrs_multiscale(version, expected):
@@ -46,13 +47,14 @@ def test_ome_zarr_group_to_attrs_scene_rejects_unsupported_versions(version):
     scene.to_ome_zarr.assert_not_called()
 
 
-def test_ome_zarr_group_to_attrs_scene():
+@pytest.mark.parametrize("version", ["0.6", "0.9.dev2"])
+def test_ome_zarr_group_to_attrs_scene(version):
     scene = Mock(spec=Scene)
     scene.to_ome_zarr.return_value = {"scene": "meta"}
     group = OmeZarrGroup(scenes=(scene,))
-    result = group.to_attrs("0.6")
-    assert result == {"ome": {"version": "0.6", "scene": {"scene": "meta"}}}
-    scene.to_ome_zarr.assert_called_once_with(version="0.6")
+    result = group.to_attrs(version)
+    assert result == {"ome": {"version": version, "scene": {"scene": "meta"}}}
+    scene.to_ome_zarr.assert_called_once_with(version=version)
 
 
 @pytest.mark.parametrize(
@@ -61,6 +63,7 @@ def test_ome_zarr_group_to_attrs_scene():
         ("0.4", {"labels": ["labels/a", "labels/b"]}),
         ("0.5", {"ome": {"version": "0.5", "labels": ["labels/a", "labels/b"]}}),
         ("0.6", {"ome": {"version": "0.6", "labels": ["labels/a", "labels/b"]}}),
+        ("0.9.dev2", {"ome": {"version": "0.9.dev2", "labels": ["labels/a", "labels/b"]}}),
     ],
 )
 def test_ome_zarr_group_to_attrs_labels(version, expected):
@@ -71,14 +74,14 @@ def test_ome_zarr_group_to_attrs_labels(version, expected):
 
 
 @pytest.mark.parametrize("child_type", ["well", "multiscale"])
-@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6", "0.9.dev2"])
 def test_ome_zarr_group_to_attrs_plate_and_well_not_implemented(child_type, version):
     group = OmeZarrGroup(children=(ChildRef(child_type, "child"),))
     with pytest.raises(NotImplementedError, match="Writing plate and well metadata is not supported yet"):
         group.to_attrs(version)
 
 
-@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6", "0.9.dev2"])
 def test_ome_zarr_group_to_attrs_multiple_multiscales_rejected_by_default(version):
     group = OmeZarrGroup(multiscales=(_mock_ms_with_to_ome_zarr({"id": 0}), _mock_ms_with_to_ome_zarr({"id": 1})))
     with pytest.raises(ValueError, match="collection groups are not supported"):
@@ -91,6 +94,7 @@ def test_ome_zarr_group_to_attrs_multiple_multiscales_rejected_by_default(versio
         ("0.4", {"multiscales": [{"id": 0}, {"id": 1}]}),
         ("0.5", {"ome": {"version": "0.5", "multiscales": [{"id": 0}, {"id": 1}]}}),
         ("0.6", {"ome": {"version": "0.6", "multiscales": [{"id": 0}, {"id": 1}]}}),
+        ("0.9.dev2", {"ome": {"version": "0.9.dev2", "multiscales": [{"id": 0}, {"id": 1}]}}),
     ],
 )
 def test_ome_zarr_group_to_attrs_multiple_multiscales_with_override(version, expected):
@@ -112,7 +116,7 @@ def test_ome_zarr_group_to_attrs_multiple_multiscales_with_override(version, exp
         {"multiscales": (Mock(spec=Multiscale),), "children": (ChildRef("well", "well"),)},
     ],
 )
-@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6", "0.9.dev2"])
 def test_ome_zarr_group_to_attrs_collection_rejects_unsupported_combinations(kwargs, version):
     group = OmeZarrGroup(**kwargs)
     with pytest.raises((ValueError, NotImplementedError)):

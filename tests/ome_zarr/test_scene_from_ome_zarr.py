@@ -108,3 +108,11 @@ def test_with_resolved_does_not_resolve_by_name():
 
     assert isinstance(resolved._internal_graph.transforms[0].source, _UnresolvedRef)
     assert resolved._internal_graph.transforms[0].target == multiscale._as_ref("physical")
+
+
+def test_scene_from_ome_zarr_rejects_axis_orientation_instead_of_dropping_it():
+    example = scene_stitching()
+    example["coordinateSystems"][0]["axes"][0]["orientation"] = {"type": "anatomical", "value": "left-to-right"}
+
+    with pytest.raises(ValueError, match="anatomical orientation is not supported"):
+        Scene.from_ome_zarr(example)

@@ -168,3 +168,9 @@ class TestMultipleCoordinateSystemsToOmeZarr06:
         for version in ("0.4", "0.5"):
             with pytest.raises(ValueError, match="Scenes can only be written in OME-Zarr version 0.6"):
                 scene.to_ome_zarr(version=version)
+
+
+def test_scene_is_written_identically_in_0_6_and_0_9_dev2():
+    scene = Scene.from_ome_zarr(scene_stitching())
+
+    assert scene.to_ome_zarr(version="0.9.dev2") == scene.to_ome_zarr(version="0.6")
