@@ -16,6 +16,7 @@ nav:
   - Coordinate systems: space.md
   - Scenes: scene.md
   - Examples: examples.md
+  - Changelog: changelog.md
   - API Reference:
       - OME-Zarr groups: reference/groups.md
       - Multiscale: reference/multiscale.md
@@ -28,9 +29,14 @@ nav:
       - ome_zarr: reference/ome_zarr.md
       - types: reference/types.md
 
+watch:
+  - CHANGELOG.md
+
 plugins:
   - search
   - gh-admonitions
+  - include-markdown:
+      include_from_url: false
   - mkdocstrings:
       custom_templates: scripts/doc_templates
       handlers:
