@@ -44,11 +44,17 @@ clearscale models them as properties of the Multiscale instead of `OmeZarrGroup`
 ### `omero`
 
 `Omero` holds one `OmeroChannel` per channel.
-Each channel has:
+Each channel has these optional properties:
 
 * `color`: 6 hex digits, like `"FF8800"`
-* `window`: an `OmeroWindow` with `start` and `end` (the contrast limits to display) and `min` and `max` (the full range the data can take, e.g. 0 and 255 for `uint8`)
-* `extra`: any other keys of the channel, like `label`, `active` or `inverted`
+* `window`: an `OmeroWindow` with `start` and `end` (the contrast limits to display), and optionally `min` and `max` (the full range the data can take, e.g. 0 and 255 for `uint8`)
+* `label`: the channel's name
+* `active`: whether to display the channel
+* `inverted`: whether to invert the rendering of darkest to brightest
+* `extra`: any other keys of the channel, like `family` or `coefficient`
+
+OME-Zarr 0.4, 0.5 and 0.6 require every channel to have a `color` and a `window` with `min`, `max`, `start` and `end`.
+Trying to write an `Omero` that lacks any of this in those versions raises, naming the channel.
 
 `Omero.extra` holds any other top-level keys, like `name` or `rdefs`.
 
@@ -123,7 +129,7 @@ assert multiscale.ome.name == "tile_7"  # from the multiscale entry
 omero = multiscale.ome.omero  # from the group-level "omero" key. None if absent or unusable
 assert omero is not None
 for channel in omero.channels:
-    print(channel.extra["label"], channel.color, channel.window.start, channel.window.end)
+    print(channel.label, channel.color, channel.window.start, channel.window.end)
 # DAPI 0000FF 100.0 2000.0
 # GFP 00FF00 0.0 800.0
 
@@ -230,7 +236,7 @@ image.ome.omero = cs.ome_zarr.Omero(
 )
 ```
 
-Constructors check their input: `color` must be 6 hex digits (a leading `#` is accepted and removed, lowercase is converted to uppercase), the window values must be finite numbers, and an `Omero` needs at least one channel.
+Constructors check their input: `color` must be 6 hex digits (a leading `#` is accepted and removed, lowercase is converted to uppercase), the window values must be finite numbers, `label` a string, `active` and `inverted` booleans, and an `Omero` needs at least one channel.
 
 `Omero`, `OmeroChannel` and `OmeroWindow` are frozen dataclasses.
 To change one, make a modified copy with `dataclasses.replace` and assign it back:
@@ -416,10 +422,10 @@ Use `dataclasses.replace` as shown above (it makes copies), or `copy.deepcopy`, 
 As the warning at the top says, clearscale does not check `.ome` against anything: Not the number of `omero.channels` against the size of the `c` axis (an image with 3 channels and 1 `OmeroChannel`, or no `c` axis at all, is written without complaint, and viewers will not display it correctly), not label values against the label array, not `image_label` against the data type of the array.
 Keep `.ome` in step with the data yourself, especially after selecting or reordering channels.
 
-### Reading `omero` is strict
+### Reading `omero` is strict about what is invalid
 
-If `omero` is incomplete, clearscale does not guess (please open an issue if you would like lenient parsing): `multiscale.ome.omero` is `None`, *without any warning*, if **any** channel lacks `color` or `window`, if a window lacks one of its four numbers (`start`, `end`, `min`, `max`), or if `channels` is missing or empty.
-Files that only list channel labels, or only `color`, lose *all* of their omero metadata this way.
+Missing properties are fine, but clearscale does not guess what invalid ones were meant to be: `multiscale.ome.omero` is `None`, *without any warning*, if **any** channel has a property that is present but invalid (a `color` that is not 6 hex digits, a `window` without `start` or `end`, a `label` that is not a string, ...), or if `channels` is missing or empty.
+Files with such a channel lose *all* of their omero metadata this way, because dropping just that channel would shift the index of every channel after it.
 To see why a group's `omero` was ignored, enable debug logging:
 
 ```python

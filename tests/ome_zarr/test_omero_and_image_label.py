@@ -17,15 +17,31 @@ def _multiscale(shape: Shape) -> Multiscale:
     return Multiscale({"s0": Scale(shape=shape)})
 
 
-def _channel(color="FF0000") -> OmeroChannel:
+def _valid_0_4_channel(color="FF0000") -> OmeroChannel:
     return OmeroChannel(color=color, window=OmeroWindow(start=0, end=255, min=0, max=255))
 
 
-@pytest.mark.parametrize("missing", ["start", "end", "min", "max"])
-def test_omero_window_from_ome_zarr_requires_all_four_fields(missing):
+@pytest.mark.parametrize("missing", ["start", "end"])
+def test_omero_window_from_ome_zarr_requires_start_and_end(missing):
     full = {"start": 0, "end": 1, "min": 0, "max": 1}
     del full[missing]
     assert OmeroWindow.from_ome_zarr(full) is None
+
+
+def test_omero_window_min_and_max_are_optional():
+    window = OmeroWindow.from_ome_zarr({"start": 0, "end": 1})
+    assert window is not None
+    assert window == OmeroWindow(start=0, end=1)
+    assert (window.min, window.max) == (None, None)
+    assert window.to_ome_zarr("0.9.dev2") == {"start": 0.0, "end": 1.0}
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+@pytest.mark.parametrize("missing", ["min", "max"])
+def test_omero_window_requires_min_and_max_to_write_0_4_to_0_6(version, missing):
+    window = OmeroWindow(start=0, end=1, **{"min" if missing == "max" else "max": 1})
+    with pytest.raises(ValueError, match=f"Cannot write OME-Zarr {version}: OmeroWindow.{missing}"):
+        window.to_ome_zarr(version)
 
 
 def test_omero_window_from_ome_zarr_rejects_non_mapping():
@@ -33,39 +49,93 @@ def test_omero_window_from_ome_zarr_rejects_non_mapping():
     assert OmeroWindow.from_ome_zarr(None) is None
 
 
-def test_omero_channel_requires_color_and_window():
+def test_omero_channel_properties_are_all_optional():
+    channel = OmeroChannel()
+    assert (channel.color, channel.window, channel.label, channel.active, channel.inverted) == (None,) * 5
+    assert channel.to_ome_zarr("0.9.dev2") == {}
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [{"window": "w"}, {"label": 1}, {"active": "yes"}, {"inverted": 0}],
+    ids=["window", "label", "active", "inverted"],
+)
+def test_omero_channel_rejects_properties_of_the_wrong_type(bad):
     with pytest.raises(TypeError):
-        OmeroChannel(color="FF0000")  # type: ignore[arg-type]
-    with pytest.raises(TypeError):
-        OmeroChannel(window=OmeroWindow(start=0, end=1, min=0, max=1))  # type: ignore[arg-type]
+        OmeroChannel(**bad)
 
 
 def test_omero_channel_normalizes_hex_color():
-    assert _channel("ff00aa").color == "FF00AA"
-    assert _channel("#ff00aa").color == "FF00AA"
+    assert _valid_0_4_channel("ff00aa").color == "FF00AA"
+    assert _valid_0_4_channel("#ff00aa").color == "FF00AA"
 
 
 @pytest.mark.parametrize("bad_color", ["ff00a", "gg0000", "#ff00aaff", 123])
 def test_omero_channel_rejects_invalid_color(bad_color):
     with pytest.raises(ValueError):
-        _channel(bad_color)
+        _valid_0_4_channel(bad_color)
 
 
-def test_omero_channel_keeps_unknown_keys_in_extra():
+def test_omero_channel_models_documented_keys_and_keeps_unknown_ones_in_extra():
     channel = OmeroChannel.from_ome_zarr(
-        {"color": "FF0000", "window": {"start": 0, "end": 1, "min": 0, "max": 1}, "label": "DAPI", "family": "linear"}
+        {
+            "color": "FF0000",
+            "window": {"start": 0, "end": 1, "min": 0, "max": 1},
+            "label": "DAPI",
+            "active": True,
+            "inverted": False,
+            "family": "linear",
+        }
     )
     assert channel is not None
-    assert channel.extra == {"label": "DAPI", "family": "linear"}
-    assert channel.to_ome_zarr()["label"] == "DAPI"
-    assert channel.to_ome_zarr()["family"] == "linear"
+    assert (channel.label, channel.active, channel.inverted) == ("DAPI", True, False)
+    assert channel.extra == {"family": "linear"}
+    written = channel.to_ome_zarr("0.6")
+    assert (written["label"], written["active"], written["inverted"], written["family"]) == (
+        "DAPI",
+        True,
+        False,
+        "linear",
+    )
 
 
-def test_omero_channel_from_ome_zarr_requires_color_and_window():
-    assert OmeroChannel.from_ome_zarr({}) is None
-    assert OmeroChannel.from_ome_zarr({"color": "FF0000"}) is None  # no window
-    assert OmeroChannel.from_ome_zarr({"window": {"start": 0, "end": 1, "min": 0, "max": 1}}) is None  # no color
-    assert OmeroChannel.from_ome_zarr({"color": "zzzzzz", "window": {}}) is None  # invalid color
+def test_omero_channel_properties_override_clashing_extra_keys():
+    channel = OmeroChannel(label="real", extra={"label": "stale", "color": "00FF00", "family": "linear"})
+    assert channel.to_ome_zarr("0.9.dev2") == {"label": "real", "family": "linear"}
+
+
+def test_omero_channel_from_ome_zarr_ignores_missing_properties_optional_in_0_9_dev2():
+    assert OmeroChannel.from_ome_zarr({}) == OmeroChannel()
+    assert OmeroChannel.from_ome_zarr({"color": "FF0000"}) == OmeroChannel(color="FF0000")
+    assert OmeroChannel.from_ome_zarr({"window": {"start": 0, "end": 1}}) == OmeroChannel(
+        window=OmeroWindow(start=0, end=1)
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [{"color": "zzzzzz"}, {"window": {}}, {"window": "w"}, {"label": 1}, {"active": "yes"}, {"inverted": 1}],
+    ids=["color", "window-without-start-end", "window-not-a-mapping", "label", "active", "inverted"],
+)
+def test_omero_channel_from_ome_zarr_rejects_present_but_invalid_optional_properties(invalid):
+    assert OmeroChannel.from_ome_zarr(invalid) is None
+
+
+@pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
+@pytest.mark.parametrize(
+    "channel_dict, missing",
+    [
+        ({"window": {"start": 0, "end": 1, "min": 0, "max": 1}}, "color"),
+        ({"color": "FF0000"}, "window"),
+        ({}, "color and OmeroChannel.window"),
+    ],
+)
+def test_omero_channel_requires_color_and_window_to_write_0_4_to_0_6(version, channel_dict, missing):
+    channel = OmeroChannel.from_ome_zarr(channel_dict)
+    assert channel is not None
+    with pytest.raises(ValueError, match=f"OME-Zarr {version} requires OmeroChannel.{missing}"):
+        channel.to_ome_zarr(version)
+    assert channel.to_ome_zarr("0.9.dev2") == channel_dict
 
 
 def test_omero_requires_channels():
@@ -97,7 +167,7 @@ def test_omero_keeps_unknown_top_level_keys_in_extra():
     )
     assert omero is not None
     assert omero.extra == {"id": 1, "name": "x"}
-    d: Dict[str, Any] = omero.to_ome_zarr()
+    d: Dict[str, Any] = omero.to_ome_zarr("0.6")
     assert d["id"] == 1
     assert d["name"] == "x"
     assert len(d["channels"]) == 1
@@ -106,7 +176,9 @@ def test_omero_keeps_unknown_top_level_keys_in_extra():
 @pytest.mark.parametrize("version", ["0.4", "0.5", "0.6"])
 def test_omero_round_trips_through_group_attrs(version):
     ms = _multiscale(Shape(c=2, y=4, x=4))
-    ms.ome.omero = Omero([_channel("FF0000"), _channel("00FF00")], extra={"id": 1, "name": "example.tif"})
+    ms.ome.omero = Omero(
+        [_valid_0_4_channel("FF0000"), _valid_0_4_channel("00FF00")], extra={"id": 1, "name": "example.tif"}
+    )
     group = OmeZarrGroup.from_single(ms)
 
     attrs: Dict[str, Any] = group.to_attrs(version=version)
@@ -121,15 +193,38 @@ def test_omero_round_trips_through_group_attrs(version):
     assert read_back.multiscales[0].ome.omero == ms.ome.omero
 
 
+def test_incomplete_omero_writes_and_reads_in_0_9_dev2():
+    ms = _multiscale(Shape(c=2, y=4, x=4))
+    ms.ome.omero = Omero([OmeroChannel(label="DAPI"), OmeroChannel(color="00FF00", window=OmeroWindow(start=0, end=9))])
+    group = OmeZarrGroup.from_single(ms)
+
+    for version in ("0.4", "0.5", "0.6"):
+        with pytest.raises(ValueError, match="Cannot write omero.channels"):
+            group.to_attrs(version=version)
+    attrs = group.to_attrs(version="0.9.dev2")
+
+    assert OmeZarrGroup.from_attrs(attrs, shape_source={"s0": (2, 4, 4)}).multiscales[0].ome.omero == ms.ome.omero
+
+
+@pytest.mark.parametrize(
+    "channel, expected_version",
+    [(_valid_0_4_channel(), "0.4"), (OmeroChannel(), "0.9.dev2"), (OmeroChannel(label="DAPI"), "0.9.dev2")],
+)
+def test_lowest_lossless_version_takes_omero_into_account(channel, expected_version):
+    ms = _multiscale(Shape(c=2, y=4, x=4))
+    ms.ome.omero = Omero([channel])
+    assert ms.lowest_lossless_ome_zarr_version == expected_version
+
+
 def test_omero_extra_deep_copies_so_writer_output_does_not_alias_the_stored_object():
-    channel = _channel()
+    channel = _valid_0_4_channel()
     omero = Omero([channel], extra={"nested": {"a": 1}})
-    d: Dict[str, Any] = omero.to_ome_zarr()
+    d: Dict[str, Any] = omero.to_ome_zarr("0.6")
     d["nested"]["a"] = 999
     assert omero.extra["nested"]["a"] == 1
 
 
-@pytest.mark.parametrize("metadata", [_channel(), Omero([_channel()])])
+@pytest.mark.parametrize("metadata", [_valid_0_4_channel(), Omero([_valid_0_4_channel()])])
 def test_omero_and_channels_explicitly_disable_hashing(metadata):
     assert type(metadata).__hash__ is None
     with pytest.raises(TypeError, match="unhashable type"):
@@ -137,8 +232,10 @@ def test_omero_and_channels_explicitly_disable_hashing(metadata):
 
 
 def test_omero_equality_includes_extra_metadata():
-    assert Omero([_channel()], extra={"name": "a"}) != Omero([_channel()], extra={"name": "b"})
-    assert _channel() != OmeroChannel(color="FF0000", window=_channel().window, extra={"label": "a"})
+    assert Omero([_valid_0_4_channel()], extra={"name": "a"}) != Omero([_valid_0_4_channel()], extra={"name": "b"})
+    assert _valid_0_4_channel() != OmeroChannel(
+        color="FF0000", window=_valid_0_4_channel().window, extra={"label": "a"}
+    )
 
 
 ####
@@ -308,7 +405,7 @@ def test_from_attrs_shares_omero_but_copies_image_label_across_multiscales():
     must get its own copy - otherwise mutating one Multiscale's image_label would silently mutate every
     other Multiscale parsed from the same group."""
     ms = _multiscale(Shape(c=1, y=4, x=4))
-    ms.ome.omero = Omero([_channel()])
+    ms.ome.omero = Omero([_valid_0_4_channel()])
     ms.ome.image_label = ImageLabel(labels={1: LabelEntry(color=(255, 0, 0, 128))})
     attrs: Dict[str, Any] = OmeZarrGroup.from_single(ms).to_attrs(version="0.6", override_multi_multiscales=True)
 
@@ -333,8 +430,8 @@ def test_from_attrs_shares_omero_but_copies_image_label_across_multiscales():
 def test_to_attrs_raises_on_omero_conflict_across_multiscales():
     ms1 = _multiscale(Shape(c=1, y=4, x=4))
     ms2 = _multiscale(Shape(c=1, y=2, x=2))
-    ms1.ome.omero = Omero([_channel("FF0000")])
-    ms2.ome.omero = Omero([_channel("00FF00")])
+    ms1.ome.omero = Omero([_valid_0_4_channel("FF0000")])
+    ms2.ome.omero = Omero([_valid_0_4_channel("00FF00")])
     group = OmeZarrGroup(multiscales=(ms1, ms2))
 
     with pytest.raises(ValueError, match="Can only write one omero per group"):
@@ -344,7 +441,7 @@ def test_to_attrs_raises_on_omero_conflict_across_multiscales():
 def test_to_attrs_writes_omero_if_only_some_multiscales_have_it():
     ms1 = _multiscale(Shape(c=1, y=4, x=4))
     ms2 = _multiscale(Shape(c=1, y=2, x=2))
-    ms2.ome.omero = Omero([_channel("00FF00")])
+    ms2.ome.omero = Omero([_valid_0_4_channel("00FF00")])
     group = OmeZarrGroup(multiscales=(ms1, ms2))
 
     attrs: Dict[str, Any] = group.to_attrs(version="0.6", override_multi_multiscales=True)
@@ -365,8 +462,8 @@ def test_to_attrs_raises_on_image_label_conflict_across_multiscales():
 def test_to_attrs_writes_shared_omero_and_image_label_when_multiscales_agree():
     ms1 = _multiscale(Shape(c=1, y=4, x=4))
     ms2 = _multiscale(Shape(c=1, y=2, x=2))
-    ms1.ome.omero = Omero([_channel("FF0000")])
-    ms2.ome.omero = Omero([_channel("FF0000")])  # equal, not the same instance
+    ms1.ome.omero = Omero([_valid_0_4_channel("FF0000")])
+    ms2.ome.omero = Omero([_valid_0_4_channel("FF0000")])  # equal, not the same instance
     group = OmeZarrGroup(multiscales=(ms1, ms2))
 
     attrs: Dict[str, Any] = group.to_attrs(version="0.6", override_multi_multiscales=True)
@@ -392,7 +489,7 @@ def test_to_attrs_multi_multiscale_requires_override():
 
 def test_multiscale_properties_bool_includes_omero_and_image_label():
     assert not MultiscaleProperties()
-    assert MultiscaleProperties(omero=Omero([_channel()]))
+    assert MultiscaleProperties(omero=Omero([_valid_0_4_channel()]))
     assert MultiscaleProperties(image_label=ImageLabel(source="../../"))
 
 
@@ -400,7 +497,7 @@ def test_multiscale_to_ome_zarr_never_writes_omero_or_image_label_into_the_entry
     """omero/image-label are group-level keys; Multiscale.to_ome_zarr() must not leak them into the
     per-entry dict even though they live on the same .ome container as type/name/metadata."""
     ms = _multiscale(Shape(c=1, y=4, x=4))
-    ms.ome.omero = Omero([_channel()])
+    ms.ome.omero = Omero([_valid_0_4_channel()])
     ms.ome.image_label = ImageLabel(source="../../")
     ms.ome.name = "my-image"
 
@@ -414,7 +511,7 @@ def test_omero_and_image_label_deep_copy_cleanly():
     """Multiscale's carryover methods (with_coordinate_system, as_derived_from, ...) deep-copy the whole
     `.ome` container - this previously broke when OmeroChannel.extra was stored as a MappingProxyType,
     since mappingproxy objects cannot be deep-copied. Both stay plain dicts now."""
-    omero = Omero([_channel()], extra={"id": 1})
+    omero = Omero([_valid_0_4_channel()], extra={"id": 1})
     image_label = ImageLabel(source="../../", labels={1: LabelEntry(color=(255, 0, 0, 128))})
     copy.deepcopy(omero)
     copy.deepcopy(image_label)
@@ -438,7 +535,7 @@ class _Group:
 
 def _group_with_omero_and_label():
     ms = _multiscale(Shape(c=1, y=4, x=4))
-    ms.ome.omero = Omero([_channel()])
+    ms.ome.omero = Omero([_valid_0_4_channel()])
     ms.ome.image_label = ImageLabel(source="../../", labels={1: LabelEntry()})
     return OmeZarrGroup.from_single(ms)
 
@@ -516,8 +613,8 @@ def test_update_attrs_forwards_override_multi_multiscales(version):
 def test_update_attrs_leaves_attrs_untouched_if_metadata_cannot_be_written():
     ms1 = _multiscale(Shape(c=1, y=4, x=4))
     ms2 = _multiscale(Shape(c=1, y=2, x=2))
-    ms1.ome.omero = Omero([_channel("FF0000")])
-    ms2.ome.omero = Omero([_channel("00FF00")])
+    ms1.ome.omero = Omero([_valid_0_4_channel("FF0000")])
+    ms2.ome.omero = Omero([_valid_0_4_channel("00FF00")])
     group = _Group({"omero": {"keep": "me"}})
 
     with pytest.raises(ValueError, match="Can only write one omero per group"):
