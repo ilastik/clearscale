@@ -1903,6 +1903,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         for version in candidate_versions:
             try:
                 written = self.to_ome_zarr(version=version)
+                if self.ome.omero is not None:
+                    # Group-level metadata, not part of the multiscale entry, but part of what this Multiscale holds
+                    self.ome.omero.to_ome_zarr(version)
             except ValueError as e:
                 # Not necessarily fatal: Older versions cannot write every Multiscale
                 write_errors.append(str(e))

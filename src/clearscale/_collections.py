@@ -441,7 +441,7 @@ class OmeZarrGroup:
             if ms.ome.image_label is not None and ms.ome.image_label != unique_image_label:
                 unique_image_label = ms.ome.image_label if unique_image_label is None else "dup"
         if isinstance(unique_omero, Omero):
-            multiscale_group_attrs["omero"] = unique_omero.to_ome_zarr()
+            multiscale_group_attrs["omero"] = unique_omero.to_ome_zarr(version)
         elif unique_omero is not None:
             raise ValueError(
                 "Can only write one omero per group. Drop some, or store these Multiscales in separate groups."

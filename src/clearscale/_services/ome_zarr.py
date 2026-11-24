@@ -180,18 +180,32 @@ class OmeroWindow:
     """Windowing (contrast) settings for one OmeroChannel."""
 
     start: float
+    """Start of the rendering window."""
     end: float
-    min: float
-    max: float
+    """End of the rendering window."""
+    min: Optional[float]
+    """Default lower bound for `start`, e.g. for viewers' sliders. Mandatory when writing OME-Zarr 0.4, 0.5 or 0.6."""
+    max: Optional[float]
+    """Default upper bound for `end`, e.g. for viewers' sliders. Mandatory when writing OME-Zarr 0.4, 0.5 or 0.6."""
 
-    def __init__(self, *, start: float, end: float, min: float, max: float):
+    def __init__(self, *, start: float, end: float, min: Optional[float] = None, max: Optional[float] = None):
         object.__setattr__(self, "start", self._as_finite_float(start))
         object.__setattr__(self, "end", self._as_finite_float(end))
-        object.__setattr__(self, "min", self._as_finite_float(min))
-        object.__setattr__(self, "max", self._as_finite_float(max))
+        object.__setattr__(self, "min", None if min is None else self._as_finite_float(min))
+        object.__setattr__(self, "max", None if max is None else self._as_finite_float(max))
 
-    def to_ome_zarr(self) -> Dict[str, Json]:
-        return {"start": self.start, "end": self.end, "min": self.min, "max": self.max}
+    def to_ome_zarr(self, version: str) -> Dict[str, Json]:
+        """Raises ValueError if `min` or `max` is missing, but `version` requires them. Only 0.9.dev2 does not."""
+        result: Dict[str, Json] = {"start": self.start, "end": self.end}
+        for name, value in (("min", self.min), ("max", self.max)):
+            if value is not None:
+                result[name] = value
+            elif version != "0.9.dev2":
+                raise ValueError(
+                    f"Cannot write OME-Zarr {version}: OmeroWindow.{name} is None. "
+                    f"Only OME-Zarr 0.9.dev2 allows absent {name}."
+                )
+        return result
 
     @classmethod
     def from_ome_zarr(cls, window_dict: Any) -> Optional["OmeroWindow"]:
@@ -201,8 +215,8 @@ class OmeroWindow:
             return cls(
                 start=window_dict["start"],
                 end=window_dict["end"],
-                min=window_dict["min"],
-                max=window_dict["max"],
+                min=window_dict.get("min"),
+                max=window_dict.get("max"),
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -219,43 +233,92 @@ class OmeroWindow:
 
 @dataclass(frozen=True, slots=True, init=False)
 class OmeroChannel:
-    """One entry of omero.channels. Not hashable because its mutable extra metadata participates in equality."""
+    """One entry of omero.channels.
+
+    Writing OME-Zarr 0.4, 0.5 or 0.6 requires `color`, and `window` (with all properties set).
+    If any of these are None, the metadata can only be written as OME-Zarr 0.9.dev2.
+
+    Not hashable because its mutable extra metadata participates in equality."""
 
     __hash__ = None  # type: ignore[assignment]
     _HEX_COLOR_RE = re.compile(r"^[0-9A-Fa-f]{6}$")
+    _MODELLED_KEYS = ("color", "window", "label", "active", "inverted")
 
-    color: str
+    color: Optional[str]
     """6 hex digits, e.g. 'FF00AA'. Normalized to upper case; a leading '#' is accepted on read."""
-    window: OmeroWindow
+    window: Optional[OmeroWindow]
+    label: Optional[str]
+    """Channel name."""
+    active: Optional[bool]
+    """Whether the channel should be displayed."""
+    inverted: Optional[bool]
+    """Whether the rendering of darkest to brightest pixels should be inverted."""
     extra: Mapping[str, Any] = field(default_factory=dict)
-    """Channel keys other than 'color' and 'window' (e.g. 'label', 'active', 'inverted'). If
-    .extra['color'] or .extra['window'] are defined, .color and .window override them on serialization.
+    """Channel keys other than the properties above (e.g. 'family', 'coefficient'). Keys of the properties above
+    are ignored on serialization, the properties are the source of truth.
     Consult the OMERO documentation for the allowed fields and their format requirements.
     Caution: Mutable!"""
 
-    def __init__(self, *, color: str, window: OmeroWindow, extra: Optional[Mapping[str, Any]] = None):
-        object.__setattr__(self, "color", self._require_hex_color(color))
-        if not isinstance(window, OmeroWindow):
+    def __init__(
+        self,
+        *,
+        color: Optional[str] = None,
+        window: Optional[OmeroWindow] = None,
+        label: Optional[str] = None,
+        active: Optional[bool] = None,
+        inverted: Optional[bool] = None,
+        extra: Optional[Mapping[str, Any]] = None,
+    ):
+        object.__setattr__(self, "color", None if color is None else self._require_hex_color(color))
+        if window is not None and not isinstance(window, OmeroWindow):
             raise TypeError(f"'window' must be an OmeroWindow, received: {window!r}")
         object.__setattr__(self, "window", window)
+        if label is not None and not isinstance(label, str):
+            raise TypeError(f"'label' must be a string, received: {label!r}")
+        object.__setattr__(self, "label", label)
+        for name, flag in (("active", active), ("inverted", inverted)):
+            if flag is not None and not isinstance(flag, bool):
+                raise TypeError(f"'{name}' must be a bool, received: {flag!r}")
+            object.__setattr__(self, name, flag)
         object.__setattr__(self, "extra", copy.deepcopy(dict(extra or {})))
 
-    def to_ome_zarr(self) -> Dict[str, Json]:
-        d: Dict[str, Json] = copy.deepcopy(dict(self.extra))
-        d["color"] = self.color
-        d["window"] = self.window.to_ome_zarr()
+    def to_ome_zarr(self, version: str) -> Dict[str, Json]:
+        """Raises ValueError if `color` or `window` is missing, or `window` is incomplete, but `version` requires
+        them. Only 0.9.dev2 does not."""
+        if version != "0.9.dev2":
+            missing = [name for name in ("color", "window") if getattr(self, name) is None]
+            if missing:
+                raise ValueError(
+                    f"OME-Zarr {version} requires OmeroChannel.{' and OmeroChannel.'.join(missing)}, "
+                    "but not set. Only OME-Zarr 0.9.dev2 does not require them."
+                )
+        d: Dict[str, Json] = {k: copy.deepcopy(v) for k, v in self.extra.items() if k not in self._MODELLED_KEYS}
+        for name in ("color", "label", "active", "inverted"):
+            if getattr(self, name) is not None:
+                d[name] = getattr(self, name)
+        if self.window is not None:
+            d["window"] = self.window.to_ome_zarr(version)
         return d
 
     @classmethod
     def from_ome_zarr(cls, channel_dict: Any) -> Optional["OmeroChannel"]:
-        if not isinstance(channel_dict, Mapping) or "color" not in channel_dict:
+        if not isinstance(channel_dict, Mapping):
             return None
-        window = OmeroWindow.from_ome_zarr(channel_dict.get("window"))
-        if window is None:
-            return None
-        extra = {k: v for k, v in channel_dict.items() if k not in ("color", "window")}
+        window = None
+        if channel_dict.get("window") is not None:
+            window = OmeroWindow.from_ome_zarr(channel_dict["window"])
+            if window is None:
+                return None
+        extra = {k: v for k, v in channel_dict.items() if k not in cls._MODELLED_KEYS}
         try:
-            return cls(color=channel_dict["color"], window=window, extra=extra)
+            return cls(
+                color=channel_dict.get("color"),
+                window=window,
+                label=channel_dict.get("label"),
+                active=channel_dict.get("active"),
+                inverted=channel_dict.get("inverted"),
+                extra=extra,
+            )
         except (TypeError, ValueError):
             return None
 
@@ -294,9 +357,18 @@ class Omero:
         object.__setattr__(self, "channels", channels)
         object.__setattr__(self, "extra", copy.deepcopy(dict(extra or {})))
 
-    def to_ome_zarr(self) -> Dict[str, Json]:
+    def to_ome_zarr(self, version: str) -> Dict[str, Json]:
+        """Return the "omero" JSON.
+
+        Raises ValueError if any channel lacks what `version` requires of it (see OmeroChannel)."""
         d: Dict[str, Json] = copy.deepcopy(dict(self.extra))
-        d["channels"] = [c.to_ome_zarr() for c in self.channels]
+        channels: List[Json] = []
+        for index, channel in enumerate(self.channels):
+            try:
+                channels.append(channel.to_ome_zarr(version))
+            except ValueError as e:
+                raise ValueError(f"Cannot write omero.channels[{index}]: {e}") from e
+        d["channels"] = channels
         return d
 
     @classmethod

@@ -69,18 +69,15 @@ class TestOmeroAndImageLabel:
         omero = ome_group.multiscales[0].ome.omero
 
         assert omero is not None
-        assert omero.to_ome_zarr() == example.group_metadata["omero"]
+        assert omero.to_ome_zarr("0.6") == example.group_metadata["omero"]
         channel = omero.channels[0]
-        assert (channel.color, channel.window.start, channel.window.end) == ("0000FF", 0, 1500)
-        assert (channel.window.min, channel.window.max) == (0, 65535)
+        window = channel.window
+        assert window is not None
+        assert (channel.color, window.start, window.end) == ("0000FF", 0, 1500)
+        assert (window.min, window.max) == (0, 65535)
+        assert (channel.label, channel.active, channel.inverted) == ("LaminB1", True, False)
         # Keys clearscale doesn't model are kept, not lost
-        assert channel.extra == {
-            "active": True,
-            "coefficient": 1,
-            "family": "linear",
-            "inverted": False,
-            "label": "LaminB1",
-        }
+        assert channel.extra == {"coefficient": 1, "family": "linear"}
         assert omero.extra["name"] == "example.tif"
         assert omero.extra["rdefs"] == {"defaultT": 0, "defaultZ": 118, "model": "color"}
 
@@ -166,7 +163,7 @@ class TestOmeroAndImageLabel:
         (dropping it would make omero.channels != image channels)."""
         example = cast(MultiscaleMetadataExample, maximal_multiscale_examples_params("0.4")[0].values[0])
         attrs = example.to_group_attrs()
-        attrs["omero"]["channels"].append({"color": "FF0000"})
+        attrs["omero"]["channels"].append({"color": "not-a-color"})
 
         ome_group = OmeZarrGroup.from_group(MockZarrGroup(attrs, make_all_singleton_shapes(example.ndim)))
 
