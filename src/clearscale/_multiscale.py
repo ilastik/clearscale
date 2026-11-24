@@ -409,14 +409,28 @@ def _require_non_increasing_shapes(items: Sequence[Tuple[ScaleKey, Shape]], owne
             )
 
 
-def _missing_scaling_parameters_error(how: str, **parameters: object) -> ValueError:
+def _missing_scaling_parameters_error(
+    *, blueprint_kind: Literal["shapes", "factors"], **parameters: object
+) -> ValueError:
     """The error for scaling method parameters that were not provided.
     Returns the error instead of raising it so type checkers can trace the None-exclusion on caller side.
     """
     missing = [name for name, value in parameters.items() if value is None]
+    if blueprint_kind == "shapes":
+        guidance = (
+            'Resize-style methods typically use pixel_sizing="shape_ratio" '
+            'and translating="half_pixel_space_preservation". '
+        )
+    else:
+        guidance = (
+            'Many Factor-based methods use pixel_sizing="exact_factor" '
+            'and translating="half_pixel_space_preservation". '
+        )
+        if "rounding" in missing:
+            guidance += "Match rounding to how your scaling method converts fractional output lengths to integers. "
     return ValueError(
-        f"Must specify how your scaling method {how}. Missing: {', '.join(missing)}. "
-        "See the 'Scaling method characteristics' docs, or determine them with clearscale.characterization."
+        f"Missing: {', '.join(missing)}. {guidance}"
+        "See the 'Scaling methods' docs or use clearscale.characterization to determine your method's parameters."
     )
 
 
@@ -1661,7 +1675,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
         if isinstance(bp, BlueprintFactors):
             if rounding is None or pixel_sizing is None or translating is None:
                 raise _missing_scaling_parameters_error(
-                    "scales by factors", rounding=rounding, pixel_sizing=pixel_sizing, translating=translating
+                    blueprint_kind="factors", rounding=rounding, pixel_sizing=pixel_sizing, translating=translating
                 )
             return bp.apply_to_scale(scale, pixel_sizing=pixel_sizing, translating=translating, rounding=rounding)
         if blueprint is None:
@@ -1673,7 +1687,7 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
             )
         if pixel_sizing is None or translating is None:
             raise _missing_scaling_parameters_error(
-                "scales to shapes", pixel_sizing=pixel_sizing, translating=translating
+                blueprint_kind="shapes", pixel_sizing=pixel_sizing, translating=translating
             )
         return bp.apply_to_scale(scale, pixel_sizing=pixel_sizing, translating=translating)
 
