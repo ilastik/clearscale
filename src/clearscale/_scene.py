@@ -474,7 +474,8 @@ class Scene:
         As for all relations, R says what you do with an image in `source`'s space to obtain `to`'s space.
         This is the same reading as for the relations the constructors accept:
         `Scene.from_multiscale_pair(a=a, b=b, a_to_b=R, a_path="a", b_path="b").relation_from(a, to=b)` returns `R`,
-        in canonical form (e.g. a chain of two Translations comes out as one Translation).
+        in canonical form (e.g. a Translation and an Affine come out as one Affine: Translation is never returned,
+        a pure translation is an Affine with identity `linear`).
 
         `source` and `to` select spaces as follows:
 

@@ -24,11 +24,20 @@ While clearscale is at 0.9.x, breaking changes may happen in any release. They a
 * **Breaking:** `OmeroChannel.label`, `.active` and `.inverted` are properties, and no longer in `OmeroChannel.extra`.
   If `extra` still has such a key, it is ignored when writing.
 * **Breaking:** `Omero.to_ome_zarr`, `OmeroChannel.to_ome_zarr` and `OmeroWindow.to_ome_zarr` require the OME-Zarr `version` to write.
+* **Breaking:** The relations returned by `Multiscale.relation_to_coordinate_system`, `Multiscale.relation_from_coordinate_system` and `Scene.relation_from` combine all scaling, rotation, shearing and translation into one `Affine`.
+  Previously, the translation was split off again as a separate `Translation` (so a scale followed by a shift came back as two relations, and a chain could contain several `Affine`s).
+  Now, `Translation` is never returned: A pure translation is an `Affine` with identity `linear`, and the shift is `affine.translation`.
+  The result contains at most one `Affine`, next to `ProjectionTo`, `PermutationTo`, `AxisRearrangementTo` or `AxisRenaming` if the transformation changes axes; if it does not, the result is that single `Affine` (or `SameSpace()`).
+  Code that matched on `Translation` in retrieved relations must check for `Affine` instead (`affine.linear.is_identity()` tells if it is only a translation).
+* A transform that needs a general `affine` is written with its translation inside the `affine`, no longer as an additional `translation` (this applies to affines that also add or drop axes; those that don't already worked this way). The transformation is the same.
 * `Multiscale.lowest_lossless_ome_zarr_version` considers `.ome.omero`, and skips versions that cannot write the axes or omero metadata of the Multiscale.
   It may return `"0.9.dev2"` if no other version can.
 
 ### Fixed
 
+* Retrieving the relation of a coordinate system whose transformation inserts or drops axes and also mixes axes returned `None` or a spurious `AxisRenaming`, for example a tilted plane in 3D (insert `z`, then make it depend on `x`), or a dropped axis that is not the last one but feeds another.
+  Where axes are inserted and dropped is now kept when transformations are combined, and such an edge is written with a `projectAxis` followed by an `affine` (and a trailing `projectAxis` for dropped axes that are still needed).
+  What cannot be retrieved is a new axis that has the same name as an axis which is dropped after the affine.
 * Reading raises a `ValueError` if the number of dimensions of a dataset does not match the number of axes.
   Previously, the extra axes or dimensions were silently dropped.
 

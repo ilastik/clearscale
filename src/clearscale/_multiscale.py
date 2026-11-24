@@ -2220,6 +2220,9 @@ class Multiscale(_ScaleMapping[Scale], TransformGraphNode):
 
         The result is in canonical form: It describes the same transformation as what was originally specified, but may
         be structured differently (merged, reordered; renamings last) and may differ by floating point rounding.
+        In particular, all scaling, rotation, shearing and translation is combined into one `Affine`: `Translation` is
+        never returned, a pure translation is an `Affine` with identity `linear`, and its shift is
+        `affine.translation`. The result has at most one `Affine`; the other relations of a sequence change axes.
         The target's units and other axis properties are not part of a relation, see `coordinate_system_ome_zarr_axes`.
 
         Returns:
