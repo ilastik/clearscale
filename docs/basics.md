@@ -18,11 +18,10 @@ If you've been coding for a bit already, you most likely just need to know:
 * Blueprints and Multiscale are immutable, ordered `Mapping[ScaleKey, <Shape/Factor/Scale respectively>]`
 * Multiscale is the central (smart) metadata class; Scale is the dumb bag-of-metadata you use to describe an individual data array
 
-Since OME-Zarr is the only serialization target, its minimum restrictions apply to Multiscale construction (so you don't end up with a Multiscale that you then can't write as valid OME-Zarr):
+Since OME-Zarr is the only serialization target, its requirements apply to Multiscale construction (so you don't end up with a Multiscale that you then can't write as valid OME-Zarr).
+OME-Zarr 0.9.dev2 has no restrictions on the number, types and order of axes, so only these are enforced:
 
-* 2 to 5 axes, not more or less
-* Exactly 2 or 3 axes of type "space"
-* Axes that have types must be ordered "time-channel-space" by type
+* Axis names must be distinct
 * Scale keys must be valid relative path strings
 * Scale shape must not increase across the Multiscale (highest-resolution must come first)
 
@@ -423,16 +422,20 @@ Use [scaling method characterization](characterization.md) to determine the para
 
 ### Axis types
 
-clearscale enforces OME-Zarr's axis requirements whenever a `Multiscale` is created.
+A `Multiscale` can have any number, types and order of axes.
+OME-Zarr 0.4, 0.5 and 0.6 are more restrictive, so writing them with `Multiscale.to_ome_zarr` raises unless:
 
-This is to avoid situations where you created a Multiscale and then cannot write the metadata.
-Since OME-Zarr is currently the only way to write metadata supported, its requirements apply to all Multiscales.
+* There are 2 to 5 axes.
+* 2 or 3 of the axes have `Axis.type="space"`.
+* If any axis has type `"time"`, it is first, and if any has type `"channel"`, it comes right after `"time"` (or is first).
 
-* There must be 2 to 5 axes.
-* 2 or 3 of the axes must have `Axis.type="space"`.
-* If any axis has type `"time"`, it must be first, and if any has type `"channel"`, it must come right after `"time"` (or be first).
+OME-Zarr 0.9.dev2, which is still in development, does not have these restrictions.
+`Multiscale.lowest_lossless_ome_zarr_version` tells you which version a Multiscale can be written in.
+`0.9.dev2` is the only one that allows any number, types and order of axes.
+Data written as `0.9.dev2` may not be readable by other software.
+Note that clearscale does not support all features of 0.9.dev2 yet (primarily anatomical orientation).
 
-Likewise, scale keys must be valid relative paths (letters, digits, `.`, `_`, `-`, separated by `/`), and scales must be ordered from largest to smallest.
+Scale keys must be valid relative paths (letters, digits, `.`, `_`, `-`, separated by `/`), and scale keys must be valid relative paths (letters, digits, `.`, `_`, `-`, separated by `/`), and scales must be ordered from largest to smallest.
 
 Axis types are part of the `Scale`.
 If you are using the standard axis keys (`t`, `c`, `z`, `y`, `x`), they are automatically inferred.
@@ -450,9 +453,3 @@ scale = cs.Scale(
     },
 )
 ```
-
-> [!WARNING]
-> The upcoming version of OME-Zarr will remove the requirement for axis types to be specified.
-> If you write logic that relies on axis types, it will be brittle when this version becomes official.
-> In other words, for now you must specify types (or use standard axis keys), but you should not expect types to exist in the future.
-> See https://ngff.openmicroscopy.org/specifications/dev/index.html#multiscales-metadata
