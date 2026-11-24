@@ -1,6 +1,6 @@
 import itertools
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, Type
+from typing import Callable, Dict, List, Optional, Tuple, Type, Union
 
 from clearscale._affines import Affine
 from clearscale._errors import CannotConvertToAffineError, CannotConvertToSpatialRelationError
@@ -257,6 +257,39 @@ def _physical_relation(transform: Transform, axes: Tuple[AxisKey, ...]) -> Spati
     return Affine.from_array(as_affine.affine, axes)
 
 
+@dataclass(frozen=True, slots=True)
+class _StructuralRun:
+    """The atomic transforms `trace.transforms[start:end]`, all structural."""
+
+    start: int
+    end: int
+
+
+@dataclass(frozen=True, slots=True)
+class _PhysicalRun:
+    """The one physical transform `trace.transforms[start]`."""
+
+    start: int
+
+
+def _runs(trace: _AxisLineageTrace) -> List[Union[_StructuralRun, _PhysicalRun]]:
+    """Split the chain into runs: Every physical transform is a run of its own, consecutive structural transforms
+    form one run."""
+    runs: List[Union[_StructuralRun, _PhysicalRun]] = []
+    index = 0
+    while index < len(trace.transforms):
+        if isinstance(trace.transforms[index], _PHYSICAL_TYPES):
+            runs.append(_PhysicalRun(index))
+            index += 1
+            continue
+        run_end = index
+        while run_end < len(trace.transforms) and not isinstance(trace.transforms[run_end], _PHYSICAL_TYPES):
+            run_end += 1
+        runs.append(_StructuralRun(index, run_end))
+        index = run_end
+    return runs
+
+
 def _flatten_atomic(transform: Transform) -> Tuple[Transform, ...]:
     """Recursively flatten sequences down to atomic transforms for per-transform conversion to relation.
     (i.e. also ome_zarr.MultiscaleTransforms, and unwrap BijectionTransform)."""
@@ -302,17 +335,11 @@ def transform_to_relation(transform: Transform, source_axes: OrderedAxes, target
             raise CannotConvertToSpatialRelationError(f"{type(t).__name__} has no SpatialRelation equivalent")
     trace = _AxisLineageTrace.trace(atomic_transforms, source_axes, target_axes)
     relations: List[SpatialRelation] = []
-    index = 0
-    while index < len(trace.transforms):
-        if isinstance(trace.transforms[index], _PHYSICAL_TYPES):
-            relations.append(_physical_relation(trace.transforms[index], trace.axis_keys_at(index)))
-            index += 1
-            continue
-        run_end = index
-        while run_end < len(trace.transforms) and not isinstance(trace.transforms[run_end], _PHYSICAL_TYPES):
-            run_end += 1
-        relations.extend(_structural_relations(trace, index, run_end))
-        index = run_end
+    for run in _runs(trace):
+        if isinstance(run, _PhysicalRun):
+            relations.append(_physical_relation(trace.transforms[run.start], trace.axis_keys_at(run.start)))
+        else:
+            relations.extend(_structural_relations(trace, run.start, run.end))
     # All relations above used the source axis keys. Add a final renaming if target uses aliases
     final_axes = trace.axis_keys_at(len(trace.transforms))
     renames = {axis: target for axis, target in zip(final_axes, target_axes) if axis != target}
