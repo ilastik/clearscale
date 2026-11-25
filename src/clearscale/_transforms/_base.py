@@ -1253,9 +1253,9 @@ class TransformSequence(Transform):
         encode an identity, and decomposes AffineTransforms into sequences of ProjectAxis, MapAxis,
         Rotation, Scale, and Translation depending on its values.
 
-        Collapsing loses which output axis continues which input axis. That does not matter where a matrix has
-        zeros for axes that are added or dropped, but a matrix that mixes axes and also adds or drops some does not say
-        where they are. Those are taken from the sequence that was collapsed."""
+        Collapsing loses which output axis continues which input axis. Use the original sequence to place added and
+        dropped axes when the matrix suggests different positions, including replacements that preserve dimensionality.
+        """
         return self.collapsed()._simplified_knowing(self)
 
     def _validate_child_ndim_chain(self, source_ndim: Optional[int] = None, target_ndim: Optional[int] = None) -> None:

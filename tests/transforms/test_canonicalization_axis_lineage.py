@@ -72,6 +72,27 @@ def test_affine_before_dropping_axes_is_padded_to_an_invertible_matrix():
     assert transform.collapsed() == AffineTransform(((1, 1, 1, 0), (2, 1, 1, 0)))
 
 
+def test_replaced_axis_is_kept_at_its_position_when_a_rotation_leaves_a_different_axis_zero():
+    # Insert c in place of z, then c' = x and x' = -c. The zero row for x' does not make x the inserted axis.
+    rotation = Affine.from_array(((0, 0, 1, 0), (0, 1, 0, 0), (-1, 0, 0, 0)), "cyx")
+    relation = SpatialRelationSequence((ProjectionTo("cyx"), rotation))
+    transform = canonical(relation, "zyx")
+    recovered = transform_to_relation(transform, "zyx", "cyx")
+    assert isinstance(recovered, SpatialRelationSequence)
+    projection, affine = recovered
+    assert projection == ProjectionTo("cyx")
+    assert isinstance(affine, Affine)
+    assert tuple(row[1:] for row in affine.to_tuples()) == ((0, 1, 0), (1, 0, 0), (0, 0, 0))
+    assert canonical(recovered, "zyx") == transform
+
+
+def test_replacing_an_axis_and_zeroing_a_continued_axis_are_distinct():
+    zero_y = Affine.from_array(((1, 0, 0, 0), (0, 0, 0, 0), (0, 0, 1, 0)), "cyx")
+    relation = SpatialRelationSequence((ProjectionTo("cyx"), zero_y))
+    transform = canonical(relation, "zyx")
+    assert transform_to_relation(transform, "zyx", "cyx") == relation
+
+
 def test_inserting_reordering_and_mixing_together():
     mixing = Affine.from_array(((1.0, 0.5, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0)), "zxy")
     relation = SpatialRelationSequence((PermutationTo("xy"), ProjectionTo("zxy"), mixing))

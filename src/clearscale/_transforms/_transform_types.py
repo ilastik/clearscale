@@ -670,15 +670,16 @@ class AffineTransform(AffineRepresentableTransform):
         return TransformSequence(present).bound(source=self.source, target=self.target)
 
     def _simplified_knowing(self, original: Transform) -> Transform:
-        """If this affine adds or drops axes in a way that its matrix cannot place, ask `original`, where they are."""
+        """Use the original positions of added and dropped axes if the matrix suggests different positions."""
         if self.affine is None:
-            return self.simplified()
+            return self
         target_ndim, source_ndim = matrix_shape(self._linear())
-        if target_ndim == source_ndim or self._decompose_project_axis(self._linear()) is not None:
-            return self.simplified()  # No axes are added or dropped, or the zeros in the matrix say where
         lineage = original._axis_lineage(source_ndim)
-        if lineage is None or len(lineage) != target_ndim:
-            return self.simplified()  # Unknown (e.g. a bare affine from a file): Use the usual convention
+        simplified = self.simplified()
+        if lineage is None or len(lineage) != target_ndim or (target_ndim == source_ndim and None not in lineage):
+            return simplified
+        if simplified._axis_lineage(source_ndim) == lineage:
+            return simplified
         return self._simplified_with_lineage(lineage)
 
     def _simplified_with_lineage(self, lineage: Tuple[Optional[int], ...]) -> Transform:
@@ -697,9 +698,11 @@ class AffineTransform(AffineRepresentableTransform):
         late_drops = tuple(source for source in unused if source not in zero_columns)
         working = (*lineage, *late_drops)  # the axes that the physical part acts on, as source axes (None: inserted)
         square = self._square_affine_over(linear, working, target_ndim)
-        physical = self._decompose_square_affine(square, translation + (0.0,) * len(late_drops))
-        if physical is None:
-            physical = (self._general_affine(square, translation + (0.0,) * len(late_drops)),)
+        offset = translation + (0.0,) * len(late_drops)
+        physical = self._decompose_square_affine(square, offset)
+        if physical is None or any(isinstance(transform, MapAxisTransform) for transform in physical):
+            # Axis order is already set by the structural part. A permutation here is a change of values.
+            physical = (self._general_affine(square, offset),)
         drops = tuple(range(target_ndim, len(working))) if late_drops else ()
         return self._combined(
             (*self._structure_before_physical(source_ndim, early_drops, working), *physical)
@@ -912,9 +915,8 @@ class AffineTransform(AffineRepresentableTransform):
             # Like ((-3, 0), (0, 2))
             # Can also catch 180° rotations = horizontal reflections like ((-1, 0), (0, -1))
             scale = tuple(linear[i][i] for i in range(rows))
-            assert not AffineTransform._are_any_zeros(
-                scale, tolerance=IDENTITY_TOLERANCE
-            ), f"zero scales should be extracted in _decompose_project_axis, {linear}"
+            if AffineTransform._are_any_zeros(scale, tolerance=IDENTITY_TOLERANCE):
+                return None  # A continued axis can have zero values in a lineage-aware affine.
             return (ScaleTransform(scale=scale),)
         map_and_scale = monomial_matrix_decompose(linear, tolerance=IDENTITY_TOLERANCE)
         if map_and_scale is not None and AffineTransform._are_all_positive(

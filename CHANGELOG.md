@@ -36,6 +36,7 @@ While clearscale is at 0.9.x, breaking changes may happen in any release. They a
 ### Fixed
 
 * Retrieving the relation of a coordinate system whose transformation inserts or drops axes and also mixes axes returned `None` or a spurious `AxisRenaming`, for example a tilted plane in 3D (insert `z`, then make it depend on `x`), or a dropped axis that is not the last one but feeds another.
+  This also covers replacing one axis with another while keeping the same number of dimensions.
   Where axes are inserted and dropped is now kept when transformations are combined, and such an edge is written with a `projectAxis` followed by an `affine` (and a trailing `projectAxis` for dropped axes that are still needed).
   What cannot be retrieved is a new axis that has the same name as an axis which is dropped after the affine.
 * Reading raises a `ValueError` if the number of dimensions of a dataset does not match the number of axes.

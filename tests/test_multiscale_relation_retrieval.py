@@ -97,6 +97,15 @@ def test_relation_from_an_inserted_axis_is_retrievable_when_the_affine_is_invert
     assert reverse.target_axes("yxz") == ("y", "x")
 
 
+def test_relation_replaces_a_dropped_axis_that_feeds_another_one():
+    shear = Affine.from_array(((1, 0, 0, 0), (0.5, 1, 0, 0), (0, 0, 1, 0)), "zyx")
+    multiscale = _volume().with_coordinate_system("plane", reached_by=[shear, ProjectionTo("cyx")])
+    affine = Affine.from_array(((1, 0, 0, 0, 0), (0, 1, 0, 0.5, 0), (0, 0, 1, 0, 0), (0, 0, 0, 1, 0)), "cyxz")
+    assert multiscale.relation_to_coordinate_system("plane") == SpatialRelationSequence(
+        (AxisRearrangementTo("cyxz"), affine, ProjectionTo("cyx"))
+    )
+
+
 def test_relation_to_coordinate_system_is_same_space_for_the_same_space_under_another_name():
     ms = _volume().with_coordinate_system("same")
     assert ms.relation_to_coordinate_system("same") == SameSpace()
