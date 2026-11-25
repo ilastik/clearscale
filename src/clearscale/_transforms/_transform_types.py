@@ -692,7 +692,7 @@ class AffineTransform(AffineRepresentableTransform):
         early_drops = tuple(source for source in unused if source in zero_columns)  # no output depends on them
         late_drops = tuple(source for source in unused if source not in zero_columns)
         working = (*lineage, *late_drops)  # the axes that the physical part acts on, as source axes (None: inserted)
-        square = self._square_affine_over(linear, working, target_ndim)
+        square = self._square_affine_over(linear, working)
         offset = translation + (0.0,) * len(late_drops)
         physical = self._decompose_square_affine(square, offset)
         if physical is None or any(isinstance(transform, MapAxisTransform) for transform in physical):
@@ -726,12 +726,13 @@ class AffineTransform(AffineRepresentableTransform):
         )
 
     @staticmethod
-    def _square_affine_over(linear: FloatMatrix, working: AxisLineage, target_ndim: int) -> FloatMatrix:
+    def _square_affine_over(linear: FloatMatrix, working: AxisLineage) -> FloatMatrix:
         """The linear part as a square matrix over the axes `working` (see `_simplified_with_lineage`).
 
         Inserted inputs are zero, and outputs that will be dropped are unused. Use identity for those columns and
         rows where possible, or choose unit columns and rows that make the square matrix invertible.
         """
+        target_ndim = len(linear)
 
         def coefficient(row: int, col: int) -> float:
             source = working[col]
@@ -868,30 +869,13 @@ class AffineTransform(AffineRepresentableTransform):
         target_ndim, source_ndim = matrix_shape(linear)
         drops = zero_matrix_columns(linear, tolerance=IDENTITY_TOLERANCE)
         inserts = zero_matrix_rows(linear, tolerance=IDENTITY_TOLERANCE)
-        retained_sources = tuple(i for i in range(source_ndim) if i not in drops)
-        retained_targets = tuple(i for i in range(target_ndim) if i not in inserts)
-        if (not drops and not inserts) or len(retained_sources) != len(retained_targets):
+        if (not drops and not inserts) or source_ndim - len(drops) != target_ndim - len(inserts):
             return None
-        reduced = tuple(tuple(linear[row][col] for col in retained_sources) for row in retained_targets)
-        reduced_row_by_target = {target: row for row, target in enumerate(retained_targets)}
-        reduced_col_by_target = {target: col for col, target in enumerate(retained_targets)}
-        # Remaining square linear after factoring out the projection, with identity rows for inserts
-        post_project_linear = tuple(
-            tuple(
-                (
-                    1.0
-                    if row in inserts and row == col
-                    else (
-                        reduced[reduced_row_by_target[row]][reduced_col_by_target[col]]
-                        if row in reduced_row_by_target and col in reduced_col_by_target
-                        else 0.0
-                    )
-                )
-                for col in range(target_ndim)
-            )
-            for row in range(target_ndim)
-        )
-        return ProjectAxisTransform(drops=drops, inserts=inserts), post_project_linear
+        retained_sources = iter(i for i in range(source_ndim) if i not in drops)
+        working = tuple(None if row in inserts else next(retained_sources) for row in range(target_ndim))
+        # Coefficients within tolerance of zero on an inserted axis are discarded.
+        rows = tuple((0.0,) * source_ndim if row in inserts else values for row, values in enumerate(linear))
+        return ProjectAxisTransform(drops=drops, inserts=inserts), AffineTransform._square_affine_over(rows, working)
 
     @staticmethod
     def _decompose_square_linear(linear: FloatMatrix) -> Optional[Tuple[AffineRepresentableSubtypes, ...]]:
