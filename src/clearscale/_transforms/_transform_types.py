@@ -726,21 +726,27 @@ class AffineTransform(AffineRepresentableTransform):
         )
 
     @staticmethod
-    def _square_affine_over(linear: FloatMatrix, working: AxisLineage) -> FloatMatrix:
+    def _square_affine_over(linear: FloatMatrix, working: AxisLineage, *, complete_basis: bool = True) -> FloatMatrix:
         """The linear part as a square matrix over the axes `working` (see `_simplified_with_lineage`).
 
         Inserted inputs are zero, and outputs that will be dropped are unused. Use identity for those columns and
-        rows where possible, or choose unit columns and rows that make the square matrix invertible.
+        rows. With `complete_basis`, try other unit vectors if the identity padding makes the matrix singular.
         """
         target_ndim = len(linear)
 
-        def coefficient(row: int, col: int) -> float:
-            source = working[col]
-            if row >= target_ndim or source is None:
-                return 1.0 if row == col else 0.0
-            return linear[row][source]
-
-        square = tuple(tuple(coefficient(row, col) for col in range(len(working))) for row in range(len(working)))
+        square = tuple(
+            (
+                tuple(
+                    linear[row][source] if source is not None else float(row == col)
+                    for col, source in enumerate(working)
+                )
+                if row < target_ndim
+                else tuple(float(row == col) for col in range(len(working)))
+            )
+            for row in range(len(working))
+        )
+        if not complete_basis:
+            return square
         inserted = tuple(col for col, source in enumerate(working) if source is None)
         if not inserted and target_ndim == len(working):
             return square
@@ -875,7 +881,9 @@ class AffineTransform(AffineRepresentableTransform):
         working = tuple(None if row in inserts else next(retained_sources) for row in range(target_ndim))
         # Coefficients within tolerance of zero on an inserted axis are discarded.
         rows = tuple((0.0,) * source_ndim if row in inserts else values for row, values in enumerate(linear))
-        return ProjectAxisTransform(drops=drops, inserts=inserts), AffineTransform._square_affine_over(rows, working)
+        return ProjectAxisTransform(drops=drops, inserts=inserts), AffineTransform._square_affine_over(
+            rows, working, complete_basis=False
+        )
 
     @staticmethod
     def _decompose_square_linear(linear: FloatMatrix) -> Optional[Tuple[AffineRepresentableSubtypes, ...]]:
