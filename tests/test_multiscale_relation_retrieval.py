@@ -88,6 +88,15 @@ def test_relation_of_an_inserted_axis_that_depends_on_other_axes_is_retrievable(
     assert multiscale.relation_to_coordinate_system("tilted") == relation
 
 
+def test_relation_from_an_inserted_axis_is_retrievable_when_the_affine_is_invertible():
+    # y' = x, x' = x + z, z' = y. Padding the inserted column with the z unit vector makes y' and x' identical.
+    affine = Affine.from_array(((0, 1, 0, 0), (0, 1, 1, 0), (1, 0, 0, 0)), "yxz")
+    multiscale = _plane().with_coordinate_system("plane", reached_by=[ProjectionTo("yxz"), affine])
+    reverse = multiscale.relation_from_coordinate_system("plane")
+    assert reverse is not None
+    assert reverse.target_axes("yxz") == ("y", "x")
+
+
 def test_relation_to_coordinate_system_is_same_space_for_the_same_space_under_another_name():
     ms = _volume().with_coordinate_system("same")
     assert ms.relation_to_coordinate_system("same") == SameSpace()

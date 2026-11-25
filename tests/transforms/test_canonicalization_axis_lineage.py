@@ -60,6 +60,18 @@ def test_axis_that_feeds_another_one_is_dropped_where_it_is_not_last():
     assert canonical(recovered, "zyx") == transform
 
 
+def test_affine_before_dropping_axes_is_padded_to_an_invertible_matrix():
+    # The surviving rows each depend on y + x, so copying z as the final row leaves the square matrix singular.
+    mixing = Affine.from_array(((0, 1, 0, 0), (1, 1, 1, 0), (2, 1, 1, 0)), "zyx")
+    transform = canonical(SpatialRelationSequence((mixing, ProjectionTo("yx"))), "zyx")
+    assert isinstance(transform, TransformSequence)
+    reorder, affine, project = transform.transforms
+    assert reorder == MapAxisTransform((1, 2, 0))
+    assert isinstance(affine, AffineTransform) and affine.is_invertible
+    assert project == ProjectAxisTransform(drops=(2,))
+    assert transform.collapsed() == AffineTransform(((1, 1, 1, 0), (2, 1, 1, 0)))
+
+
 def test_inserting_reordering_and_mixing_together():
     mixing = Affine.from_array(((1.0, 0.5, 0.0, 0.0), (0.0, 1.0, 0.0, 0.0), (0.0, 0.0, 1.0, 0.0)), "zxy")
     relation = SpatialRelationSequence((PermutationTo("xy"), ProjectionTo("zxy"), mixing))

@@ -731,8 +731,8 @@ class AffineTransform(AffineRepresentableTransform):
     def _square_affine_over(linear: FloatMatrix, working: Tuple[Optional[int], ...], target_ndim: int) -> FloatMatrix:
         """The linear part as a square matrix over the axes `working` (see `_simplified_with_lineage`).
 
-        An inserted axis is always 0, and the outputs for axes that are dropped afterwards are never used, so for
-        both, the matrix just keeps their own value (identity), like a matrix without them would.
+        Inserted inputs are zero, and outputs that will be dropped are unused. Use identity for those columns and
+        rows where possible, or choose unit columns and rows that make the square matrix invertible.
         """
 
         def coefficient(row: int, col: int) -> float:
@@ -741,7 +741,29 @@ class AffineTransform(AffineRepresentableTransform):
                 return 1.0 if row == col else 0.0
             return linear[row][source]
 
-        return tuple(tuple(coefficient(row, col) for col in range(len(working))) for row in range(len(working)))
+        square = tuple(tuple(coefficient(row, col) for col in range(len(working))) for row in range(len(working)))
+        inserted = tuple(col for col, source in enumerate(working) if source is None)
+        if not inserted and target_ndim == len(working):
+            return square
+        if abs(matrix_determinant(square, tolerance=DEFAULT_SINGULARITY_TOLERANCE)) > DEFAULT_SINGULARITY_TOLERANCE:
+            return square
+        rows = square[:target_ndim]
+        if inserted:
+            # Complete the rows over real inputs with unit columns at non-pivot rows.
+            real_inputs = tuple(tuple(row[col] for col in range(len(working)) if col not in inserted) for row in rows)
+            pivots = pivot_columns(matrix_transpose(real_inputs), tolerance=IDENTITY_TOLERANCE)
+            free_rows = tuple(row for row in range(target_ndim) if row not in pivots)
+            if len(free_rows) > len(inserted):
+                return square  # There are too few free columns to make the rows independent.
+            padding_rows = dict(zip(inserted, free_rows))
+            rows = tuple(
+                tuple(
+                    float(padding_rows.get(col) == row) if col in inserted else value
+                    for col, value in enumerate(values)
+                )
+                for row, values in enumerate(rows)
+            )
+        return AffineTransform._pad_to_square_matrix(rows)
 
     def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         if self._ome_zarr_path is not None:
