@@ -1,7 +1,8 @@
 from typing import Any, Dict
 import pytest
 
-from clearscale import Scene, Multiscale, Scale, Shape
+from clearscale import Affine, PermutationTo, Scene, Multiscale, Scale, Shape
+from clearscale._spatial_relations import SpatialRelationSequence
 from clearscale._transforms import CoordinateSystem, TranslationTransform, _UnresolvedRef, TransformGraph
 
 from tests.ome_zarr.scene_examples import (
@@ -41,6 +42,44 @@ def test_scene_public_examples_roundtrip(meta):
         assert actual == expected
     # Full check because zip can miss one containing more items than the other
     assert roundtrip == meta
+
+
+def test_relation_from_a_bijection_combines_physical_transforms_across_a_permutation():
+    axes = [{"name": name, "type": "space"} for name in "yx"]
+    scene = Scene.from_ome_zarr(
+        {
+            "coordinateSystems": [{"name": "source", "axes": axes}, {"name": "target", "axes": axes[::-1]}],
+            "coordinateTransformations": [
+                {
+                    "type": "bijection",
+                    "input": {"name": "source"},
+                    "output": {"name": "target"},
+                    "forward": {
+                        "type": "sequence",
+                        "transformations": [
+                            {"type": "translation", "translation": [1, 2]},
+                            {"type": "mapAxis", "mapAxis": [1, 0]},
+                            {"type": "scale", "scale": [3, 4]},
+                        ],
+                    },
+                    "inverse": {
+                        "type": "sequence",
+                        "transformations": [
+                            {"type": "scale", "scale": [1 / 3, 1 / 4]},
+                            {"type": "mapAxis", "mapAxis": [1, 0]},
+                            {"type": "translation", "translation": [-1, -2]},
+                        ],
+                    },
+                }
+            ],
+        }
+    )
+    assert scene.relation_from("source", to="target") == SpatialRelationSequence(
+        (PermutationTo("xy"), Affine.from_array(((3, 0, 6), (0, 4, 4)), "xy"))
+    )
+    assert scene.relation_from("target", to="source") == SpatialRelationSequence(
+        (PermutationTo("yx"), Affine.from_array(((1 / 4, 0, -1), (0, 1 / 3, -2)), "yx"))
+    )
 
 
 @pytest.mark.parametrize("meta", all_external_payload_scene_examples())

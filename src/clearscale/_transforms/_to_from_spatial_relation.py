@@ -328,8 +328,11 @@ def transform_to_relation(transform: Transform, source_axes: OrderedAxes, target
         AssertionError: Anything else is a bug in clearscale.
     """
     target_axes = tuple(target_axes)
-    canonical = TransformSequence((transform.unbound(),)).canonicalized()
-    atomic_transforms = _flatten_atomic(canonical)
+    # A relation only uses the forward direction. Unwrap bijections before collapsing so a permutation inside
+    # their forward sequence does not split the physical transforms into separate runs.
+    atomic_transforms = _flatten_atomic(transform.unbound())
+    if atomic_transforms:
+        atomic_transforms = _flatten_atomic(TransformSequence(atomic_transforms).canonicalized())
     for t in atomic_transforms:
         if not isinstance(t, _PHYSICAL_TYPES + _STRUCTURAL_TYPES):
             raise CannotConvertToSpatialRelationError(f"{type(t).__name__} has no SpatialRelation equivalent")
