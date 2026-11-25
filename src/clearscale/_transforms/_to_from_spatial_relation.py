@@ -1,6 +1,6 @@
 import itertools
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, Type, Union, cast
+from typing import Callable, Dict, List, Optional, Tuple, Type, cast
 
 from clearscale._affines import Affine
 from clearscale._errors import CannotConvertToAffineError, CannotConvertToSpatialRelationError
@@ -30,7 +30,7 @@ from clearscale._transforms._transform_types import (
 from clearscale.types import AxisKey, OrderedAxes
 
 _PHYSICAL_TYPES = (ScaleTransform, TranslationTransform, RotationTransform, AffineTransform)
-"""Types that change values, not axes: Expressed as Affine (including translations, see `_runs`)."""
+"""Types that change values, not axes: Expressed as Affine, including translations."""
 _STRUCTURAL_TYPES: Tuple[Type[Transform], ...] = (MapAxisTransform, ProjectAxisTransform)
 """Types that change axes, not values: Expressed as PermutationTo, ProjectionTo, AxisRearrangementTo."""
 
@@ -230,56 +230,20 @@ def _structural_relations(trace: _AxisLineageTrace, start: int, end: int) -> Lis
     return [] if relation is None else [relation]
 
 
-@dataclass(frozen=True, slots=True)
-class _StructuralRun:
-    """The atomic transforms `trace.transforms[start:end]`, all structural."""
-
-    start: int
-    end: int
-
-
-@dataclass(frozen=True, slots=True)
-class _PhysicalRun:
-    """One or more consecutive physical transforms, composed into the single `affine`, which acts on the axis lineages
-    of `trace.stages[start]` (physical transforms keep the axes, so this holds for the whole run)."""
-
-    start: int
-    affine: AffineTransform
-
-
 def _composed_physical(transforms: Tuple[Transform, ...]) -> AffineTransform:
     """The one affine that is equivalent to applying the physical `transforms` first to last."""
     assert transforms and all(isinstance(t, _PHYSICAL_TYPES) for t in transforms)
     try:
-        composed = cast(AffineRepresentableTransform, transforms[0])._to_affine_transform()
-        for t in transforms[1:]:
-            next_affine = cast(AffineRepresentableTransform, t)._to_affine_transform()
-            result = next_affine.composed_with(composed)
-            assert isinstance(result, AffineTransform), f"dev error: affines of equal ndim always compose: {result!r}"
-            composed = result
+        affines = tuple(
+            cast(AffineRepresentableTransform, transform)._to_affine_transform() for transform in transforms
+        )
     except CannotConvertToAffineError:
         raise CannotConvertToSpatialRelationError(
             "transform values are not loaded (path-backed); please request if you need this"
         ) from None
+    composed = TransformSequence(affines).collapsed()
+    assert isinstance(composed, AffineTransform), f"dev error: affines of equal ndim always compose: {composed!r}"
     return composed.unbound()
-
-
-def _runs(trace: _AxisLineageTrace) -> List[Union[_StructuralRun, _PhysicalRun]]:
-    """Split the chain into alternating structural runs and physical runs.
-    Each physical run is composed into one affine, which includes its translations."""
-    runs: List[Union[_StructuralRun, _PhysicalRun]] = []
-    index = 0
-    while index < len(trace.transforms):
-        is_physical = isinstance(trace.transforms[index], _PHYSICAL_TYPES)
-        run_end = index
-        while run_end < len(trace.transforms) and isinstance(trace.transforms[run_end], _PHYSICAL_TYPES) == is_physical:
-            run_end += 1
-        if is_physical:
-            runs.append(_PhysicalRun(index, _composed_physical(trace.transforms[index:run_end])))
-        else:
-            runs.append(_StructuralRun(index, run_end))
-        index = run_end
-    return runs
 
 
 def _flatten_atomic(transform: Transform) -> Tuple[Transform, ...]:
@@ -338,12 +302,19 @@ def transform_to_relation(transform: Transform, source_axes: OrderedAxes, target
             raise CannotConvertToSpatialRelationError(f"{type(t).__name__} has no SpatialRelation equivalent")
     trace = _AxisLineageTrace.trace(atomic_transforms, source_axes, target_axes)
     relations: List[SpatialRelation] = []
-    for run in _runs(trace):
-        if isinstance(run, _PhysicalRun):
-            assert run.affine.affine is not None
-            relations.append(Affine.from_array(run.affine.affine, trace.axis_keys_at(run.start)))
+    start = 0
+    for physical, run in itertools.groupby(
+        trace.transforms, key=lambda transform: isinstance(transform, _PHYSICAL_TYPES)
+    ):
+        steps = tuple(run)
+        end = start + len(steps)
+        if physical:
+            affine = _composed_physical(steps)
+            assert affine.affine is not None
+            relations.append(Affine.from_array(affine.affine, trace.axis_keys_at(start)))
         else:
-            relations.extend(_structural_relations(trace, run.start, run.end))
+            relations.extend(_structural_relations(trace, start, end))
+        start = end
     # All relations above used the source axis keys. Add a final renaming if target uses aliases
     final_axes = trace.axis_keys_at(len(trace.transforms))
     renames = {axis: target for axis, target in zip(final_axes, target_axes) if axis != target}
