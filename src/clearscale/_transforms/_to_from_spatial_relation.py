@@ -302,9 +302,10 @@ def transform_to_relation(transform: Transform, source_axes: OrderedAxes, target
     taken only from the two ends. Axes that have different names at the two ends are renamed in a final
     AxisRenaming step.
 
-    Known limitation: An Affine that mixes axes, together with relations that drop, insert or permute axes, is
-    collapsed by canonicalization into one matrix, which cannot always be separated into these parts again.
-    Chains that don't mix axes always convert back (apart from the naming ambiguity described under Raises).
+    Chains of relations convert back, apart from the naming ambiguity described under Raises: Canonicalization keeps
+    where axes are inserted, dropped and reordered, also if an Affine mixes them (a tilted plane in 3D: insert z, then
+    make it depend on x). A canonical form inserts all new axes before its affine, and drops axes that the affine
+    still uses after it, so a new axis cannot have the name of such an axis.
 
     Returns:
         `SameSpace()` if the transform is an identity (and `source_axes == target_axes`).

@@ -663,6 +663,13 @@ class Transform(ABC):
         """Endpoint dimensionality constraints implied by this transform's payload."""
         ...
 
+    def _simplified_knowing(self, original: "Transform") -> "Transform":
+        """`simplified()`, for a transform that is the result of collapsing `original`.
+
+        `original` may know what collapsing lost, like which output axis continues which input axis.
+        """
+        return self.simplified()
+
     def _axis_lineage(self, source_ndim: int) -> Optional[Tuple[Optional[int], ...]]:
         """For every output axis, the index of the input axis that it continues, or None if it is a new axis.
 
@@ -1230,13 +1237,26 @@ class TransformSequence(Transform):
             return result[0]
         return replace(self, transforms=tuple(result))
 
+    def _axis_lineage(self, source_ndim: int) -> Optional[Tuple[Optional[int], ...]]:
+        lineage: Tuple[Optional[int], ...] = tuple(range(source_ndim))  # source axis of each axis, so far
+        for transform in self._iter_flattened():
+            step = transform._axis_lineage(len(lineage))
+            if step is None:
+                return None
+            lineage = tuple(None if source is None else lineage[source] for source in step)
+        return lineage
+
     def canonicalized(self) -> "Transform":
         """Reduce the sequence to its canonical representation, meaning the 'simplest' sequence
         that is semantically equivalent.
         In particular, this removes Identity, and other transform types if their values effectively
         encode an identity, and decomposes AffineTransforms into sequences of ProjectAxis, MapAxis,
-        Rotation, Scale, and Translation depending on its values."""
-        return self.collapsed().simplified()
+        Rotation, Scale, and Translation depending on its values.
+
+        Collapsing loses which output axis continues which input axis. That does not matter where a matrix has
+        zeros for axes that are added or dropped, but a matrix that mixes axes and also adds or drops some does not say
+        where they are. Those are taken from the sequence that was collapsed."""
+        return self.collapsed()._simplified_knowing(self)
 
     def _validate_child_ndim_chain(self, source_ndim: Optional[int] = None, target_ndim: Optional[int] = None) -> None:
         """Check that the children's payload ndim constraints can be satisfied one after another.

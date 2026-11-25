@@ -315,19 +315,19 @@ class TestErrors:
             assert not isinstance(exc_info.value, CannotConvertToSpatialRelationError)
 
 
-@pytest.mark.parametrize("seed", range(300))
+@pytest.mark.parametrize("seed", range(1000))
 def test_random_relation_chains_roundtrip_through_transforms(seed):
     source, relation = random_relation_chain(seed)
     target = relation.target_axes(source)
     transform = relation_to_transform_canonic(relation, source)
     mixes = chain_mixes_axes(relation, source)
+    assert TransformSequence((transform,)).canonicalized() == transform, "canonicalization is idempotent"
     try:
         recovered = transform_to_relation(transform, source, target)
-    except CannotConvertToSpatialRelationError:
-        # Known limitation: An Affine that mixes axes, composed with relations that drop, insert or permute axes, is
-        # collapsed into one matrix that may no longer be separable into those parts again.
-        # Chains that don't mix axes always convert back.
-        assert mixes, "chains that don't mix axes must always convert"
+    except CannotConvertToSpatialRelationError as error:
+        # The one thing that relations cannot express: Axes are dropped, and others with the same names are inserted
+        # (the dropped ones may be the only ones that were left, or live on under another name).
+        assert "same name" in str(error), f"only reused names are inexpressible, but: {error}"
         return
     if recovered == SameSpace():
         assert isinstance(transform, IdentityTransform)

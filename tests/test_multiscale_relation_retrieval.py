@@ -71,6 +71,14 @@ def test_relation_to_coordinate_system_inverts_with_coordinate_system(relation):
     assert rebuilt == original
 
 
+def test_relation_of_an_inserted_axis_that_depends_on_other_axes_is_retrievable():
+    """A tilted plane in 3D: z is inserted, then z = z + 0.5 * x"""
+    tilt = Affine.from_array(((1, 0, 0.5, 0), (0, 1, 0, 0), (0, 0, 1, 0)), "zyx")
+    relation = SpatialRelationSequence((ProjectionTo("zyx"), tilt))
+    multiscale = _plane().with_coordinate_system("tilted", reached_by=relation)
+    assert multiscale.relation_to_coordinate_system("tilted") == relation
+
+
 def test_relation_to_coordinate_system_is_same_space_for_the_same_space_under_another_name():
     ms = _volume().with_coordinate_system("same")
     assert ms.relation_to_coordinate_system("same") == SameSpace()
