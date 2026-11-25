@@ -616,7 +616,8 @@ class AffineTransform(AffineRepresentableTransform):
     def simplified(self, *, lineage: Optional[AxisLineage] = None) -> Transform:
         """Return the affine as an identity, a single transform, or a sequence.
 
-        A leading `ProjectAxisTransform` drops inputs with zero columns and inserts outputs with zero rows when
+        If the original steps supply `lineage`, use it to place the axis changes before building the square part.
+        Otherwise, a leading `ProjectAxisTransform` drops inputs with zero columns and inserts outputs with zero rows when
         doing so leaves equally many input and output axes. This includes square linear parts with matched zero
         row and column counts, as in a zero scale. For other rectangular linear parts, pad to a square and use a
         `ProjectAxisTransform` to insert trailing axes before the square transform if there are more outputs,
@@ -629,12 +630,11 @@ class AffineTransform(AffineRepresentableTransform):
         Return `self` for a path-backed affine or when the only component is the original general affine.
         Otherwise, return an `IdentityTransform` if no components remain, the component itself if one remains,
         or a `TransformSequence` if several remain.
-
-        When the composed steps supply `lineage`, use it to place axis changes that the matrix alone would
-        place differently.
         """
         if self.affine is None:
             return self
+        if lineage is not None:
+            return self._simplified_with_lineage(lineage)
         linear = self._linear()
         translation = self._translation()
         target_ndim, source_ndim = matrix_shape(linear)
@@ -653,15 +653,11 @@ class AffineTransform(AffineRepresentableTransform):
             linear = self._pad_to_square_matrix(linear)
             translation = translation + (0.0,) * len(drops)  # the padded rows are the ones that get dropped
         physical = self._decompose_square_affine(linear, translation)
-        if physical is None and leading_projection is None and trailing_projection is None:
-            simplified: Transform = self
-        else:
-            if physical is None:
-                physical = (self._general_affine(linear, translation),)
-            simplified = self._combined((leading_projection, *physical, trailing_projection))
-        if lineage is not None and simplified._axis_lineage(source_ndim) != lineage:
-            return self._simplified_with_lineage(lineage)
-        return simplified
+        if physical is None:
+            if leading_projection is None and trailing_projection is None:
+                return self
+            physical = (self._general_affine(linear, translation),)
+        return self._combined((leading_projection, *physical, trailing_projection))
 
     @staticmethod
     def _general_affine(linear: FloatMatrix, translation: FloatVector) -> "AffineTransform":
@@ -692,38 +688,34 @@ class AffineTransform(AffineRepresentableTransform):
         early_drops = tuple(source for source in unused if source in zero_columns)  # no output depends on them
         late_drops = tuple(source for source in unused if source not in zero_columns)
         working = (*lineage, *late_drops)  # the axes that the physical part acts on, as source axes (None: inserted)
+        leading = self._structure_before_physical(source_ndim, early_drops, working)
+        trailing_drops = tuple(range(target_ndim, len(working)))
+        trailing = ProjectAxisTransform(drops=trailing_drops) if trailing_drops else None
         square = self._square_affine_over(linear, working)
         offset = translation + (0.0,) * len(late_drops)
         physical = self._decompose_square_affine(square, offset)
         if physical is None or any(isinstance(transform, MapAxisTransform) for transform in physical):
             # Axis order is already set by the structural part. A permutation here is a change of values.
             physical = (self._general_affine(square, offset),)
-        drops = tuple(range(target_ndim, len(working))) if late_drops else ()
-        return self._combined(
-            (*self._structure_before_physical(source_ndim, early_drops, working), *physical)
-            + ((ProjectAxisTransform(drops=drops),) if drops else ())
-        )
+        return self._combined((*leading, *physical, trailing))
 
     @staticmethod
     def _structure_before_physical(
         source_ndim: int, early_drops: AxisIndices, working: AxisLineage
     ) -> Tuple[Transform, ...]:
-        """Drop `early_drops`, insert the new axes and reorder, so that the axes are as `working` says."""
-        kept = [source for source in range(source_ndim) if source not in early_drops]
+        """Drop unused axes, insert new axes at their working positions, and reorder the retained axes."""
+        kept = iter(source for source in range(source_ndim) if source not in early_drops)
         inserted = tuple(position for position, source in enumerate(working) if source is None)
-        if [source for source in working if source is not None] == kept:
-            # Same order: Insert the new axes where they have to be
-            return (ProjectAxisTransform(drops=early_drops, inserts=inserted),) if early_drops or inserted else ()
-        # Otherwise insert them at the end and reorder
-        new_slots = iter(range(len(kept), len(kept) + len(inserted)))
-        order = tuple(kept.index(source) if source is not None else next(new_slots) for source in working)
-        end = tuple(range(len(kept), len(kept) + len(inserted)))
-        projection = ProjectAxisTransform(drops=early_drops, inserts=end)
-        return (
-            (projection, MapAxisTransform(map_axis=order))
-            if early_drops or end
-            else (MapAxisTransform(map_axis=order),)
-        )
+        projected = tuple(None if source is None else next(kept) for source in working)
+        steps: List[Transform] = []
+        if early_drops or inserted:
+            steps.append(ProjectAxisTransform(drops=early_drops, inserts=inserted))
+        if projected != working:
+            order = tuple(
+                position if source is None else projected.index(source) for position, source in enumerate(working)
+            )
+            steps.append(MapAxisTransform(map_axis=order))
+        return tuple(steps)
 
     @staticmethod
     def _square_affine_over(linear: FloatMatrix, working: AxisLineage, *, complete_basis: bool = True) -> FloatMatrix:

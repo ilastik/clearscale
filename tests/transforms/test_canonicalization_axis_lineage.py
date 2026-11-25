@@ -60,6 +60,17 @@ def test_axis_that_feeds_another_one_is_dropped_where_it_is_not_last():
     assert canonical(recovered, "zyx") == transform
 
 
+def test_explicit_drop_removes_an_unused_axis_before_building_the_affine():
+    relation = SpatialRelationSequence((TILT, ProjectionTo("z")))
+    transform = canonical(relation, "zyx")
+    affine = Affine.from_array(((1, 0.5, 0), (0, 1, 0)), "zx")
+    assert transform_to_relation(transform, "zyx", "z") == SpatialRelationSequence(
+        (ProjectionTo("zx"), affine, ProjectionTo("z"))
+    )
+    bare = AffineTransform(((1, 0, 0.5, 0),))
+    assert transform_to_relation(bare, "zyx", "z") == relation
+
+
 def test_affine_before_dropping_axes_is_padded_to_an_invertible_matrix():
     # The surviving rows each depend on y + x, so copying z as the final row leaves the square matrix singular.
     mixing = Affine.from_array(((0, 1, 0, 0), (1, 1, 1, 0), (2, 1, 1, 0)), "zyx")
@@ -98,6 +109,7 @@ def test_inserting_reordering_and_mixing_together():
     relation = SpatialRelationSequence((PermutationTo("xy"), ProjectionTo("zxy"), mixing))
     transform = canonical(relation, "yx")
     assert [type(a) for a in atoms(transform)] == [ProjectAxisTransform, MapAxisTransform, AffineTransform]
+    assert atoms(transform)[:2] == [ProjectAxisTransform(inserts=(0,)), MapAxisTransform((0, 2, 1))]
     assert transform_to_relation(transform, "yx", "zxy").target_axes("yx") == ("z", "x", "y")
     assert canonical(transform_to_relation(transform, "yx", "zxy"), "yx") == transform
 
