@@ -39,6 +39,7 @@ While clearscale is at 0.9.x, breaking changes may happen in any release. They a
   This also covers replacing one axis with another while keeping the same number of dimensions.
   Where axes are inserted and dropped is now kept when transformations are combined, and such an edge is written with a `projectAxis` followed by an `affine` (and a trailing `projectAxis` for dropped axes that are still needed).
   What cannot be retrieved is a new axis that has the same name as an axis which is dropped after the affine.
+* Retrieving a relation now keeps an explicit `PermutationTo` when it is combined with a shear.
 * Reading raises a `ValueError` if the number of dimensions of a dataset does not match the number of axes.
   Previously, the extra axes or dimensions were silently dropped.
 

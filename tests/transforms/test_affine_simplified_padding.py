@@ -12,7 +12,7 @@ def flatten_matrix(matrix):
 
 def recomposed(simplified) -> AffineTransform:
     """The single AffineTransform that the simplification is equivalent to"""
-    coll = TransformSequence((simplified,)).collapsed()
+    coll = TransformSequence((simplified,))._collapsed()
     assert isinstance(coll, AffineTransform), "expected only affine-representable components"
     return coll
 

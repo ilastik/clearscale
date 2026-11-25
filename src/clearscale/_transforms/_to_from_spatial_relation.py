@@ -241,7 +241,7 @@ def _composed_physical(transforms: Tuple[Transform, ...]) -> AffineTransform:
         raise CannotConvertToSpatialRelationError(
             "transform values are not loaded (path-backed); please request if you need this"
         ) from None
-    composed = TransformSequence(affines).collapsed()
+    composed = TransformSequence(affines)._collapsed()
     assert isinstance(composed, AffineTransform), f"dev error: affines of equal ndim always compose: {composed!r}"
     return composed.unbound()
 

@@ -45,6 +45,7 @@ from clearscale._services.matrices import (
 )
 from clearscale._transforms._base import (
     AxisDependencies,
+    AxisLineage,
     _EndpointDimensionConstraints,
     IdentityTransform,
     RelativePath,
@@ -494,7 +495,7 @@ class RotationTransform(AffineRepresentableTransform):
         rows, cols = matrix_shape(self.rotation)
         return _EndpointDimensionConstraints.exact(source=cols, target=rows)
 
-    def _axis_lineage(self, source_ndim: int) -> Optional[Tuple[Optional[int], ...]]:
+    def _axis_lineage(self, source_ndim: int) -> Optional[AxisLineage]:
         if self.rotation is None:
             return None
         return tuple(range(source_ndim))  # a rotation keeps the axes in place, even though it mixes them
@@ -612,7 +613,7 @@ class AffineTransform(AffineRepresentableTransform):
             target=self._composed_target(earlier),
         )
 
-    def simplified(self) -> Transform:
+    def simplified(self, *, lineage: Optional[AxisLineage] = None) -> Transform:
         """Return the affine as an identity, a single transform, or a sequence.
 
         A leading `ProjectAxisTransform` drops inputs with zero columns and inserts outputs with zero rows when
@@ -628,6 +629,9 @@ class AffineTransform(AffineRepresentableTransform):
         Return `self` for a path-backed affine or when the only component is the original general affine.
         Otherwise, return an `IdentityTransform` if no components remain, the component itself if one remains,
         or a `TransformSequence` if several remain.
+
+        When the composed steps supply `lineage`, use it to place axis changes that the matrix alone would
+        place differently.
         """
         if self.affine is None:
             return self
@@ -649,11 +653,15 @@ class AffineTransform(AffineRepresentableTransform):
             linear = self._pad_to_square_matrix(linear)
             translation = translation + (0.0,) * len(drops)  # the padded rows are the ones that get dropped
         physical = self._decompose_square_affine(linear, translation)
-        if physical is None:
-            if leading_projection is None and trailing_projection is None:
-                return self
-            physical = (self._general_affine(linear, translation),)
-        return self._combined((leading_projection, *physical, trailing_projection))
+        if physical is None and leading_projection is None and trailing_projection is None:
+            simplified: Transform = self
+        else:
+            if physical is None:
+                physical = (self._general_affine(linear, translation),)
+            simplified = self._combined((leading_projection, *physical, trailing_projection))
+        if lineage is not None and simplified._axis_lineage(source_ndim) != lineage:
+            return self._simplified_with_lineage(lineage)
+        return simplified
 
     @staticmethod
     def _general_affine(linear: FloatMatrix, translation: FloatVector) -> "AffineTransform":
@@ -669,20 +677,7 @@ class AffineTransform(AffineRepresentableTransform):
             return present[0].bound(source=self.source, target=self.target)
         return TransformSequence(present).bound(source=self.source, target=self.target)
 
-    def _simplified_knowing(self, original: Transform) -> Transform:
-        """Use the original positions of added and dropped axes if the matrix suggests different positions."""
-        if self.affine is None:
-            return self
-        target_ndim, source_ndim = matrix_shape(self._linear())
-        lineage = original._axis_lineage(source_ndim)
-        simplified = self.simplified()
-        if lineage is None or len(lineage) != target_ndim or (target_ndim == source_ndim and None not in lineage):
-            return simplified
-        if simplified._axis_lineage(source_ndim) == lineage:
-            return simplified
-        return self._simplified_with_lineage(lineage)
-
-    def _simplified_with_lineage(self, lineage: Tuple[Optional[int], ...]) -> Transform:
+    def _simplified_with_lineage(self, lineage: AxisLineage) -> Transform:
         """Like `simplified()`, with each target axis known to continue a source axis: `lineage[target]` is its index,
         or None for an axis that is new.
 
@@ -711,7 +706,7 @@ class AffineTransform(AffineRepresentableTransform):
 
     @staticmethod
     def _structure_before_physical(
-        source_ndim: int, early_drops: AxisIndices, working: Tuple[Optional[int], ...]
+        source_ndim: int, early_drops: AxisIndices, working: AxisLineage
     ) -> Tuple[Transform, ...]:
         """Drop `early_drops`, insert the new axes and reorder, so that the axes are as `working` says."""
         kept = [source for source in range(source_ndim) if source not in early_drops]
@@ -731,7 +726,7 @@ class AffineTransform(AffineRepresentableTransform):
         )
 
     @staticmethod
-    def _square_affine_over(linear: FloatMatrix, working: Tuple[Optional[int], ...], target_ndim: int) -> FloatMatrix:
+    def _square_affine_over(linear: FloatMatrix, working: AxisLineage, target_ndim: int) -> FloatMatrix:
         """The linear part as a square matrix over the axes `working` (see `_simplified_with_lineage`).
 
         Inserted inputs are zero, and outputs that will be dropped are unused. Use identity for those columns and
@@ -780,7 +775,7 @@ class AffineTransform(AffineRepresentableTransform):
         rows, cols = matrix_shape(self.affine)
         return _EndpointDimensionConstraints.exact(source=cols - 1, target=rows)
 
-    def _axis_lineage(self, source_ndim: int) -> Optional[Tuple[Optional[int], ...]]:
+    def _axis_lineage(self, source_ndim: int) -> Optional[AxisLineage]:
         if self.affine is None or matrix_shape(self._linear()) != (source_ndim, source_ndim):
             return None  # Not known: A matrix that adds or drops axes does not say which
         return tuple(range(source_ndim))  # an affine keeps the axes in place, even if it mixes them

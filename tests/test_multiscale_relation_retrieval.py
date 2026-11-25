@@ -106,6 +106,15 @@ def test_relation_replaces_a_dropped_axis_that_feeds_another_one():
     )
 
 
+def test_relation_preserves_a_permutation_followed_by_a_shear():
+    shear = Affine.from_array(((1, 0.5, 0), (0, 1, 0)), "xy")
+    relation = SpatialRelationSequence((PermutationTo("xy"), shear))
+    multiscale = _plane().with_coordinate_system("other", reached_by=relation)
+    assert multiscale.relation_to_coordinate_system("other") == relation
+    reread = Multiscale.from_ome_zarr(multiscale.to_ome_zarr(version="0.6"), shape_source="singletons")
+    assert reread.relation_to_coordinate_system("other") == relation
+
+
 def test_relation_to_coordinate_system_is_same_space_for_the_same_space_under_another_name():
     ms = _volume().with_coordinate_system("same")
     assert ms.relation_to_coordinate_system("same") == SameSpace()

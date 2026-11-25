@@ -69,7 +69,7 @@ def test_affine_before_dropping_axes_is_padded_to_an_invertible_matrix():
     assert reorder == MapAxisTransform((1, 2, 0))
     assert isinstance(affine, AffineTransform) and affine.is_invertible
     assert project == ProjectAxisTransform(drops=(2,))
-    assert transform.collapsed() == AffineTransform(((1, 1, 1, 0), (2, 1, 1, 0)))
+    assert transform._collapsed() == AffineTransform(((1, 1, 1, 0), (2, 1, 1, 0)))
 
 
 def test_replaced_axis_is_kept_at_its_position_when_a_rotation_leaves_a_different_axis_zero():
@@ -131,7 +131,15 @@ def test_a_bare_affine_that_adds_axes_keeps_the_convention_that_new_axes_come_la
 
 def test_chains_with_transforms_that_are_not_affine_are_canonicalized_as_before():
     chain = TransformSequence((ProjectAxisTransform(inserts=(0,)), DisplacementsTransform(path="d")))
-    assert chain.canonicalized() == chain.collapsed().simplified()
+    assert chain.canonicalized() == chain._collapsed().simplified()
+
+
+def test_affine_run_before_a_displacement_preserves_the_inserted_axis():
+    project = ProjectAxisTransform(inserts=(0,))
+    tilt = AffineTransform(TILT.to_tuples())
+    displacement = DisplacementsTransform(path="field")
+    chain = TransformSequence((project, tilt, displacement))
+    assert chain.canonicalized() == chain
 
 
 def test_a_new_axis_named_like_a_dropped_one_that_is_still_needed_cannot_be_expressed():
