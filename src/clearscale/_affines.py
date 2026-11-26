@@ -28,6 +28,7 @@ from clearscale._services.matrices import (
     FloatVector,
     matrix_invert,
     matrix_vector_multiply,
+    DEFAULT_RELATIVE_TOLERANCE,
     DEFAULT_SINGULARITY_TOLERANCE,
 )
 
@@ -198,17 +199,14 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
 
         return self.without_axes(identity_axes)
 
-    def inverted(self, singularity_tolerance: float = DEFAULT_SINGULARITY_TOLERANCE) -> "Linear":
+    def inverted(self) -> "Linear":
         """Return the matrix inverse.
 
         Raises:
             ValueError: If the matrix is singular.
         """
-        try:
-            inverse = matrix_invert(self.to_tuples(), tolerance=singularity_tolerance)
-        except ValueError as e:
-            raise ValueError(f"Cannot invert Linear with axes {self.axes!r}: {e}") from e
-        return Linear.from_array(inverse, self.axes)
+        singularity_tolerance = DEFAULT_RELATIVE_TOLERANCE
+        return self._inverted(singularity_tolerance=singularity_tolerance)
 
     def with_values(
         self, other: Mapping[AxisKey, Mapping[AxisKey, Scalar]], *, only: Optional[Axes] = None
@@ -255,6 +253,14 @@ class Linear(_AxisMapping[AxisKey, Coefficient]):
 
     def at(self, row: AxisKey, col: AxisKey) -> float:
         return self._mapping[row][col]
+
+    def _inverted(self, *, singularity_tolerance: float) -> "Linear":
+        """Helper so Affine can pass its own tolerance (merge if tolerance becomes a public kwarg again)"""
+        try:
+            inverse = matrix_invert(self.to_tuples(), tolerance=singularity_tolerance)
+        except ValueError as e:
+            raise ValueError(f"Cannot invert Linear with axes {self.axes!r}: {e}") from e
+        return Linear.from_array(inverse, self.axes)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -545,7 +551,7 @@ class Affine(SpatialRelation):
             raise ValueError("Cannot create empty Affine. Removing all identities would leave no axes.")
         return self.without_axes(identity_axes)
 
-    def inverted(self, singularity_tolerance: float = DEFAULT_SINGULARITY_TOLERANCE) -> "Affine":
+    def inverted(self) -> "Affine":
         """Return the Affine that undoes `self`.
 
         If `self` maps `y` to `x = linear @ y + translation`,
@@ -554,7 +560,8 @@ class Affine(SpatialRelation):
         Raises:
             ValueError: If the linear part is singular.
         """
-        inverse_linear = self.linear.inverted(singularity_tolerance=singularity_tolerance)
+        singularity_tolerance = DEFAULT_RELATIVE_TOLERANCE
+        inverse_linear = self.linear._inverted(singularity_tolerance=singularity_tolerance)
         return self.__class__(
             linear=inverse_linear, translation=inverse_linear.apply_to_translation(self.translation).inverted()
         )

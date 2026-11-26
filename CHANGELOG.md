@@ -29,6 +29,7 @@ While clearscale is at 0.9.x, breaking changes may happen in any release. They a
   Previously, e.g. a scale followed by a shift came back as `[Affine, Translation]`, and a chain could contain several `Affine`).
   Now, `Translation` is never returned: A pure translation is an `Affine` with identity `linear`, and the shift is `affine.translation`.
   The result contains at most one `Affine`, next to `ProjectionTo`, `PermutationTo`, `AxisRearrangementTo` or `AxisRenaming` if the transformation changes axes; if it does not, the result is that single `Affine` (or `SameSpace()`).
+* **Breaking:** Removed the `singularity_tolerance` argument from `Linear.inverted()` and `Affine.inverted()`. Both use the same relative pivot cutoff of `1e-12` as transform inversion.
 * Relation serialization to OME-Zarr: A transform that needs a general `affine` is written with its translation inside the `affine`, no longer as an additional `translation` (this applies to affines that also add or drop axes; those that don't already worked this way). The transformation is the same.
 * `Multiscale.lowest_lossless_ome_zarr_version` considers `.ome.omero`, and skips versions that cannot write the axes or omero metadata of the Multiscale.
   It may return `"0.9.dev2"` if no other version can.
