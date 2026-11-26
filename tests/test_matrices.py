@@ -1,6 +1,6 @@
 import pytest
 
-from clearscale._services.matrices import has_full_rank, unit_vector_completion
+from clearscale._services.matrices import has_full_rank, matrix_invert, matrix_multiply, unit_vector_completion
 
 
 class TestUnitVectorCompletion:
@@ -55,3 +55,53 @@ class TestHasFullRank:
 
     def test_zero_matrix_has_no_rank(self):
         assert not has_full_rank(((0.0, 0.0), (0.0, 0.0)))
+
+
+class TestMatrixInvert:
+    def test_identity(self):
+        identity = ((1.0, 0.0), (0.0, 1.0))
+        assert matrix_invert(identity) == identity
+
+    def test_two_by_two(self):
+        inverse = matrix_invert(((4.0, 7.0), (2.0, 6.0)))
+        assert inverse[0] == pytest.approx((0.6, -0.7))
+        assert inverse[1] == pytest.approx((-0.2, 0.4))
+
+    @pytest.mark.parametrize(
+        "matrix",
+        [
+            pytest.param(
+                tuple(tuple(scale * value for value in row) for row in ((2.0, 1.0), (1.0, 3.0))), id=f"uniform-{scale}"
+            )
+            for scale in (1.0, 1e-5, 1e-9, 1e-15)
+        ]
+        + [
+            pytest.param(((1e-9, 1e6), (0.0, 1e6)), id="column-scaled"),
+            pytest.param(((1e9, 1e9), (0.0, 1e-9)), id="row-scaled-first"),
+            pytest.param(((1e-9, 1e-9), (0.0, 1e9)), id="row-scaled-second"),
+        ],
+    )
+    def test_scaled_matrix_times_inverse_is_identity(self, matrix):
+        product = matrix_multiply(matrix, matrix_invert(matrix))
+        assert product[0] == pytest.approx((1.0, 0.0), rel=1e-9, abs=1e-9)
+        assert product[1] == pytest.approx((0.0, 1.0), rel=1e-9, abs=1e-9)
+
+    @pytest.mark.parametrize("scale", [1.0, 1e-9, 1e-15])
+    @pytest.mark.parametrize("matrix", [((1.0, 2.0), (2.0, 4.0)), ((1.0, 2.0), (0.0, 0.0)), ((1.0, 0.0), (2.0, 0.0))])
+    def test_scaled_singular_matrix(self, scale, matrix):
+        scaled = tuple(tuple(scale * value for value in row) for row in matrix)
+        with pytest.raises(ValueError, match="singular"):
+            matrix_invert(scaled)
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    def test_non_finite_entries(self, value):
+        with pytest.raises(ValueError, match="non-finite"):
+            matrix_invert(((1.0, value), (0.0, 1.0)))
+
+    def test_non_finite_inverse(self):
+        with pytest.raises(ValueError, match="non-finite"):
+            matrix_invert(((1e-320,),))
+
+    def test_non_square_matrix(self):
+        with pytest.raises(ValueError, match="square"):
+            matrix_invert(((1.0, 2.0),))

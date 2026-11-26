@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Mapping as MappingABC
 from dataclasses import dataclass, field, replace
-from math import isfinite
 import numbers
 from typing import (
     Optional,
@@ -43,7 +42,6 @@ from clearscale._services.matrices import (
     matrix_determinant,
     zero_matrix_columns,
     zero_matrix_rows,
-    DEFAULT_RELATIVE_TOLERANCE,
     DEFAULT_SINGULARITY_TOLERANCE,
     is_identity_scale,
 )
@@ -560,10 +558,9 @@ class AffineTransform(AffineRepresentableTransform):
             return False
         return True
 
-    def inverted(self, *, tolerance: Optional[float] = None) -> "AffineTransform":
-        """Invert with relative pivot checks, or use the given absolute pivot tolerance."""
+    def inverted(self) -> "AffineTransform":
         try:
-            inverse_linear = self._inverse_linear(tolerance)
+            inverse_linear = self._inverse_linear()
         except ValueError as error:
             raise ValueError("This AffineTransform is not invertible.") from error
         inverse_offset = tuple(-v for v in matrix_vector_multiply(inverse_linear, self._translation()))
@@ -829,19 +826,10 @@ class AffineTransform(AffineRepresentableTransform):
         assert self.affine, "Ensure `self.affine is not None` before calling"
         return tuple(row[-1] for row in self.affine)
 
-    def _inverse_linear(self, tolerance: Optional[float] = None) -> FloatMatrix:
+    def _inverse_linear(self) -> FloatMatrix:
         if self.affine is None or len(self.affine) + 1 != len(self.affine[0]):
             raise ValueError("This AffineTransform is not invertible.")
-        linear = self._linear()
-        if not all(isfinite(value) for row in linear for value in row):
-            raise ValueError("This AffineTransform is not invertible.")
-        if tolerance is None:
-            inverse = matrix_invert(linear, tolerance=DEFAULT_RELATIVE_TOLERANCE, relative=True)
-        else:
-            inverse = matrix_invert(linear, tolerance=tolerance)
-        if not all(isfinite(value) for row in inverse for value in row):
-            raise ValueError("This AffineTransform is not invertible.")
-        return inverse
+        return matrix_invert(self._linear())
 
     @staticmethod
     def _pad_to_square_matrix(linear: FloatMatrix) -> FloatMatrix:
