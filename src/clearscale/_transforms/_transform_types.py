@@ -494,6 +494,11 @@ class RotationTransform(AffineRepresentableTransform):
         rows, cols = matrix_shape(self.rotation)
         return _EndpointDimensionConstraints.exact(source=cols, target=rows)
 
+    def _axis_lineage(self, source_ndim: int) -> Optional[Tuple[Optional[int], ...]]:
+        if self.rotation is None:
+            return None
+        return tuple(range(source_ndim))  # a rotation keeps the axes in place, even though it mixes them
+
     def _axis_dependencies(self, source_ndim: int) -> Optional[AxisDependencies]:
         if self.rotation is None:
             return None
@@ -670,6 +675,11 @@ class AffineTransform(AffineRepresentableTransform):
             return _EndpointDimensionConstraints()
         rows, cols = matrix_shape(self.affine)
         return _EndpointDimensionConstraints.exact(source=cols - 1, target=rows)
+
+    def _axis_lineage(self, source_ndim: int) -> Optional[Tuple[Optional[int], ...]]:
+        if self.affine is None or matrix_shape(self._linear()) != (source_ndim, source_ndim):
+            return None  # Not known: A matrix that adds or drops axes does not say which
+        return tuple(range(source_ndim))  # an affine keeps the axes in place, even if it mixes them
 
     def _axis_dependencies(self, source_ndim: int) -> Optional[AxisDependencies]:
         if self.affine is None:
