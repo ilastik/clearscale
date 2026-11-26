@@ -663,6 +663,17 @@ class Transform(ABC):
         """Endpoint dimensionality constraints implied by this transform's payload."""
         ...
 
+    def _axis_lineage(self, source_ndim: int) -> Optional[Tuple[Optional[int], ...]]:
+        """For every output axis, the index of the input axis that it continues, or None if it is a new axis.
+
+        Returns None if that is not known: Mixing transforms continue an input axis only if they say so, like
+        affines, which keep the axes in place (see AffineTransform).
+        """
+        dependencies = self._axis_dependencies(source_ndim)
+        if dependencies is None or any(len(sources) > 1 for sources in dependencies):
+            return None
+        return tuple(sources[0] if sources else None for sources in dependencies)
+
     def _axis_dependencies(self, source_ndim: int) -> Optional[AxisDependencies]:
         """For a source with `source_ndim` axes, tell which source axes each target axis depends on.
 

@@ -158,29 +158,20 @@ class _AxisLineageTrace:
 
         def _target_ids_for(t: Transform, source_ids: AxisIndices, new_lineage: Callable[[], int]) -> AxisIndices:
             """Map source_ids to target_ids based on how targets correspond to sources for `t`."""
-            sources_by_target = t._axis_dependencies(len(source_ids))
-            if sources_by_target is None:
-                raise CannotConvertToSpatialRelationError(
-                    f"{type(t).__name__} values are not loaded (path-backed), so it cannot determine how input axes correspond to outputs"
-                )
-            assert all(
-                0 <= s < len(source_ids) for sources in sources_by_target for s in sources
-            ), f"dev error: {type(t).__name__}._axis_dependencies({len(source_ids)}) returned a target depending on a non-existent source: {sources_by_target!r}"
-            if isinstance(t, _PHYSICAL_TYPES):
-                # Translation and Affine relations use source_axes==target_axes:
-                # Even for a mixing affine, output axis i is still axis i.
-                assert len(sources_by_target) == len(
-                    source_ids
-                ), f"dev error: should canonicalize the chain first, got non-canonical {t!r} (canonical affines don't change ndim)"
-                return source_ids
-            if any(len(sources) > 1 for sources in sources_by_target):
+            lineage = t._axis_lineage(len(source_ids))
+            if lineage is None:
+                if t._axis_dependencies(len(source_ids)) is None:
+                    raise CannotConvertToSpatialRelationError(
+                        f"{type(t).__name__} values are not loaded (path-backed), so it cannot determine how input axes correspond to outputs"
+                    )
                 # Basically only possible with ByDimension now
                 raise CannotConvertToSpatialRelationError(
-                    f"{type(t).__name__} mixes axes (target axes depend on source axes {sources_by_target!r}), "
-                    "which no SpatialRelation can express"
+                    f"{type(t).__name__} mixes axes without keeping them in place, which no SpatialRelation can express"
                 )
-            assert all(len(sources) <= 1 for sources in sources_by_target), "dev error: no more mixing by now"
-            return tuple(source_ids[sources[0]] if sources else new_lineage() for sources in sources_by_target)
+            assert all(
+                source is None or 0 <= source < len(source_ids) for source in lineage
+            ), f"dev error: {type(t).__name__}._axis_lineage({len(source_ids)}) returned a non-existent source: {lineage!r}"
+            return tuple(source_ids[source] if source is not None else new_lineage() for source in lineage)
 
         source = tuple(source_axes)
         target = tuple(target_axes)
