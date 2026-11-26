@@ -178,11 +178,17 @@ result = projection.as_derived_from(original, reached_by=cs.ProjectionTo(origina
 # result --relation--> "stage"
 relation = result.relation_to_coordinate_system("stage")
 
-# e.g. SpatialRelationSequence((ProjectionTo("zyx"), Translation(z=100.0, y=250.0, x=250.0)))
+# e.g. SpatialRelationSequence((ProjectionTo("zyx"), Affine(...)))
+# with relation[1].linear.is_identity() == True
+# and relation[1].translation == cs.Translation(z=100.0, y=250.0, x=250.0)
 ```
 
 * The result is a single relation, a list-like sequence of relations, or `cs.SameSpace()` if the other space is the same space under another name.
 * It describes the same transformation as the one that was specified, but in canonical form: Relations may be merged or reordered (renamings come last), and values may differ by floating point rounding.
+* All scaling, rotation, shearing and translation is combined into one `Affine`, wherever the transformation is a physical one (as opposed to adding, dropping or reordering axes).
+  A pure translation is also returned as an `Affine`, with an identity `linear`: Find the shift in `affine.translation`. `Translation` is never returned.
+  If axes change as well, the `Affine` is accompanied by `ProjectionTo`, `PermutationTo`, `AxisRearrangementTo` or `AxisRenaming` (always at most one `Affine`): The `Affine` alone then does not describe how the data is changed.
+  If the result is an `Affine`, the entire transformation is that one matrix and offset (see `to_matrix_and_offset`), and the axes stay as they are.
 * Units and other axis properties of the other coordinate system are not part of a relation. Use `coordinate_system_ome_zarr_axes(name)` for these.
 * The result is `None` if no relation expresses the connection, such as displacement fields read from OME-Zarr metadata written by other tools. Rotations, shears and flips are expressed as `Affine`. `None` is not a relation, so it cannot be passed back to `reached_by`.
 * Names that are not in `coordinate_system_names` (including the Multiscale's own space) raise `ValueError`.
