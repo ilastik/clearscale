@@ -92,6 +92,8 @@ def _require_rectangular_matrix(value: Any, field_name: str) -> FloatMatrix:
     row_length = len(rows[0])
     if row_length == 0 or any(len(row) != row_length for row in rows):
         raise ValueError(f"Invalid matrix. Expected rectangular 2D array in {field_name!r}, received: {value!r}")
+    if all(type(v) is float for row in rows for v in row):
+        return rows
     if not all(_is_number(v) for row in rows for v in row):
         raise ValueError(f"Invalid number matrix. Expected 2D numeric array in {field_name!r}, received: {value!r}")
     return tuple(tuple(float(v) for v in row) for row in rows)
