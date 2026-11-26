@@ -1350,3 +1350,19 @@ def test_ome_zarr_multiscale_transforms_composed_with_preserves_explicit_identit
     assert composed.scale_transform.scale == (8.0,)
     assert composed.translation_transform is not None
     assert composed.translation_transform.translation == (0.0,)
+
+
+@pytest.mark.parametrize(
+    "transform",
+    [
+        ScaleTransform((1.0, 1.0)),
+        ScaleTransform((2.0, 3.0)),
+        AffineTransform(((0.0, 1.0, 5.0), (1.0, 0.0, 0.0))),
+        AffineTransform(((1.0, 0.0, 0.0), (0.0, 0.0, 0.0))),
+        MapAxisTransform((1, 0)),
+    ],
+)
+def test_canonicalized_single_transform_is_its_simplified_form(transform):
+    assert transform.canonicalized() == transform.simplified()
+    # Same as in a sequence of one: There is nothing to compose
+    assert TransformSequence((transform,)).canonicalized() == transform.canonicalized()

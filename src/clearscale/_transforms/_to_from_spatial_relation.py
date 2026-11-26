@@ -94,8 +94,7 @@ def relation_to_transform(relation: SpatialRelation, source_axes: OrderedAxes) -
 
 
 def relation_to_transform_canonic(relation: SpatialRelation, source_axes: OrderedAxes) -> Transform:
-    raw_relation = relation_to_transform(relation, source_axes)
-    return TransformSequence((raw_relation,)).canonicalized()
+    return relation_to_transform(relation, source_axes).canonicalized()
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,6 +240,8 @@ def _composed_physical(transforms: Tuple[Transform, ...]) -> AffineTransform:
         raise CannotConvertToSpatialRelationError(
             "transform values are not loaded (path-backed); please request if you need this"
         ) from None
+    if len(affines) == 1:
+        return affines[0].unbound()
     composed = TransformSequence(affines)._collapsed()
     assert isinstance(composed, AffineTransform), f"dev error: affines of equal ndim always compose: {composed!r}"
     return composed.unbound()
@@ -296,7 +297,8 @@ def transform_to_relation(transform: Transform, source_axes: OrderedAxes, target
     # their forward sequence does not split the physical transforms into separate runs.
     atomic_transforms = _flatten_atomic(transform.unbound())
     if atomic_transforms:
-        atomic_transforms = _flatten_atomic(TransformSequence(atomic_transforms).canonicalized())
+        to_canonicalize = atomic_transforms[0] if len(atomic_transforms) == 1 else TransformSequence(atomic_transforms)
+        atomic_transforms = _flatten_atomic(to_canonicalize.canonicalized())
     for t in atomic_transforms:
         if not isinstance(t, _PHYSICAL_TYPES + _STRUCTURAL_TYPES):
             raise CannotConvertToSpatialRelationError(f"{type(t).__name__} has no SpatialRelation equivalent")

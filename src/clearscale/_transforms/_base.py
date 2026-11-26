@@ -666,6 +666,13 @@ class Transform(ABC):
         which input axis each output axis continues. By default, they are ignored."""
         return self.simplified()
 
+    def canonicalized(self) -> "Transform":
+        """Return the canonical form: Adjacent transforms composed, and each result simplified.
+
+        A single transform has nothing to compose, so this is its simplified form. `TransformSequence` overrides it
+        to compose runs and keep what the original steps say about axes."""
+        return self.simplified()
+
     @abstractmethod
     def _ndim_by_payload(self) -> _EndpointDimensionConstraints:
         """Endpoint dimensionality constraints implied by this transform's payload."""
