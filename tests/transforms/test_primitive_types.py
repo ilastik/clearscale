@@ -949,7 +949,7 @@ def test_affine_simplified_decomposes_sequence_and_collapsed_roundtrips(affine, 
     simplified = AffineTransform(affine).simplified()
     assert simplified == expected_simplified
 
-    recomposed = expected_simplified.collapsed(raise_uncollapsed=True)
+    recomposed = expected_simplified._collapsed()
     assert isinstance(recomposed, AffineTransform)
     assert recomposed.affine is not None
     for actual_row, expected_row in zip(recomposed.affine, affine):

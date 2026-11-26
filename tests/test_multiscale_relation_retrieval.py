@@ -71,6 +71,41 @@ def test_relation_to_coordinate_system_inverts_with_coordinate_system(relation):
     assert rebuilt == original
 
 
+def test_relation_of_an_inserted_axis_that_depends_on_other_axes_is_retrievable():
+    """A tilted plane in 3D: z is inserted, then z = z + 0.5 * x"""
+    tilt = Affine.from_array(((1, 0, 0.5, 0), (0, 1, 0, 0), (0, 0, 1, 0)), "zyx")
+    relation = SpatialRelationSequence((ProjectionTo("zyx"), tilt))
+    multiscale = _plane().with_coordinate_system("tilted", reached_by=relation)
+    assert multiscale.relation_to_coordinate_system("tilted") == relation
+
+
+def test_relation_from_an_inserted_axis_is_retrievable_when_the_affine_is_invertible():
+    # y' = x, x' = x + z, z' = y. Padding the inserted column with the z unit vector makes y' and x' identical.
+    affine = Affine.from_array(((0, 1, 0, 0), (0, 1, 1, 0), (1, 0, 0, 0)), "yxz")
+    multiscale = _plane().with_coordinate_system("plane", reached_by=[ProjectionTo("yxz"), affine])
+    reverse = multiscale.relation_from_coordinate_system("plane")
+    assert reverse is not None
+    assert reverse.target_axes("yxz") == ("y", "x")
+
+
+def test_relation_replaces_a_dropped_axis_that_feeds_another_one():
+    shear = Affine.from_array(((1, 0, 0, 0), (0.5, 1, 0, 0), (0, 0, 1, 0)), "zyx")
+    multiscale = _volume().with_coordinate_system("plane", reached_by=[shear, ProjectionTo("cyx")])
+    affine = Affine.from_array(((1, 0, 0, 0, 0), (0, 1, 0, 0.5, 0), (0, 0, 1, 0, 0), (0, 0, 0, 1, 0)), "cyxz")
+    assert multiscale.relation_to_coordinate_system("plane") == SpatialRelationSequence(
+        (AxisRearrangementTo("cyxz"), affine, ProjectionTo("cyx"))
+    )
+
+
+def test_relation_preserves_a_permutation_followed_by_a_shear():
+    shear = Affine.from_array(((1, 0.5, 0), (0, 1, 0)), "xy")
+    relation = SpatialRelationSequence((PermutationTo("xy"), shear))
+    multiscale = _plane().with_coordinate_system("other", reached_by=relation)
+    assert multiscale.relation_to_coordinate_system("other") == relation
+    reread = Multiscale.from_ome_zarr(multiscale.to_ome_zarr(version="0.6"), shape_source="singletons")
+    assert reread.relation_to_coordinate_system("other") == relation
+
+
 def test_relation_to_coordinate_system_is_same_space_for_the_same_space_under_another_name():
     ms = _volume().with_coordinate_system("same")
     assert ms.relation_to_coordinate_system("same") == SameSpace()
@@ -214,3 +249,16 @@ def test_system_carried_over_an_invertible_derivation_is_retrievable_in_both_dir
     from_stage = derived.relation_from_coordinate_system("stage")
     assert to_stage == SpatialRelationSequence((scaled(z=1.0, y=2.0, x=2.0), Translation(z=7.0, y=250.0, x=250.0)))
     assert from_stage == SpatialRelationSequence((scaled(z=1.0, y=0.5, x=0.5), Translation(z=-7.0, y=-125.0, x=-125.0)))
+
+
+@pytest.mark.xfail(
+    reason="Known limitation, not specific to padding: Invertibility is decided with an absolute tolerance on the "
+    "determinant (DEFAULT_SINGULARITY_TOLERANCE = 1e-13), so a matrix with coefficients of 1e-7 and smaller is "
+    "treated as singular and cannot be retrieved in the reverse direction.",
+    strict=True,
+)
+@pytest.mark.parametrize("scale", [1e-7, 1e-9])
+def test_reverse_relation_of_an_invertible_matrix_with_small_coefficients_is_retrievable(scale):
+    shear = Affine.from_array([[scale, scale, 0.0], [0.0, scale, 0.0]], "yx")
+    multiscale = _plane().with_coordinate_system("small", reached_by=shear)
+    assert multiscale.relation_from_coordinate_system("small") is not None

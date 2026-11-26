@@ -1,7 +1,8 @@
 from typing import Any, Dict
 import pytest
 
-from clearscale import Scene, Multiscale, Scale, Shape
+from clearscale import Affine, AxisRenaming, PermutationTo, ProjectionTo, Scene, Multiscale, Scale, Shape
+from clearscale._spatial_relations import SpatialRelationSequence
 from clearscale._transforms import CoordinateSystem, TranslationTransform, _UnresolvedRef, TransformGraph
 
 from tests.ome_zarr.scene_examples import (
@@ -41,6 +42,30 @@ def test_scene_public_examples_roundtrip(meta):
         assert actual == expected
     # Full check because zip can miss one containing more items than the other
     assert roundtrip == meta
+
+
+@pytest.mark.parametrize(
+    "target_axes, affine, expected",
+    [
+        ("xy", [[0, 1, 0], [1, 0, 0]], PermutationTo("xy")),
+        ("yx", [[0, 1, 0], [1, 0, 0]], SpatialRelationSequence((PermutationTo("xy"), AxisRenaming(x="y", y="x")))),
+        ("cx", [[0, 0, 0], [0, 1, 0]], ProjectionTo("cx")),
+        ("yx", [[0, 0, 0], [0, 1, 0]], SpatialRelationSequence((ProjectionTo("x"), ProjectionTo("yx")))),
+    ],
+)
+def test_relation_from_a_bare_affine_infers_axis_operations_from_its_matrix(target_axes, affine, expected):
+    scene = Scene.from_ome_zarr(
+        {
+            "coordinateSystems": [
+                {"name": "source", "axes": [{"name": name, "type": "space"} for name in "yx"]},
+                {"name": "target", "axes": [{"name": name, "type": "space"} for name in target_axes]},
+            ],
+            "coordinateTransformations": [
+                {"type": "affine", "input": {"name": "source"}, "output": {"name": "target"}, "affine": affine}
+            ],
+        }
+    )
+    assert scene.relation_from("source", to="target") == expected
 
 
 @pytest.mark.parametrize("meta", all_external_payload_scene_examples())

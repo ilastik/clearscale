@@ -191,8 +191,8 @@ def test_bijection_composition_recursively_unbinds_child_sequences():
     assert all(
         child.source is child.target is None for child in (*composed.forward.transforms, *composed.inverse.transforms)
     )
-    assert composed.forward.collapsed() == AffineTransform(((2.0, 3.0),))
-    assert composed.inverse.collapsed() == AffineTransform(((0.5, -1.5),))
+    assert composed.forward._collapsed() == AffineTransform(((2.0, 3.0),))
+    assert composed.inverse._collapsed() == AffineTransform(((0.5, -1.5),))
 
 
 @pytest.mark.parametrize("earlier", [ScaleTransform((0.0,)), ProjectAxisTransform(drops=(0,), inserts=(0,))])
@@ -200,7 +200,7 @@ def test_bijection_after_noninvertible_transform_remains_sequence(earlier):
     later = BijectionTransform(forward=ScaleTransform((2.0,)), inverse=ScaleTransform((0.5,)))
     assert later.composed_with(earlier) is None
     sequence = TransformSequence((earlier, later))
-    assert sequence.collapsed() == sequence
+    assert sequence._collapsed() == sequence
 
 
 @pytest.mark.parametrize(
@@ -813,7 +813,7 @@ def test_transform_sequence_collapsed_preserves_bound_endpoints():
         )
     )
 
-    collapsed = sequence.collapsed()
+    collapsed = sequence._collapsed()
 
     assert isinstance(collapsed, ScaleTransform)
     assert collapsed.source == source
@@ -835,7 +835,7 @@ def test_transform_sequence_collapses_recursively_across_nesting_boundary():
         )
     )
 
-    collapsed = sequence.collapsed()
+    collapsed = sequence._collapsed()
 
     assert isinstance(collapsed, ScaleTransform)
     assert collapsed.scale == (210,)
@@ -855,7 +855,7 @@ def test_transform_sequence_collapses_before_between_and_after_uncomposable():
         )
     )
 
-    collapsed = sequence.collapsed()
+    collapsed = sequence._collapsed()
 
     assert isinstance(collapsed, TransformSequence)
     assert collapsed == TransformSequence(
