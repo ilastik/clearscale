@@ -137,7 +137,8 @@ relation = scene.relation_from(volume, to=cropped)
 
 `scene.relation_from(source, to=target)` returns the relation `R` with `source --R--> target`, reading the same way as the relations you pass to the constructors.
 The relations are returned in canonical form: relations that can be merged are merged.
-For the chain above, `volume` to `cropped` is a `ProjectionTo`, then a `Translation`: When there are several relations, they come back as a sequence that you can iterate, index, and pass to anything that accepts relations.
+In particular, all scaling, rotation, shearing and translation is one `Affine`; a pure translation is an `Affine` too (with identity `.linear` and non-zero `.translation`).
+For the chain above, `volume` to `cropped` is a `ProjectionTo`, then an `Affine` that translates: When there are several relations, they come back as a sequence that you can iterate, index, and pass to anything that accepts relations.
 
 * `source` and `to` can be a name of one of the Scene's coordinate systems, a Multiscale, or `(multiscale, "name")`.
 * If both are the same space, the result is `cs.SameSpace()` (the identity-relation).
