@@ -258,14 +258,24 @@ def test_system_carried_over_an_invertible_derivation_is_retrievable_in_both_dir
     assert from_stage == scaled_and_shifted(dict(z=1.0, y=0.5, x=0.5), dict(z=-7.0, y=-125.0, x=-125.0))
 
 
-@pytest.mark.parametrize("y_scale, x_scale", [(1.0, 1.0), (1e-5, 1e-5), (1e-7, 1e-7), (1e-9, 1e-9), (1e-9, 1e6)])
-def test_reverse_relation_of_an_invertible_matrix_with_small_coefficients_is_retrievable(y_scale, x_scale):
-    shear = Affine.from_array([[y_scale, x_scale, 2.0 * y_scale], [0.0, x_scale, -x_scale]], "yx")
+@pytest.mark.parametrize(
+    "y_scale, coupling, x_scale",
+    [
+        (1.0, 1.0, 1.0),
+        (1e-5, 1e-5, 1e-5),
+        (1e-7, 1e-7, 1e-7),
+        (1e-9, 1e-9, 1e-9),
+        (1e-9, 1e6, 1e6),
+        (1e9, 1e9, 1e-9),
+    ],
+)
+def test_reverse_relation_of_an_invertible_matrix_with_small_coefficients_is_retrievable(y_scale, coupling, x_scale):
+    shear = Affine.from_array([[y_scale, coupling, 2.0 * y_scale], [0.0, x_scale, -x_scale]], "yx")
     multiscale = _plane().with_coordinate_system("small", reached_by=shear)
     reverse = multiscale.relation_from_coordinate_system("small")
     assert isinstance(reverse, Affine)
     assert [v for row in reverse.to_tuples() for v in row] == pytest.approx(
-        [1 / y_scale, -1 / y_scale, -2.0 - x_scale / y_scale, 0.0, 1 / x_scale, 1.0]
+        [1 / y_scale, -coupling / y_scale / x_scale, -2.0 - coupling / y_scale, 0.0, 1 / x_scale, 1.0]
     )
 
 

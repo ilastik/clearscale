@@ -1,3 +1,4 @@
+from math import isfinite
 from typing import Optional, Tuple
 
 AxisIndices = Tuple[int, ...]
@@ -196,24 +197,33 @@ def matrix_determinant(matrix: FloatMatrix, *, tolerance: float) -> float:
     return determinant  # `work` is now upper-triangular; det has already been accumulated
 
 
-def matrix_invert(matrix: FloatMatrix, *, tolerance: float, relative: bool = False) -> FloatMatrix:
-    """Calculate using a Gaussian elimination process.
-    First expand MxM into 2MxM by appending an MxM identity matrix on the right side.
-    Then swap over, turning the original left side into identity and the right side into the inverse.
+def matrix_invert(matrix: FloatMatrix, *, tolerance: float = DEFAULT_RELATIVE_TOLERANCE) -> FloatMatrix:
+    """Invert a finite square matrix using Gaussian elimination with partial pivoting.
 
-    With `relative`, compare each pivot to the largest absolute entry in its original column times `tolerance`.
-    Each input axis can have its own scale.
+    Normalize the rows and then the columns by their largest absolute entries. The largest absolute entry of the
+    normalized matrix is 1, so `tolerance` is a relative cutoff for its pivots. Undo both scalings on the inverse.
     """
-    rows, cols = matrix_shape(matrix)
-    if rows != cols:
-        raise ValueError(f"Cannot invert non-square matrix with shape {(rows, cols)}")
+    rows = len(matrix)
+    if not rows or any(len(row) != rows for row in matrix):
+        raise ValueError("Matrix inversion requires a non-empty square matrix.")
+    if not all(all(map(isfinite, row)) for row in matrix):
+        raise ValueError("Cannot invert a matrix with non-finite entries.")
+    row_scales = tuple(max(map(abs, row)) for row in matrix)
+    if 0.0 in row_scales:
+        raise ValueError("Matrix is singular and cannot be inverted.")
+    row_scaled = tuple(tuple(value / scale for value in row) for row, scale in zip(matrix, row_scales))
+    column_scales = tuple(max(map(abs, column)) for column in zip(*row_scaled))
+    if 0.0 in column_scales:
+        raise ValueError("Matrix is singular and cannot be inverted.")
     # Append identity on the right
-    work = [list(row) + [1.0 if i == j else 0.0 for j in range(rows)] for i, row in enumerate(matrix)]
+    work = [
+        [value / scale for value, scale in zip(row, column_scales)] + [1.0 if i == j else 0.0 for j in range(rows)]
+        for i, row in enumerate(row_scaled)
+    ]
     for col in range(rows):
         # Partial pivoting: Pivot is the row with the largest absolute value in this column
         pivot = max(range(col, rows), key=lambda row: abs(work[row][col]))
-        pivot_tolerance = tolerance * max(abs(row[col]) for row in matrix) if relative else tolerance
-        if abs(work[pivot][col]) <= pivot_tolerance:
+        if abs(work[pivot][col]) <= tolerance:
             raise ValueError("Matrix is singular and cannot be inverted.")
         if pivot != col:
             work[col], work[pivot] = work[pivot], work[col]
@@ -223,7 +233,19 @@ def matrix_invert(matrix: FloatMatrix, *, tolerance: float, relative: bool = Fal
             if row == col:
                 continue
             factor = work[row][col]  # No normalization here; pivot row (`col`) is already normalized
-            if relative and factor == 0.0:
+            if factor == 0.0:
                 continue
             work[row] = [val - factor * piv for val, piv in zip(work[row], work[col])]
-    return tuple(tuple(row[rows:]) for row in work)  # Return right half; which is now the inverse
+
+    # If A = R B C, then A^-1 = C^-1 B^-1 R^-1.
+    inverse = []
+    for row, column_scale in zip(work, column_scales):
+        values = []
+        for value, row_scale in zip(row[rows:], row_scales):
+            scale = column_scale * row_scale
+            value = value / scale if scale else value / row_scale / column_scale  # Avoid underflow
+            if not isfinite(value):
+                raise ValueError("Matrix inverse has non-finite entries.")
+            values.append(value)
+        inverse.append(tuple(values))
+    return tuple(inverse)
