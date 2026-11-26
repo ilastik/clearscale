@@ -68,6 +68,44 @@ def test_relation_from_a_bare_affine_infers_axis_operations_from_its_matrix(targ
     assert scene.relation_from("source", to="target") == expected
 
 
+def test_relation_from_a_bijection_combines_physical_transforms_across_a_permutation():
+    axes = [{"name": name, "type": "space"} for name in "yx"]
+    scene = Scene.from_ome_zarr(
+        {
+            "coordinateSystems": [{"name": "source", "axes": axes}, {"name": "target", "axes": axes[::-1]}],
+            "coordinateTransformations": [
+                {
+                    "type": "bijection",
+                    "input": {"name": "source"},
+                    "output": {"name": "target"},
+                    "forward": {
+                        "type": "sequence",
+                        "transformations": [
+                            {"type": "translation", "translation": [1, 2]},
+                            {"type": "mapAxis", "mapAxis": [1, 0]},
+                            {"type": "scale", "scale": [3, 4]},
+                        ],
+                    },
+                    "inverse": {
+                        "type": "sequence",
+                        "transformations": [
+                            {"type": "scale", "scale": [1 / 3, 1 / 4]},
+                            {"type": "mapAxis", "mapAxis": [1, 0]},
+                            {"type": "translation", "translation": [-1, -2]},
+                        ],
+                    },
+                }
+            ],
+        }
+    )
+    assert scene.relation_from("source", to="target") == SpatialRelationSequence(
+        (PermutationTo("xy"), Affine.from_array(((3, 0, 6), (0, 4, 4)), "xy"))
+    )
+    assert scene.relation_from("target", to="source") == SpatialRelationSequence(
+        (PermutationTo("yx"), Affine.from_array(((1 / 4, 0, -1), (0, 1 / 3, -2)), "yx"))
+    )
+
+
 @pytest.mark.parametrize("meta", all_external_payload_scene_examples())
 def test_scene_external_payload_public_examples_rejected(meta):
     with pytest.raises(ValueError, match="Transforms with external data are currently unsupported"):
