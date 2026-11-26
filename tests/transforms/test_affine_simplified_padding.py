@@ -26,9 +26,9 @@ def test_dropping_affine_simplified_residual_affine_is_invertible():
     simplified = transform.simplified()
 
     assert isinstance(simplified, TransformSequence)
-    assert len(simplified) == 3 and isinstance(simplified[0], AffineTransform)
-    residual_affine, project, translate = simplified
-    assert residual_affine.is_invertible
+    residual_affine, project = simplified
+    assert isinstance(residual_affine, AffineTransform) and residual_affine.is_invertible
+    assert residual_affine._translation() == (5.0, 0.0, 0.0)
 
     assert isinstance(project, ProjectAxisTransform) and project.drops == (1, 2)
     assert flatten_matrix(recomposed(simplified).affine) == pytest.approx(flatten_matrix(affine))
@@ -49,9 +49,9 @@ def test_inserting_affine_simplified_residual_affine_is_invertible(affine):
     simplified = transform.simplified()
 
     assert isinstance(simplified, TransformSequence)
-    assert len(simplified) == 3 and isinstance(simplified[1], AffineTransform)
-    project, residual_affine, translate = simplified
-    assert residual_affine.is_invertible
+    project, residual_affine = simplified
+    assert isinstance(residual_affine, AffineTransform) and residual_affine.is_invertible
+    assert residual_affine._translation() == tuple(row[-1] for row in affine)
 
     assert isinstance(project, ProjectAxisTransform) and project.inserts == (2,)
     assert flatten_matrix(recomposed(simplified).affine) == pytest.approx(flatten_matrix(affine))
