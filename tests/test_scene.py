@@ -32,6 +32,15 @@ from clearscale._transforms import (
 )
 
 
+def _scaled_and_shifted(factors: dict, translation: dict) -> Affine:
+    return Affine(linear=Affine.from_factor(Factor(factors)).linear, translation=Translation(translation))
+
+
+def _shifted(**translation: float) -> Affine:
+    """Retrieved relations are canonical: A pure translation comes back as an Affine, not a Translation"""
+    return Affine(translation=Translation(translation))
+
+
 def _multiscale(unit=None, **shape: int) -> Multiscale:
     return Multiscale({"s0": Scale(Shape(**shape), unit=unit)})
 
@@ -917,8 +926,9 @@ class TestRelationBetween:
     def test_returns_the_relation_given_to_from_multiscale_pair(self, relation, a_axes, b_axes):
         a, b = _multiscale(**a_axes), _multiscale(**b_axes)
         scene = Scene.from_multiscale_pair(a=a, b=b, a_to_b=relation, a_path="a", b_path="b")
+        expected = _shifted(**relation) if isinstance(relation, Translation) else relation
 
-        assert scene.relation_from(a, to=b) == relation
+        assert scene.relation_from(a, to=b) == expected
 
     def test_reverse_direction_is_the_inverse_relation(self):
         a, b = _multiscale(y=8, x=8), _multiscale(y=4, x=4)
@@ -930,14 +940,10 @@ class TestRelationBetween:
             b_path="b",
         )
 
-        assert scene.relation_from(a, to=b) == SpatialRelationSequence(
-            (Affine.from_factor(Factor(y=0.5, x=0.5)), Translation(y=1.0, x=3.0))
-        )
+        assert scene.relation_from(a, to=b) == _scaled_and_shifted(dict(y=0.5, x=0.5), dict(y=1.0, x=3.0))
         # Canonical form always puts the scaling first, so the sequence inverted, in canonical form,
-        # has the Translation rescaled
-        assert scene.relation_from(b, to=a) == SpatialRelationSequence(
-            (Affine.from_factor(Factor(y=2.0, x=2.0)), Translation(y=-2.0, x=-6.0))
-        )
+        # has the translation rescaled, and the single Affine contains both
+        assert scene.relation_from(b, to=a) == _scaled_and_shifted(dict(y=2.0, x=2.0), dict(y=-2.0, x=-6.0))
 
     def test_returns_relation_from_shared_coordinate_system(self):
         tile1, tile2 = _multiscale(y=2, x=2), _multiscale(y=2, x=2)
@@ -946,9 +952,9 @@ class TestRelationBetween:
             connections=[(tile1, SameSpace(), "tile1"), (tile2, Translation(y=0.0, x=-4.0), "tile2")],
         )
 
-        assert scene.relation_from(tile2, to="stage") == Translation(y=0.0, x=-4.0)
-        assert scene.relation_from("stage", to=tile2) == Translation(y=0.0, x=4.0)
-        assert scene.relation_from(tile1, to=tile2) == Translation(y=0.0, x=4.0)
+        assert scene.relation_from(tile2, to="stage") == _shifted(y=0.0, x=-4.0)
+        assert scene.relation_from("stage", to=tile2) == _shifted(y=0.0, x=4.0)
+        assert scene.relation_from(tile1, to=tile2) == _shifted(y=0.0, x=4.0)
 
     def test_can_select_other_coordinate_systems_of_multiscales(self):
         volume = _multiscale(z=2, y=4, x=4).with_coordinate_system("preview", reached_by=ProjectionTo("yx"))
@@ -957,9 +963,9 @@ class TestRelationBetween:
             a=(volume, "preview"), b=flat, a_to_b=Translation(y=1.0, x=1.0), a_path="a", b_path="b"
         )
 
-        assert scene.relation_from((volume, "preview"), to=flat) == Translation(y=1.0, x=1.0)
+        assert scene.relation_from((volume, "preview"), to=flat) == _shifted(y=1.0, x=1.0)
         assert scene.relation_from(volume, to=flat) == SpatialRelationSequence(
-            (ProjectionTo("yx"), Translation(y=1.0, x=1.0))
+            (ProjectionTo("yx"), _shifted(y=1.0, x=1.0))
         ), "should follow connections within child Multiscales"
 
     def test_returns_same_space_for_the_same_space(self):
@@ -1001,7 +1007,7 @@ class TestRelationBetween:
 
         with pytest.raises(ValueError, match="not resolved yet"):
             unresolved.relation_from(name_of_unresolved_multiscale, to="stage")
-        assert unresolved.with_resolved(paths).relation_from(tiles[1], to="stage") == Translation(y=0.0, x=-4.0)
+        assert unresolved.with_resolved(paths).relation_from(tiles[1], to="stage") == _shifted(y=0.0, x=-4.0)
 
     def test_connections_that_are_no_spatial_relation_have_no_relation(self, caplog):
         a, b = _multiscale(y=2, x=2), _multiscale(y=2, x=2)

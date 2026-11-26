@@ -30,6 +30,15 @@ def scaled(**factors: float) -> Affine:
     return Affine.from_factor(Factor(factors))
 
 
+def shifted(**translation: float) -> Affine:
+    """Relations are returned in canonical form, where a pure translation is an Affine, not a Translation"""
+    return Affine(translation=Translation(translation))
+
+
+def scaled_and_shifted(factors: dict, translation: dict) -> Affine:
+    return Affine(linear=scaled(**factors).linear, translation=Translation(translation))
+
+
 def _volume() -> Multiscale:
     return Multiscale.from_single(
         Scale(Shape(z=4, y=8, x=8), PixelSize(z=2.0, y=1.0, x=1.0), Unit(z="um", y="um", x="um"))
@@ -115,9 +124,9 @@ def test_relation_to_coordinate_system_is_same_space_for_the_same_space_under_an
 def test_with_coordinate_system_reached_by_non_canonical_sequence_returns_canonical_equivalent():
     relation = [Translation(z=0.0, y=1.0, x=1.0), scaled(z=1, y=2, x=2)]
     ms = _volume().with_coordinate_system("other", reached_by=relation)
-    # (translation, scale) -> canonical (scale, translation)
-    assert ms.relation_to_coordinate_system("other") == SpatialRelationSequence(
-        (scaled(z=1.0, y=2.0, x=2.0), Translation(z=0.0, y=2.0, x=2.0))
+    # (translation, scale) -> canonical (scale, translation) -> one affine
+    assert ms.relation_to_coordinate_system("other") == scaled_and_shifted(
+        dict(z=1.0, y=2.0, x=2.0), dict(z=0.0, y=2.0, x=2.0)
     )
 
 
@@ -227,9 +236,7 @@ def test_legacy_global_transforms_are_retrievable_through_their_synthetic_system
     )
     (name,) = ms.coordinate_system_names
     # Both diagonal and translation values preserve the stored push values.
-    assert ms.relation_to_coordinate_system(name) == SpatialRelationSequence(
-        (scaled(y=2.0, x=2.0), Translation(y=4.0, x=8.0))
-    )
+    assert ms.relation_to_coordinate_system(name) == scaled_and_shifted(dict(y=2.0, x=2.0), dict(y=4.0, x=8.0))
 
 
 def test_system_carried_over_a_dropping_derivation_is_retrievable_to_but_not_from():
@@ -237,7 +244,7 @@ def test_system_carried_over_a_dropping_derivation_is_retrievable_to_but_not_fro
     result_tzyx = _plane("tzyx").as_derived_from(source_zyx, reached_by=ProjectionTo(source_zyx.axes))
     assert "stage" in result_tzyx.coordinate_system_names
     assert result_tzyx.relation_to_coordinate_system("stage") == SpatialRelationSequence(
-        (ProjectionTo("zyx"), Translation(z=100.0, y=250.0, x=250.0))
+        (ProjectionTo("zyx"), shifted(z=100.0, y=250.0, x=250.0))
     )
     assert result_tzyx.relation_from_coordinate_system("stage") is None
 
@@ -247,8 +254,8 @@ def test_system_carried_over_an_invertible_derivation_is_retrievable_in_both_dir
     derived = _cube("zyx").as_derived_from(source, reached_by=scaled(z=1, y=2, x=2))
     to_stage = derived.relation_to_coordinate_system("stage")
     from_stage = derived.relation_from_coordinate_system("stage")
-    assert to_stage == SpatialRelationSequence((scaled(z=1.0, y=2.0, x=2.0), Translation(z=7.0, y=250.0, x=250.0)))
-    assert from_stage == SpatialRelationSequence((scaled(z=1.0, y=0.5, x=0.5), Translation(z=-7.0, y=-125.0, x=-125.0)))
+    assert to_stage == scaled_and_shifted(dict(z=1.0, y=2.0, x=2.0), dict(z=7.0, y=250.0, x=250.0))
+    assert from_stage == scaled_and_shifted(dict(z=1.0, y=0.5, x=0.5), dict(z=-7.0, y=-125.0, x=-125.0))
 
 
 @pytest.mark.xfail(
