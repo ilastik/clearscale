@@ -1,4 +1,5 @@
 import math
+import random
 
 import pytest
 
@@ -32,6 +33,7 @@ from clearscale._transforms._to_from_spatial_relation import transform_to_relati
 from clearscale._services.ome_zarr import MultiscaleTransforms
 from clearscale._transforms import _ByDimensionChild
 from ._random_relations import random_relation_chain, chain_mixes_axes
+from ._relation_oracle import evaluate_relation, is_invertible, linear_part_of
 
 
 def scaling_relation(**factors: float) -> Affine:
@@ -315,20 +317,34 @@ class TestErrors:
             assert not isinstance(exc_info.value, CannotConvertToSpatialRelationError)
 
 
-@pytest.mark.parametrize("seed", range(300))
+def random_points(seed: int, axes, count: int = 4):
+    rng = random.Random(seed)
+    return [{axis: round(rng.uniform(-10, 10), 3) for axis in axes} for _ in range(count)]
+
+
+def assert_agree_on_random_points(actual: SpatialRelation, expected: SpatialRelation, source_axes, seed: int = 0):
+    """Evaluates both relations by their documented meaning, without transforms or canonicalization"""
+    for point in random_points(seed, source_axes):
+        got, want = evaluate_relation(actual, point), evaluate_relation(expected, point)
+        assert list(got) == list(want)
+        assert got == pytest.approx(want, rel=1e-9, abs=1e-9), f"at {point}"
+
+
+@pytest.mark.parametrize("seed", range(1000))
 def test_random_relation_chains_roundtrip_through_transforms(seed):
     source, relation = random_relation_chain(seed)
     target = relation.target_axes(source)
     transform = relation_to_transform_canonic(relation, source)
     mixes = chain_mixes_axes(relation, source)
+    assert TransformSequence((transform,)).canonicalized() == transform, "canonicalization is idempotent"
     try:
         recovered = transform_to_relation(transform, source, target)
-    except CannotConvertToSpatialRelationError:
-        # Known limitation: An Affine that mixes axes, composed with relations that drop, insert or permute axes, is
-        # collapsed into one matrix that may no longer be separable into those parts again.
-        # Chains that don't mix axes always convert back.
-        assert mixes, "chains that don't mix axes must always convert"
+    except CannotConvertToSpatialRelationError as error:
+        # The one thing that relations cannot express: Axes are dropped, and others with the same names are inserted
+        # (the dropped ones may be the only ones that were left, or live on under another name).
+        assert "same name" in str(error), f"only reused names are inexpressible, but: {error}"
         return
+    assert_agree_on_random_points(recovered, relation, source, seed)
     if recovered == SameSpace():
         assert isinstance(transform, IdentityTransform)
         assert target == source
@@ -372,3 +388,57 @@ class TestRenaming:
         assert transform_to_relation(ProjectAxisTransform(drops=(1,), inserts=(0,)), "yx", ("x", "a")) == (
             SpatialRelationSequence((ProjectionTo("y"), ProjectionTo(("x", "y")), AxisRenaming(y="a")))
         )
+
+
+@pytest.mark.parametrize("seed", range(1000))
+def test_reverse_relation_of_random_invertible_chains_undoes_the_forward_relation(seed):
+    source, relation = random_relation_chain(seed)
+    target = relation.target_axes(source)
+    matrix, _ = linear_part_of(relation, source)  # measured on the original chain, not on anything recovered
+    if not is_invertible(matrix):
+        pytest.skip("the chain loses or invents information")
+    transform = relation_to_transform_canonic(relation, source)
+    try:
+        forward = transform_to_relation(transform, source, target)
+    except CannotConvertToSpatialRelationError as error:
+        assert "same name" in str(error)
+        pytest.skip("forward relation is inexpressible (reused names)")
+    assert transform.is_invertible
+    # Retrieval in the reverse direction, like Multiscale.relation_from_coordinate_system
+    reverse = transform_to_relation(transform.inverted(), target, source)
+    for point in random_points(seed, source):
+        assert evaluate_relation(reverse, evaluate_relation(forward, point)) == pytest.approx(point, rel=1e-9, abs=1e-9)
+        assert evaluate_relation(reverse, evaluate_relation(relation, point)) == pytest.approx(
+            point, rel=1e-9, abs=1e-9
+        )
+
+
+class TestRecoveredRelationsAgreeWithTheOriginalChain:
+    """Checks the numbers of a recovered relation against the chain it came from, by evaluating both on points."""
+
+    def test_project_then_insert_a_new_axis(self):
+        # zyx -> yx -> cyx: z is dropped, c is a new axis that starts at 0 (and does not inherit z)
+        chain = SpatialRelationSequence((ProjectionTo("yx"), ProjectionTo("cyx")))
+        recovered = transform_to_relation(relation_to_transform_canonic(chain, "zyx"), "zyx", "cyx")
+        assert evaluate_relation(recovered, {"z": 7.0, "y": 2.0, "x": 3.0}) == {"c": 0.0, "y": 2.0, "x": 3.0}
+        assert_agree_on_random_points(recovered, chain, "zyx")
+
+    def test_inserted_axis_that_other_axes_depend_on(self):
+        # y' = x, x' = x + z, z' = y, applied to an inserted z: the point (y, x) goes to (x, x, y)
+        affine = Affine.from_array(((0, 1, 0, 0), (0, 1, 1, 0), (1, 0, 0, 0)), "yxz")
+        chain = SpatialRelationSequence((ProjectionTo("yxz"), affine))
+        transform = relation_to_transform_canonic(chain, "yx")
+        recovered = transform_to_relation(transform, "yx", "yxz")
+        assert evaluate_relation(recovered, {"y": 2.0, "x": 3.0}) == {"y": 3.0, "x": 3.0, "z": 2.0}
+        assert_agree_on_random_points(recovered, chain, "yx")
+        # The reverse has to pick the unit columns for z so that it stays invertible
+        reverse = transform_to_relation(transform.inverted(), "yxz", "yx")
+        for point in random_points(0, "yx"):
+            assert evaluate_relation(reverse, evaluate_relation(recovered, point)) == pytest.approx(point)
+
+    def test_affine_before_a_drop_keeps_the_values_of_the_surviving_axes(self):
+        mixing = Affine.from_array(((0, 1, 0, 0), (1, 1, 1, 0), (2, 1, 1, 0)), "zyx")
+        chain = SpatialRelationSequence((mixing, ProjectionTo("yx")))
+        recovered = transform_to_relation(relation_to_transform_canonic(chain, "zyx"), "zyx", "yx")
+        assert evaluate_relation(recovered, {"z": 1.0, "y": 10.0, "x": 100.0}) == {"y": 1 + 10 + 100, "x": 2 + 10 + 100}
+        assert_agree_on_random_points(recovered, chain, "zyx")

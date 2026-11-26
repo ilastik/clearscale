@@ -36,6 +36,8 @@ from clearscale._services.matrices import (
     matrix_transpose,
     nonzero_columns_by_row,
     pivot_columns,
+    unit_vector_completion,
+    has_full_rank,
     matrix_invert,
     matrix_determinant,
     zero_matrix_columns,
@@ -45,6 +47,7 @@ from clearscale._services.matrices import (
 )
 from clearscale._transforms._base import (
     AxisDependencies,
+    AxisLineage,
     _EndpointDimensionConstraints,
     IdentityTransform,
     RelativePath,
@@ -494,7 +497,7 @@ class RotationTransform(AffineRepresentableTransform):
         rows, cols = matrix_shape(self.rotation)
         return _EndpointDimensionConstraints.exact(source=cols, target=rows)
 
-    def _axis_lineage(self, source_ndim: int) -> Optional[Tuple[Optional[int], ...]]:
+    def _axis_lineage(self, source_ndim: int) -> Optional[AxisLineage]:
         if self.rotation is None:
             return None
         return tuple(range(source_ndim))  # a rotation keeps the axes in place, even though it mixes them
@@ -612,57 +615,150 @@ class AffineTransform(AffineRepresentableTransform):
             target=self._composed_target(earlier),
         )
 
-    def simplified(
-        self,
-    ) -> Union[
-        "IdentityTransform",
-        AffineRepresentableSubtypes,
-        "TransformSequence",
-        "AffineTransform",
-    ]:
-        """Inspect the affine matrix and determine the simplest canonical representation.
+    def simplified(self, *, lineage: Optional[AxisLineage] = None) -> Transform:
+        """Return the affine as an identity, a single transform, or a sequence.
 
-        For example:
+        The result is [ProjectAxis(drops no output uses; inserts)] [MapAxis] [physical] [ProjectAxis(drops)]:
+        Inserted axes are where they are in the target, and all that mixes is in the one physical part, which acts on
+        the target axes and on those axes that only get dropped afterwards. The physical part is a `MapAxisTransform` or
+        `RotationTransform`, followed by a `ScaleTransform` and a `TranslationTransform`, each included only as needed,
+        or a general `AffineTransform` that keeps the translation in its matrix, as with a shear.
 
-        - a single Identity
-        - a single simpler transform (ProjectAxis, MapAxis, Rotation, Scale, Translation)
-        - a Sequence of such simpler transforms
-        - for affines with source_ndim != target_ndim, the Sequence may contain a remainder Affine.
+        `lineage` says which input axis each output axis continues (its index, or None for a new axis), where the
+        original steps know that. Without it, zero rows are inserted axes, zero columns are dropped axes, and the
+        rest continues the remaining inputs in order, with new axes after the last and dropped axes at the end.
 
-        A linear part that is not one of the simpler types stays a general Affine that keeps the translation inside,
-        like the Affine of a square matrix always did: There is no separate Translation after it.
+        Return `self` for a path-backed affine or when the only component is the original general affine.
+        Otherwise, return an `IdentityTransform` if no components remain, the component itself if one remains,
+        or a `TransformSequence` if several remain.
         """
         if self.affine is None:
             return self
+        known_lineage = lineage is not None
+        drop_zero_columns_first = True
+        if lineage is None:
+            lineage, drop_zero_columns_first = self._default_lineage()
+        simplified = self._simplified_with_lineage(
+            lineage, drop_zero_columns_first=drop_zero_columns_first, may_permute=not known_lineage
+        )
+        if isinstance(simplified, AffineTransform) and simplified.affine == self.affine:
+            return self
+        return simplified
+
+    def _simplified_preserving_lineages(self, originals: Tuple[Transform, ...]) -> Transform:
+        """Use the axis lineage of the steps that this affine was composed from, if they changed or reordered axes and
+        so say more than the matrix: Their lineage is what places the inserted and dropped axes."""
+        source_ndim = self._ndim_by_payload().source
+        lineage: Optional[AxisLineage] = None
+        if source_ndim is not None and any(
+            isinstance(step, (MapAxisTransform, ProjectAxisTransform)) for step in originals
+        ):
+            lineage = TransformSequence._composed_lineage(originals, source_ndim)
+            if lineage == tuple(range(source_ndim)):
+                lineage = None  # Nothing moved: the matrix says all there is to say
+        return self.simplified(lineage=lineage)
+
+    def _default_lineage(self) -> Tuple[AxisLineage, bool]:
+        """The lineage that matrix alone suggests, and whether its zero columns are dropped axes (rather than inputs
+        that are dropped last along with the others).
+
+        Zero rows are inserted axes and zero columns are dropped axes, if that leaves as many rows as columns (as a
+        zero scale does). The other rows continue the other columns in order. Anything else follows the trailing
+        convention: Row i continues column i, and rows beyond the last column are inserted axes."""
         linear = self._linear()
-        translation = self._translation()
         target_ndim, source_ndim = matrix_shape(linear)
-        # Split off the axis changes, so that what is left is a square affine (linear part and offset together)
-        leading_projection: Optional[ProjectAxisTransform] = None
-        trailing_projection: Optional[ProjectAxisTransform] = None
-        projection_and_linear = self._decompose_project_axis(linear)
-        if projection_and_linear is not None:
-            leading_projection, linear = projection_and_linear
-        elif target_ndim > source_ndim:
-            leading_projection = ProjectAxisTransform(inserts=tuple(range(source_ndim, target_ndim)))
-            linear = self._pad_to_square_matrix(linear)
-        elif target_ndim < source_ndim:
-            drops = tuple(range(target_ndim, source_ndim))
-            trailing_projection = ProjectAxisTransform(drops=drops)
-            linear = self._pad_to_square_matrix(linear)
-            translation = translation + (0.0,) * len(drops)  # the padded rows are the ones that get dropped
-        physical = self._decompose_square_affine(linear, translation)
-        if physical is None:
-            if leading_projection is None and trailing_projection is None:
-                return self
-            # The linear part needs a general affine, which has room for the offset: No separate Translation.
-            physical = (AffineTransform(affine=tuple(row + (offset,) for row, offset in zip(linear, translation))),)
-        components = tuple(c for c in (leading_projection, *physical, trailing_projection) if c is not None)
-        if not components:
+        zero_rows = zero_matrix_rows(linear, tolerance=IDENTITY_TOLERANCE)
+        zero_columns = zero_matrix_columns(linear, tolerance=IDENTITY_TOLERANCE)
+        matched = source_ndim - len(zero_columns) == target_ndim - len(zero_rows)
+        if not matched:
+            zero_rows, zero_columns = (), ()
+        continued = iter(source for source in range(source_ndim) if source not in zero_columns)
+        return tuple(None if row in zero_rows else next(continued, None) for row in range(target_ndim)), matched
+
+    @staticmethod
+    def _general_affine(linear: FloatMatrix, translation: FloatVector) -> "AffineTransform":
+        """A linear part that needs a general affine has room for the offset: No separate Translation."""
+        return AffineTransform(affine=tuple(row + (offset,) for row, offset in zip(linear, translation)))
+
+    def _combined(self, components: Iterable[Optional[Transform]]) -> Transform:
+        """Identity, the one component, or the sequence of components (ignoring None), with this transform's ends."""
+        present = tuple(c for c in components if c is not None)
+        if not present:
             return IdentityTransform(source=self.source, target=self.target)
-        if len(components) == 1:
-            return components[0].bound(source=self.source, target=self.target)
-        return TransformSequence(components).bound(source=self.source, target=self.target)
+        if len(present) == 1:
+            return present[0].bound(source=self.source, target=self.target)
+        return TransformSequence(present).bound(source=self.source, target=self.target)
+
+    def _simplified_with_lineage(
+        self, lineage: AxisLineage, *, drop_zero_columns_first: bool, may_permute: bool
+    ) -> Transform:
+        """Like `simplified()`, with each target axis known to continue a source axis: `lineage[target]` is its index,
+        or None for an axis that is new.
+
+        The result is [ProjectAxis(drops no output uses; inserts)] [MapAxis] [physical] [ProjectAxis(drops)]:
+        Inserted axes are where they are in the target, and all that mixes is in the one physical part, which acts on
+        the target axes and on those axes that only get dropped afterwards.
+        """
+        linear, translation = self._linear(), self._translation()
+        target_ndim, source_ndim = matrix_shape(linear)
+        unused = [source for source in range(source_ndim) if source not in lineage]
+        zero_columns = zero_matrix_columns(linear, tolerance=IDENTITY_TOLERANCE)
+        # Axes that no output depends on are dropped first, the others after the physical part
+        early_drops = tuple(source for source in unused if drop_zero_columns_first and source in zero_columns)
+        late_drops = tuple(source for source in unused if source not in early_drops)
+        working = (*lineage, *late_drops)  # the axes that the physical part acts on, as source axes (None: inserted)
+        leading = self._structure_before_physical(source_ndim, early_drops, working)
+        trailing_drops = tuple(range(target_ndim, len(working)))
+        trailing = ProjectAxisTransform(drops=trailing_drops) if trailing_drops else None
+        square = self._square_affine_over(linear, working)
+        offset = translation + (0.0,) * len(late_drops)
+        physical = self._decompose_square_affine(square, offset, may_permute=may_permute)
+        if physical is None:
+            physical = (self._general_affine(square, offset),)
+        return self._combined((*leading, *physical, trailing))
+
+    @staticmethod
+    def _structure_before_physical(
+        source_ndim: int, early_drops: AxisIndices, working: AxisLineage
+    ) -> Tuple[Transform, ...]:
+        """Drop unused axes, insert new axes at their working positions, and reorder the retained axes."""
+        kept = iter(source for source in range(source_ndim) if source not in early_drops)
+        inserted = tuple(position for position, source in enumerate(working) if source is None)
+        projected = tuple(None if source is None else next(kept) for source in working)
+        steps: List[Transform] = []
+        if early_drops or inserted:
+            steps.append(ProjectAxisTransform(drops=early_drops, inserts=inserted))
+        if projected != working:
+            order = tuple(
+                position if source is None else projected.index(source) for position, source in enumerate(working)
+            )
+            steps.append(MapAxisTransform(map_axis=order))
+        return tuple(steps)
+
+    @staticmethod
+    def _square_affine_over(linear: FloatMatrix, working: AxisLineage) -> FloatMatrix:
+        """The linear part as a square matrix over the axes `working` (see `_simplified_with_lineage`).
+
+        Inserted inputs are always zero, and outputs that will be dropped are unused: Whatever fills those columns and
+        rows describes the same transform. Identity is used where that keeps the matrix invertible, otherwise
+        unit vectors where the rows don't already span.
+        """
+        inserted = tuple(col for col, source in enumerate(working) if source is None)
+        rows = tuple(tuple(0.0 if source is None else row[source] for source in working) for row in linear)
+        size = len(working)
+        if not inserted and size == len(linear):
+            return rows
+        padded = rows + ((0.0,) * size,) * (size - len(linear))  # zero rows for the outputs that are dropped later
+        identity = tuple(
+            tuple(
+                float(row == col) if row >= len(linear) or col in inserted else value
+                for col, value in enumerate(values)
+            )
+            for row, values in enumerate(padded)
+        )
+        if has_full_rank(identity):
+            return identity
+        return AffineTransform._pad_to_square_matrix(unit_vector_completion(rows, inserted))
 
     def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         if self._ome_zarr_path is not None:
@@ -676,7 +772,7 @@ class AffineTransform(AffineRepresentableTransform):
         rows, cols = matrix_shape(self.affine)
         return _EndpointDimensionConstraints.exact(source=cols - 1, target=rows)
 
-    def _axis_lineage(self, source_ndim: int) -> Optional[Tuple[Optional[int], ...]]:
+    def _axis_lineage(self, source_ndim: int) -> Optional[AxisLineage]:
         if self.affine is None or matrix_shape(self._linear()) != (source_ndim, source_ndim):
             return None  # Not known: A matrix that adds or drops axes does not say which
         return tuple(range(source_ndim))  # an affine keeps the axes in place, even if it mixes them
@@ -750,75 +846,40 @@ class AffineTransform(AffineRepresentableTransform):
         if rows > cols:
             # Keep one implementation that pads rows. Work on transpose temporarily to pad cols instead.
             return matrix_transpose(AffineTransform._pad_to_square_matrix(matrix_transpose(linear)))
-        pivots = pivot_columns(linear, tolerance=IDENTITY_TOLERANCE)
-        unpivoted = [col for col in range(cols) if col not in pivots]
-        return linear + tuple(
-            tuple(1.0 if col == unit else 0.0 for col in range(cols)) for unit in unpivoted[: cols - rows]
-        )
+        # Padded rows are the columns of the transpose
+        extra = tuple(range(rows, cols))
+        transposed = tuple(column + (0.0,) * len(extra) for column in matrix_transpose(linear))
+        return matrix_transpose(unit_vector_completion(transposed, extra))
 
     @staticmethod
-    def _decompose_project_axis(linear: FloatMatrix) -> Optional[Tuple["ProjectAxisTransform", FloatMatrix]]:
-        """Decompose ProjectAxis in "clean" cases:
-
-        - Non-square linear matrix: Decompose shape differences that match zero-rows and columns
-        - Square linear matrix: Decompose zero-scales as drop+insert of that axis
-
-        Does not decompose zero-rows or zero-columns as ProjectAxis if they are not matched,
-        as this would make the ndim-delta of the decomposition different from the ndim-delta of the affine.
-        """
-        target_ndim, source_ndim = matrix_shape(linear)
-        drops = zero_matrix_columns(linear, tolerance=IDENTITY_TOLERANCE)
-        inserts = zero_matrix_rows(linear, tolerance=IDENTITY_TOLERANCE)
-        retained_sources = tuple(i for i in range(source_ndim) if i not in drops)
-        retained_targets = tuple(i for i in range(target_ndim) if i not in inserts)
-        if (not drops and not inserts) or len(retained_sources) != len(retained_targets):
-            return None
-        reduced = tuple(tuple(linear[row][col] for col in retained_sources) for row in retained_targets)
-        reduced_row_by_target = {target: row for row, target in enumerate(retained_targets)}
-        reduced_col_by_target = {target: col for col, target in enumerate(retained_targets)}
-        # Remaining square linear after factoring out the projection, with identity rows for inserts
-        post_project_linear = tuple(
-            tuple(
-                (
-                    1.0
-                    if row in inserts and row == col
-                    else (
-                        reduced[reduced_row_by_target[row]][reduced_col_by_target[col]]
-                        if row in reduced_row_by_target and col in reduced_col_by_target
-                        else 0.0
-                    )
-                )
-                for col in range(target_ndim)
-            )
-            for row in range(target_ndim)
-        )
-        return ProjectAxisTransform(drops=drops, inserts=inserts), post_project_linear
-
-    @staticmethod
-    def _decompose_square_linear(linear: FloatMatrix) -> Optional[Tuple[AffineRepresentableSubtypes, ...]]:
+    def _decompose_square_linear(
+        linear: FloatMatrix, *, may_permute: bool = True
+    ) -> Optional[Tuple[AffineRepresentableSubtypes, ...]]:
         """Return the list of components if linear is decomposable into allowed specific types
         (MapAxis, Rotation, Scale).
 
         Empty list if identity.
         Reflection may result in negative Scale, though Rotation is preferred over MapAxis + negative Scale.
-        None if shear is involved.
+        None if shear is involved, or if a permutation is involved and `may_permute` is False: Where the axis order is
+        known, it is set by the structure around the physical part, so a permuting matrix is a change of values.
         """
         rows, cols = matrix_shape(linear)
-        assert rows == cols, "shouldn't call this with non-square matrix, use _decompose_project_axis first"
+        assert rows == cols, "shouldn't call this with a non-square matrix"
         if is_identity_matrix(linear, tolerance=IDENTITY_TOLERANCE):
             return ()  # Like ((1, 0), (0, 1))
         if is_diagonal_matrix(linear, tolerance=IDENTITY_TOLERANCE):
             # Like ((-3, 0), (0, 2))
             # Can also catch 180° rotations = horizontal reflections like ((-1, 0), (0, -1))
             scale = tuple(linear[i][i] for i in range(rows))
-            assert not AffineTransform._are_any_zeros(
-                scale, tolerance=IDENTITY_TOLERANCE
-            ), f"zero scales should be extracted in _decompose_project_axis, {linear}"
+            if AffineTransform._are_any_zeros(scale, tolerance=IDENTITY_TOLERANCE):
+                return None  # A continued axis can have zero values in a lineage-aware affine.
             return (ScaleTransform(scale=scale),)
         map_and_scale = monomial_matrix_decompose(linear, tolerance=IDENTITY_TOLERANCE)
         if map_and_scale is not None and AffineTransform._are_all_positive(
             map_and_scale[1], tolerance=IDENTITY_TOLERANCE
         ):
+            if not may_permute:
+                return None
             # Like ((0, 0, 3), (0, 0, 2), (0, 0, 1))
             # Exactly one positive non-zero per row/col -- mapaxis + non-reflection scale.
             # Design choice: 90° and 270° rotations can also be expressed as mapaxis + neg. scale.
@@ -846,11 +907,11 @@ class AffineTransform(AffineRepresentableTransform):
 
     @classmethod
     def _decompose_square_affine(
-        cls, linear: FloatMatrix, translation: FloatVector
+        cls, linear: FloatMatrix, translation: FloatVector, *, may_permute: bool = True
     ) -> Optional[Tuple[AffineRepresentableSubtypes, ...]]:
         """Specific transform types (Rotation, Scale, ..., then Translation) for the square affine, if its linear part
         can be expressed by them. None if it needs a general affine."""
-        components = cls._decompose_square_linear(linear)
+        components = cls._decompose_square_linear(linear, may_permute=may_permute)
         if components is not None and any(abs(value) > IDENTITY_TOLERANCE for value in translation):
             return components + (TranslationTransform(translation=translation),)
         return components

@@ -5,6 +5,9 @@ FloatVector = Tuple[float, ...]
 FloatMatrix = Tuple[FloatVector, ...]
 
 DEFAULT_SINGULARITY_TOLERANCE = 1e-13
+# For decisions about linear (in)dependence of rows, relative to the largest entry: they must not depend on the scale
+# of the coefficients (e.g. a unit conversion from nm to m).
+DEFAULT_RELATIVE_TOLERANCE = 1e-12
 
 
 def matrix_shape(matrix: FloatMatrix) -> Tuple[int, int]:
@@ -86,6 +89,35 @@ def pivot_columns(matrix: FloatMatrix, *, tolerance: float) -> AxisIndices:
         pivots.append(col)
         next_row += 1
     return tuple(pivots)
+
+
+def has_full_rank(matrix: FloatMatrix, *, relative_tolerance: float = DEFAULT_RELATIVE_TOLERANCE) -> bool:
+    """Whether the rows of `matrix` are linearly independent, relative to the largest entry."""
+    largest = max((abs(value) for row in matrix for value in row), default=0.0)
+    return len(pivot_columns(matrix_transpose(matrix), tolerance=relative_tolerance * largest)) == len(matrix)
+
+
+def unit_vector_completion(
+    matrix: FloatMatrix, columns: AxisIndices, *, relative_tolerance: float = DEFAULT_RELATIVE_TOLERANCE
+) -> FloatMatrix:
+    """Replace `columns` of `matrix` by unit vectors that make its rows as independent as the other columns allow.
+
+    The values in `columns` are ignored. The unit vectors go to the rows that the earlier rows do not span (over the
+    other columns), one per column in `columns`: The first such row gets a 1 in the first of `columns`, and so on.
+    If there are fewer such rows than `columns`, the remaining `columns` are zero. If there are more, the rows
+    cannot be made independent, and the first ones are chosen.
+    Whether a row is spanned is decided relative to the largest entry of the other columns.
+    """
+    others = tuple(col for col in range(len(matrix[0])) if col not in columns)
+    rest = tuple(tuple(row[col] for col in others) for row in matrix)
+    largest = max((abs(value) for row in rest for value in row), default=0.0)
+    pivot_rows = pivot_columns(matrix_transpose(rest), tolerance=relative_tolerance * largest) if others else ()
+    unspanned = tuple(row for row in range(len(matrix)) if row not in pivot_rows)
+    unit_row_of = dict(zip(columns, unspanned))
+    return tuple(
+        tuple(float(unit_row_of.get(col) == row) if col in columns else value for col, value in enumerate(values))
+        for row, values in enumerate(matrix)
+    )
 
 
 def monomial_matrix_decompose(matrix: FloatMatrix, *, tolerance: float) -> Optional[Tuple[AxisIndices, FloatVector]]:

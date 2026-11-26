@@ -44,6 +44,8 @@ _RefT = TypeVar("_RefT")
 
 AxisDependencies = Tuple[AxisIndices, ...]
 """One entry per target axis (in target order), with the indices of the source axes it depends on."""
+AxisLineage = Tuple[Optional[int], ...]
+"""One entry per target axis, with the index of the source axis it continues or None for a new axis."""
 PRE_TRANSFORMS_VERSIONS = ("0.1", "0.2", "0.3", "0.4", "0.5")
 TRANSFORM_GRAPH_VERSIONS = ("0.6", "0.9.dev2")
 """Versions that store coordinate systems and transformations as a graph, which can be written."""
@@ -658,12 +660,18 @@ class Transform(ABC):
         """
         ...
 
+    def _simplified_preserving_lineages(self, originals: Tuple["Transform", ...]) -> "Transform":
+        """Like `simplified()`, for a transform that was composed from the steps `originals` (in order, including
+        this transform's own pieces). Override if the steps hold information that the composed payload lost, such as
+        which input axis each output axis continues. By default, they are ignored."""
+        return self.simplified()
+
     @abstractmethod
     def _ndim_by_payload(self) -> _EndpointDimensionConstraints:
         """Endpoint dimensionality constraints implied by this transform's payload."""
         ...
 
-    def _axis_lineage(self, source_ndim: int) -> Optional[Tuple[Optional[int], ...]]:
+    def _axis_lineage(self, source_ndim: int) -> Optional[AxisLineage]:
         """For every output axis, the index of the input axis that it continues, or None if it is a new axis.
 
         Returns None if that is not known: Mixing transforms continue an input axis only if they say so, like
@@ -1094,19 +1102,8 @@ class TransformSequence(Transform):
         )
 
     def simplified(self) -> "Transform":
-        simplified_flattened: List[Transform] = []
-        for t in self.transforms:
-            simplified = t.simplified()
-            if type(simplified) is TransformSequence:  # exact type check to avoid ome_zarr.MultiscaleTransforms
-                simplified_flattened.extend(simplified)
-            elif not isinstance(simplified, IdentityTransform):
-                simplified_flattened.append(simplified)
-        if not simplified_flattened:
-            return IdentityTransform(source=self.source, target=self.target)
-        if len(simplified_flattened) == 1:
-            return simplified_flattened[0].bound(source=self.source, target=self.target)
-        endpoints_cleared = replace(self, transforms=tuple(simplified_flattened), source=None, target=None)
-        return endpoints_cleared.bound(source=self.source, target=self.target)
+        """Simplify without collapsing. Needed for recursive simplification within Bijection and ByDimension"""
+        return self._with_simplified_steps(t.simplified() for t in self.transforms)
 
     def _get_subtype_ome_zarr_properties(self, version: str) -> Dict[str, Json]:
         return {
@@ -1202,41 +1199,62 @@ class TransformSequence(Transform):
     def unbound(self: _TransformSequenceSelf) -> _TransformSequenceSelf:
         return replace(self, transforms=tuple(c.unbound() for c in self.transforms), source=None, target=None)
 
-    def collapsed(self, *, raise_uncollapsed: bool = False) -> "Transform | TransformSequence":
-        """Reduce the sequence's length by composing the contained transforms, flattening contained TransformSequences.
-
-        Returns:
-            The shortest sequence that is semantically identical.
-            A single Transform if the entire sequence and all (deeply) nested children can be composed.
-            The returned transform(s) may be more 'complex' types (e.g. [Scale, Translation] -> Affine).
-
-        Raises:
-            ValueError: If `raise_uncollapsed` and the sequence cannot be composed into a single Transform.
-        """
-        flattened = iter(self._iter_flattened())
-        result: List[Transform] = [next(flattened)]
-
-        for current in flattened:
-            previous = result[-1]
-            merged = current.composed_with(previous)
-            if merged is not None:
-                result[-1] = merged
-            elif raise_uncollapsed:
-                raise ValueError(f"Cannot collapse {type(previous).__name__} followed by {type(current).__name__}")
-            else:
-                result.append(current)
-
-        if len(result) == 1:
-            return result[0]
-        return replace(self, transforms=tuple(result))
+    def _axis_lineage(self, source_ndim: int) -> Optional[AxisLineage]:
+        return self._composed_lineage(self._iter_flattened(), source_ndim)
 
     def canonicalized(self) -> "Transform":
-        """Reduce the sequence to its canonical representation, meaning the 'simplest' sequence
-        that is semantically equivalent.
-        In particular, this removes Identity, and other transform types if their values effectively
-        encode an identity, and decomposes AffineTransforms into sequences of ProjectAxis, MapAxis,
-        Rotation, Scale, and Translation depending on its values."""
-        return self.collapsed().simplified()
+        """Compose and simplify consecutive runs of steps that can compose, preserving axis lineage explicitly."""
+        return self._with_simplified_steps(
+            composed._simplified_preserving_lineages(originals) for composed, originals in self._iter_composed_runs()
+        )
+
+    def _collapsed(self) -> "Transform":
+        """Full numerical collapse across all transforms. The result may lose axis lineage information.
+        I.e. only semantically identical to self when self contains no MapAxis or ProjectAxis.
+        Retained (1) to compose pure physical sequences (scale, translation etc.), (2) as a test entrypoint."""
+        composed = tuple(transform for transform, _ in self._iter_composed_runs())
+        return composed[0] if len(composed) == 1 else replace(self, transforms=composed)
+
+    def _iter_composed_runs(self) -> Iterator[Tuple[Transform, Tuple[Transform, ...]]]:
+        """Collapse consecutive runs of composable transforms, and return each run's composed result alongside
+        its original transforms."""
+        flattened = self._iter_flattened()
+        composed = next(flattened)
+        originals = [composed]
+        for current in flattened:
+            merged = current.composed_with(composed)
+            if merged is None:
+                yield composed, tuple(originals)
+                composed, originals = current, [current]
+            else:
+                composed = merged
+                originals.append(current)
+        yield composed, tuple(originals)
+
+    @staticmethod
+    def _composed_lineage(transforms: Iterable[Transform], source_ndim: int) -> Optional[AxisLineage]:
+        lineage: AxisLineage = tuple(range(source_ndim))
+        for transform in transforms:
+            step = transform._axis_lineage(len(lineage))
+            if step is None:
+                return None
+            lineage = tuple(None if source is None else lineage[source] for source in step)
+        return lineage
+
+    def _with_simplified_steps(self, steps: Iterable[Transform]) -> "Transform":
+        flattened: List[Transform] = []
+        for step in steps:
+            if type(step) is TransformSequence:  # preserve MultiscaleTransforms
+                flattened.extend(step.transforms)
+            elif not isinstance(step, IdentityTransform):
+                flattened.append(step)
+        if not flattened:
+            return IdentityTransform(source=self.source, target=self.target)
+        if len(flattened) == 1:
+            return flattened[0].bound(source=self.source, target=self.target)
+        return replace(self, transforms=tuple(flattened), source=None, target=None).bound(
+            source=self.source, target=self.target
+        )
 
     def _validate_child_ndim_chain(self, source_ndim: Optional[int] = None, target_ndim: Optional[int] = None) -> None:
         """Check that the children's payload ndim constraints can be satisfied one after another.

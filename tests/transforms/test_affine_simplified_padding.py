@@ -2,7 +2,13 @@ import random
 
 import pytest
 
-from clearscale._transforms import AffineTransform, ProjectAxisTransform, TransformSequence
+from clearscale._transforms import (
+    AffineTransform,
+    MapAxisTransform,
+    ProjectAxisTransform,
+    TransformSequence,
+    TranslationTransform,
+)
 from clearscale._services.matrices import matrix_determinant, pivot_columns
 
 
@@ -12,7 +18,7 @@ def flatten_matrix(matrix):
 
 def recomposed(simplified) -> AffineTransform:
     """The single AffineTransform that the simplification is equivalent to"""
-    coll = TransformSequence((simplified,)).collapsed()
+    coll = TransformSequence((simplified,))._collapsed()
     assert isinstance(coll, AffineTransform), "expected only affine-representable components"
     return coll
 
@@ -125,3 +131,15 @@ def test_padding_full_rank_matrices_is_always_invertible(seed):
     assert tuple(tuple(row[:cols]) for row in padded[:rows]) == matrix, "the original entries are kept"
     if full_rank:
         assert matrix_determinant(padded, tolerance=1e-13) != 0.0
+
+
+class TestPermutingMatrices:
+    swap = AffineTransform(((0.0, 1.0, 5.0), (1.0, 0.0, 0.0)))
+
+    def test_without_lineage_a_permutation_is_a_map_axis(self):
+        # Nothing says which axis is which, so the permutation is as good a description as any
+        assert self.swap.simplified() == TransformSequence((MapAxisTransform((1, 0)), TranslationTransform((5.0, 0.0))))
+
+    def test_with_lineage_the_structure_sets_the_axis_order_so_a_permutation_is_a_change_of_values(self):
+        # The output axes continue the input axes in place: Swapping their values must not turn into a reordering
+        assert self.swap.simplified(lineage=(0, 1)) == self.swap
