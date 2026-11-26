@@ -769,9 +769,13 @@ class Transform(ABC):
             raise TypeError(f"can only bind to ref, not {source}")
         if target is not None and not isinstance(target, (NodeRef, _UnresolvedRef)):
             raise TypeError(f"can only bind to ref, not {target}")
+        if source is self.source and target is self.target:
+            return self
         return replace(self, source=source, target=target)
 
     def unbound(self: _TransformSelf) -> _TransformSelf:
+        if self.is_fully_unbound:
+            return self
         return replace(self, source=None, target=None)
 
     def with_resolved(self: _TransformSelf, path_nodes: Optional[NodesByPath]) -> _TransformSelf:
@@ -1194,10 +1198,19 @@ class TransformSequence(Transform):
             first = self.transforms[0].bound(source=source, target=self.transforms[0].target)
             last = self.transforms[-1].bound(source=self.transforms[-1].source, target=target)
             new_transforms = (first,) + self.transforms[1:-1] + (last,)
+        if (
+            source is self.source
+            and target is self.target
+            and all(new is old for new, old in zip(new_transforms, self.transforms))
+        ):
+            return self
         return replace(self, source=source, target=target, transforms=new_transforms)
 
     def unbound(self: _TransformSequenceSelf) -> _TransformSequenceSelf:
-        return replace(self, transforms=tuple(c.unbound() for c in self.transforms), source=None, target=None)
+        children = tuple(c.unbound() for c in self.transforms)
+        if self.is_fully_unbound and all(new is old for new, old in zip(children, self.transforms)):
+            return self
+        return replace(self, transforms=children, source=None, target=None)
 
     def _axis_lineage(self, source_ndim: int) -> Optional[AxisLineage]:
         return self._composed_lineage(self._iter_flattened(), source_ndim)
