@@ -196,10 +196,13 @@ def matrix_determinant(matrix: FloatMatrix, *, tolerance: float) -> float:
     return determinant  # `work` is now upper-triangular; det has already been accumulated
 
 
-def matrix_invert(matrix: FloatMatrix, *, tolerance: float) -> FloatMatrix:
+def matrix_invert(matrix: FloatMatrix, *, tolerance: float, relative: bool = False) -> FloatMatrix:
     """Calculate using a Gaussian elimination process.
     First expand MxM into 2MxM by appending an MxM identity matrix on the right side.
     Then swap over, turning the original left side into identity and the right side into the inverse.
+
+    With `relative`, compare each pivot to the largest absolute entry in its original column times `tolerance`.
+    Each input axis can have its own scale.
     """
     rows, cols = matrix_shape(matrix)
     if rows != cols:
@@ -209,8 +212,8 @@ def matrix_invert(matrix: FloatMatrix, *, tolerance: float) -> FloatMatrix:
     for col in range(rows):
         # Partial pivoting: Pivot is the row with the largest absolute value in this column
         pivot = max(range(col, rows), key=lambda row: abs(work[row][col]))
-        if abs(work[pivot][col]) <= tolerance:
-            # Max across this col is 0 = entire col is 0 = singular
+        pivot_tolerance = tolerance * max(abs(row[col]) for row in matrix) if relative else tolerance
+        if abs(work[pivot][col]) <= pivot_tolerance:
             raise ValueError("Matrix is singular and cannot be inverted.")
         if pivot != col:
             work[col], work[pivot] = work[pivot], work[col]
@@ -220,5 +223,7 @@ def matrix_invert(matrix: FloatMatrix, *, tolerance: float) -> FloatMatrix:
             if row == col:
                 continue
             factor = work[row][col]  # No normalization here; pivot row (`col`) is already normalized
+            if relative and factor == 0.0:
+                continue
             work[row] = [val - factor * piv for val, piv in zip(work[row], work[col])]
     return tuple(tuple(row[rows:]) for row in work)  # Return right half; which is now the inverse
